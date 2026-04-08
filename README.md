@@ -449,8 +449,16 @@ src/
   bronze.rs            Bronze v2 event model
   registry.rs          Dissector trait, ProtocolData enum, field structs
   dedup.rs             SHA256-based deduplication
+  corpus.rs            ICS defense corpus manifest types and validation
+  ffi.rs               C FFI surface (feature-gated, requires `ffi` feature)
   lib.rs               Library root
   main.rs              CLI binary
+  bin/
+    ics-defense-corpus.rs  Corpus validation binary
+benches/
+  throughput.rs        Criterion throughput benchmark
+corpus/
+  ics-defense-manifest.yaml  ICS-Pcaps fixture manifest
 ```
 
 ## Why This Crate Exists
