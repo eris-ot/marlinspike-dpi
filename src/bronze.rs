@@ -62,6 +62,30 @@ pub struct ObjectValue {
     pub value: Option<String>,
 }
 
+/// Modbus-specific fields carried on a paired request/response
+/// []. Present only when .
+///
+/// All fields use primitive types so they serialise cleanly to JSON for the
+/// Silver register profile and the forensic workbench API.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModbusBronzeFields {
+    /// Base function code (0x80 bit stripped).
+    pub fc: u8,
+    /// Starting register or coil address from the request PDU.  when
+    /// the request was not paired (response without request).
+    pub start_addr: Option<u16>,
+    /// Quantity of registers / coils from the request.  for single-item
+    /// writes (FC 05, 06) and unpaired responses.
+    pub qty: Option<u16>,
+    /// Register or coil values. For read FCs these come from the response; for
+    /// write FCs from the request.
+    pub values: Vec<u16>,
+    /// Exception code when the server returned an exception response.
+    pub exception_code: Option<u8>,
+    ///  or  (for unpaired half-transactions).
+    pub direction: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolTransaction {
     pub operation: String,
@@ -71,6 +95,9 @@ pub struct ProtocolTransaction {
     pub object_refs: Vec<String>,
     pub values: Vec<ObjectValue>,
     pub attributes: BTreeMap<String, String>,
+    /// Modbus-specific fields;  only when .
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modbus: Option<ModbusBronzeFields>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

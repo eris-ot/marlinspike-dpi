@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 use crate::bronze::{
     AssetObservation, BronzeBatch, BronzeEvent, BronzeEventFamily, EventEnvelope,
-    ExtractedArtifact, ObjectValue, ParseAnomaly, ProtocolTransaction, SegmentCheckpoint,
-    TopologyObservation, TransportProtocol, BRONZE_SCHEMA_VERSION,
+    ExtractedArtifact, ModbusBronzeFields, ObjectValue, ParseAnomaly, ProtocolTransaction,
+    SegmentCheckpoint, TopologyObservation, TransportProtocol, BRONZE_SCHEMA_VERSION,
 };
 use crate::bilgepump::alerts::BilgepumpAlert;
 use crate::bilgepump::config::BilgepumpConfig;
@@ -62,7 +62,8 @@ use crate::dissectors::ftp::FtpDissector;
 use crate::dissectors::icmp::IcmpDissector;
 use crate::registry::{
     format_mac, ArpFields, BacnetFields, CdpFields, DhcpFields, Dnp3Fields, DnsFields,
-    EthernetIpFields, FtpFields, HttpFields, Iec104Fields, LacpFields, LldpFields, ModbusFields,
+    EthernetIpFields, FtpFields, HttpFields, Iec104Fields, LacpFields, LldpFields,
+    ModbusFields, ModbusPdu,
     MqttFields, MrpFields, NtpFields, OmronFinsFields, OpcUaFields, PacketContext,
     ProfinetFields, ProtocolData, ProtocolDissector, PrpFields, PvstFields, RadiusFields,
     S7commFields, SnmpFields, SshFields, StpFields, SyslogFields, VtpFields,
@@ -1967,7 +1968,8 @@ impl SessionDecoder for BacnetDecoder {
                         object_refs: bacnet_object_refs(device_instance, invoke_id),
                         values: Vec::new(),
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 if let Some(device_instance) = device_instance {
@@ -2113,7 +2115,8 @@ impl SessionDecoder for DnsDecoder {
                             })
                             .collect(),
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
                 if is_response {
                     use crate::registry::{DnsRecordData, DnsRecordType};
@@ -2487,7 +2490,8 @@ impl SessionDecoder for DhcpDecoder {
                             .collect(),
                         values: Vec::new(),
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 let mut identifiers =
@@ -2646,7 +2650,8 @@ impl SessionDecoder for SnmpDecoder {
                             })
                             .collect(),
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 if sys_name.is_some()
@@ -2772,7 +2777,8 @@ impl SessionDecoder for HttpDecoder {
                         object_refs: (!uri.is_empty()).then_some(uri).into_iter().collect(),
                         values: Vec::new(),
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
             }
             _ => {}
@@ -2825,7 +2831,8 @@ impl SessionDecoder for TlsDecoder {
                 object_refs: tls.sni.clone().into_iter().collect(),
                 values: Vec::new(),
                 attributes,
-            }),
+                        modbus: None,
+}),
         ));
         if let Some(sni) = tls.sni {
             out.push(new_event(
@@ -2906,7 +2913,8 @@ impl SessionDecoder for Dnp3DecoderWrapper {
                         object_refs: vec![format!("dnp3_fc:{function_code:#04x}")],
                         values: Vec::new(),
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
                 for event in dnp3_role_observations(
                     chunk.capture_id,
@@ -3072,7 +3080,8 @@ impl SessionDecoder for Iec104DecoderWrapper {
                     ),
                     values: Vec::new(),
                     attributes,
-                }),
+                                modbus: None,
+}),
             ));
 
             for event in iec104_role_observations(
@@ -3293,7 +3302,8 @@ impl OmronFinsDecoder {
                 ),
                 values: Vec::new(),
                 attributes,
-            }),
+                        modbus: None,
+}),
         ));
 
         if source_node.is_some() || source_network.is_some() || source_unit.is_some() {
@@ -3567,7 +3577,8 @@ impl HartIpDecoderWrapper {
                 object_refs,
                 values: Vec::new(),
                 attributes,
-            }),
+                        modbus: None,
+}),
         ));
 
         if let Some(identity) = device_identity {
@@ -3855,7 +3866,8 @@ impl Iec61850DecoderWrapper {
                 object_refs: fields.object_references.clone(),
                 values: Vec::new(),
                 attributes,
-            }),
+                        modbus: None,
+}),
         ));
 
         if fields.ied_name.is_some() || fields.logical_device.is_some() || fields.dataset.is_some()
@@ -3982,7 +3994,8 @@ impl SessionDecoder for EthercatDecoderWrapper {
                         object_refs: ethercat_object_refs(&fields),
                         values: Vec::new(),
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 out.push(new_event(
@@ -4185,7 +4198,8 @@ impl SessionDecoder for EthernetIpDecoderWrapper {
                         object_refs: cip_object_refs(&cip_data),
                         values: Vec::new(),
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
                 for identity in parse_cip_identity_claims(command, &cip_data) {
                     let asset_key = identity
@@ -4340,7 +4354,8 @@ impl SessionDecoder for OpcUaDecoderWrapper {
                         },
                         values: Vec::new(),
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
             }
             _ => out.push(parse_anomaly_event(
@@ -4443,7 +4458,8 @@ impl SessionDecoder for S7commDecoderWrapper {
                         ],
                         values: Vec::new(),
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 if !data.is_empty() {
@@ -4556,7 +4572,8 @@ impl SessionDecoder for ProfinetDecoderWrapper {
                         object_refs: vec![format!("profinet_frame:{frame_id:#06x}")],
                         values: Vec::new(),
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 if !payload.is_empty() {
@@ -4606,6 +4623,8 @@ struct PendingModbus {
     attributes: BTreeMap<String, String>,
     raw_payload: Vec<u8>,
     last_seen: DateTime<Utc>,
+    /// Structured request PDU; used to build `ModbusBronzeFields` on response.
+    request_pdu: Option<ModbusPdu>,
 }
 
 #[derive(Debug, Clone)]
@@ -4671,6 +4690,7 @@ impl SessionDecoder for ModbusDecoder {
                             attributes: modbus_attributes(&fields),
                             raw_payload: chunk.payload.to_vec(),
                             last_seen: chunk.timestamp,
+                            request_pdu: fields.pdu.clone(),
                         },
                     );
                 } else if let Some(pending) = self.pending.remove(&key) {
@@ -4697,6 +4717,12 @@ impl SessionDecoder for ModbusDecoder {
                             object_refs: pending.object_refs.clone(),
                             values,
                             attributes,
+                            modbus: modbus_bronze_fields(
+                                pending.request_pdu.as_ref(),
+                                fields.pdu.as_ref(),
+                                fields.is_exception,
+                                fields.exception_code,
+                            ),
                         }),
                     ));
                     if !fields.device_identification.is_empty() {
@@ -4734,6 +4760,12 @@ impl SessionDecoder for ModbusDecoder {
                             object_refs: modbus_object_refs(&fields),
                             values: modbus_values(&fields),
                             attributes: modbus_attributes(&fields),
+                            modbus: modbus_bronze_fields(
+                                None,
+                                fields.pdu.as_ref(),
+                                fields.is_exception,
+                                fields.exception_code,
+                            ),
                         }),
                     ));
                     if !fields.device_identification.is_empty() {
@@ -4804,6 +4836,12 @@ impl SessionDecoder for ModbusDecoder {
                         object_refs: pending.object_refs,
                         values: pending.values,
                         attributes: pending.attributes,
+                        modbus: modbus_bronze_fields(
+                            pending.request_pdu.as_ref(),
+                            None,
+                            false,
+                            0,
+                        ),
                     }),
                 ));
             }
@@ -5623,6 +5661,60 @@ fn cip_role_from_device_type(device_type: u16) -> Option<&'static str> {
     }
 }
 
+/// Build a [`ModbusBronzeFields`] from the request and response PDUs.
+///
+/// `request_pdu` is `None` for unpaired response-only events. `response_pdu`
+/// is `None` for partial-request (idle-flushed) events.
+fn modbus_bronze_fields(
+    request_pdu: Option<&ModbusPdu>,
+    response_pdu: Option<&ModbusPdu>,
+    is_exception: bool,
+    exception_code: u8,
+) -> Option<ModbusBronzeFields> {
+    // Determine which PDU carries the register address (always the request).
+    let req = request_pdu;
+    let resp = response_pdu;
+
+    let fc = req
+        .map(|p| p.function_code)
+        .or_else(|| resp.map(|p| p.function_code))?;
+
+    let start_addr = req.and_then(|p| p.start_addr);
+    let qty = req.and_then(|p| p.qty);
+
+    // Values come from the response for read FCs, from the request for write FCs.
+    let values: Vec<u16> = if let Some(r) = resp {
+        if !r.values.is_empty() {
+            r.values.clone()
+        } else if let Some(req_pdu) = req {
+            req_pdu.values.clone()
+        } else {
+            Vec::new()
+        }
+    } else if let Some(req_pdu) = req {
+        req_pdu.values.clone()
+    } else {
+        Vec::new()
+    };
+
+    let direction = if req.is_some() && resp.is_some() {
+        "paired".to_string()
+    } else if req.is_some() {
+        "request".to_string()
+    } else {
+        "response".to_string()
+    };
+
+    Some(ModbusBronzeFields {
+        fc,
+        start_addr,
+        qty,
+        values,
+        exception_code: if is_exception { Some(exception_code) } else { None },
+        direction,
+    })
+}
+
 fn modbus_function_name(code: u8) -> &'static str {
     match code {
         1 => "read_coils",
@@ -5879,7 +5971,8 @@ impl SessionDecoder for NtpDecoder {
                         object_refs: vec![],
                         values: vec![],
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 // NTP servers (mode 4, stratum 1-15) are worth identifying.
@@ -6019,7 +6112,8 @@ impl SessionDecoder for MqttDecoder {
                         object_refs,
                         values: vec![],
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 // CONNECT packets identify the client device.
@@ -6126,7 +6220,8 @@ impl SessionDecoder for SyslogDecoder {
                         object_refs: vec![format!("{facility_name}.{severity}")],
                         values: vec![],
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 // Hostname in syslog = asset identification.
@@ -6254,7 +6349,8 @@ impl SessionDecoder for FtpDecoder {
                         object_refs: argument.into_iter().collect(),
                         values: vec![],
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 // Banner (220) identifies the FTP server.
@@ -6360,7 +6456,8 @@ impl SessionDecoder for SshDecoder {
                         object_refs: vec![],
                         values: vec![],
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 // The banner sender is the SSH server — identify it.
@@ -6502,7 +6599,8 @@ impl SessionDecoder for RadiusDecoder {
                         object_refs: username.clone().into_iter().collect(),
                         values: vec![],
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 // NAS identification from Access-Request.
@@ -6619,7 +6717,8 @@ impl SessionDecoder for VtpDecoder {
                         object_refs: vec![domain_name.clone()],
                         values: vec![],
                         attributes,
-                    }),
+                                        modbus: None,
+}),
                 ));
 
                 out.push(new_event(
@@ -7166,7 +7265,8 @@ impl SessionDecoder for IcmpDecoder {
                 object_refs: Vec::new(),
                 values: Vec::new(),
                 attributes: attrs,
-            }),
+                        modbus: None,
+}),
         ));
     }
 }
