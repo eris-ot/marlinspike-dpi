@@ -28,6 +28,7 @@
 //! classic PCAP and PCAPNG input.
 
 pub mod bronze;
+pub mod classify;
 pub mod corpus;
 pub mod dedup;
 pub mod dissectors;
@@ -49,4 +50,6 @@ pub use crate::corpus::{
     CorpusValidationOptions, CorpusValidationSummary, FixtureResult, FixtureResultStatus,
     FixtureSpec, FixtureValidationObservation, ImplementationStatus, validate_corpus_manifest,
 };
+pub use crate::classify::{RegistryClassifier, name_to_protocol_id};
 pub use crate::engine::{BronzeSink, DpiEngine, DpiError, DpiSegmentOutput, SegmentMeta};
+pub use fathom_contracts::{Classifier, ProtocolId};

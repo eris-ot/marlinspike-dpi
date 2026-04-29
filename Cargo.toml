@@ -24,6 +24,7 @@ name = "throughput"
 harness = false
 
 [dependencies]
+fathom-contracts = { path = "../fathom-contracts" }
 tracing = "0.1"
 bytes = "1"
 thiserror = "2"

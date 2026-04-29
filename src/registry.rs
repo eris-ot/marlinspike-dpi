@@ -646,6 +646,18 @@ impl DissectorRegistry {
         }
         None
     }
+
+    /// Classification-only dispatch: walks dissectors in order and returns
+    /// the `name()` of the first one whose `can_parse` accepts the payload.
+    /// No `parse()` is invoked. Used by [`crate::classify::Classifier`].
+    pub fn classify_name(&self, data: &[u8], src_port: u16, dst_port: u16) -> Option<&str> {
+        for d in &self.dissectors {
+            if d.can_parse(data, src_port, dst_port) {
+                return Some(d.name());
+            }
+        }
+        None
+    }
 }
 
 impl Default for DissectorRegistry {
