@@ -84,6 +84,7 @@ impl MqttDissector {
             qos: None,
             retain: None,
             clean_session: None,
+            payload: None,
         };
 
         match packet_type {
@@ -148,11 +149,24 @@ impl MqttDissector {
                 }
             }
             3 => {
-                // PUBLISH
+                // PUBLISH. MQTT 5.0 PUBLISH properties are not handled — Sparkplug B
+                // is virtually always MQTT 3.1.1. TODO: handle MQTT 5 properties when needed.
+                let qos = (fixed_byte >> 1) & 0x03;
                 fields.retain = Some(fixed_byte & 0x01 != 0);
-                fields.qos = Some((fixed_byte >> 1) & 0x03);
-                if let Some((topic, _)) = read_mqtt_string(payload) {
+                fields.qos = Some(qos);
+                if let Some((topic, topic_consumed)) = read_mqtt_string(payload) {
                     fields.topic = Some(topic);
+                    let mut offset = topic_consumed;
+                    // Packet identifier present only for QoS 1 and QoS 2.
+                    if qos > 0 {
+                        if payload.len() < offset + 2 {
+                            // Truncated — leave payload as None; topic still captured.
+                            return Some(fields);
+                        }
+                        offset += 2;
+                    }
+                    let body = &payload[offset..];
+                    fields.payload = Some(body.to_vec());
                 }
             }
             8 => {
@@ -283,6 +297,84 @@ mod tests {
         assert_eq!(fields.topic.as_deref(), Some("factory/line1/temp"));
         assert_eq!(fields.qos, Some(1));
         assert_eq!(fields.retain, Some(true));
+        // QoS 1 publish: payload bytes follow topic + 2-byte packet identifier.
+        assert_eq!(fields.payload.as_deref(), Some(b"23.5".as_slice()));
+    }
+
+    /// Build a QoS-0 PUBLISH (no packet identifier) with a chosen topic + payload.
+    fn build_publish_qos0(topic: &[u8], payload_bytes: &[u8]) -> Vec<u8> {
+        let mut pkt = Vec::new();
+        // Fixed header: PUBLISH, QoS 0, no retain, no DUP.
+        pkt.push(0x30);
+        let mut var = Vec::new();
+        var.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+        var.extend_from_slice(topic);
+        // No packet identifier for QoS 0.
+        var.extend_from_slice(payload_bytes);
+        pkt.push(var.len() as u8);
+        pkt.extend_from_slice(&var);
+        pkt
+    }
+
+    #[test]
+    fn parses_publish_qos0_payload() {
+        let dissector = MqttDissector;
+        let pkt = build_publish_qos0(b"sensors/temp", &[0x01, 0x02, 0x03]);
+        let fields = dissector.parse_fields(&pkt).expect("mqtt fields");
+        assert_eq!(fields.qos, Some(0));
+        assert_eq!(fields.topic.as_deref(), Some("sensors/temp"));
+        // QoS 0: payload starts immediately after topic — no packet id consumed.
+        assert_eq!(fields.payload.as_deref(), Some([0x01, 0x02, 0x03].as_slice()));
+    }
+
+    #[test]
+    fn parses_publish_empty_payload() {
+        let dissector = MqttDissector;
+        let pkt = build_publish_qos0(b"x", &[]);
+        let fields = dissector.parse_fields(&pkt).expect("mqtt fields");
+        assert_eq!(fields.qos, Some(0));
+        assert_eq!(fields.topic.as_deref(), Some("x"));
+        // Empty Vec, not None — distinguishes "PUBLISH with no body" from "not a PUBLISH".
+        assert_eq!(fields.payload.as_deref(), Some([].as_slice()));
+    }
+
+    #[test]
+    fn connect_has_no_payload() {
+        let dissector = MqttDissector;
+        let pkt = build_connect_packet();
+        let fields = dissector.parse_fields(&pkt).expect("mqtt fields");
+        assert_eq!(fields.packet_type, 1);
+        assert!(fields.payload.is_none());
+    }
+
+    #[test]
+    fn subscribe_has_no_payload() {
+        let dissector = MqttDissector;
+        // Build a minimal SUBSCRIBE: type 8, packet id (2B), topic filter, requested QoS (1B).
+        let mut pkt = Vec::new();
+        pkt.push(0x82); // SUBSCRIBE with required reserved bits 0010
+        let topic = b"foo/bar";
+        let mut var = Vec::new();
+        var.extend_from_slice(&[0x00, 0x01]); // packet id
+        var.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+        var.extend_from_slice(topic);
+        var.push(0x00); // requested QoS 0
+        pkt.push(var.len() as u8);
+        pkt.extend_from_slice(&var);
+
+        let fields = dissector.parse_fields(&pkt).expect("mqtt fields");
+        assert_eq!(fields.packet_type, 8);
+        assert!(fields.payload.is_none());
+    }
+
+    #[test]
+    fn binary_payload_roundtrip_sparkplug_shaped() {
+        let dissector = MqttDissector;
+        // Sparkplug-style topic + arbitrary binary bytes (non-UTF-8 sequence).
+        let body = vec![0x08, 0xCD, 0x9E, 0xC9, 0xC4, 0x84, 0xB1, 0xA8, 0x06, 0x10, 0x07];
+        let pkt = build_publish_qos0(b"spBv1.0/Plant1/NDATA/PLC-A", &body);
+        let fields = dissector.parse_fields(&pkt).expect("mqtt fields");
+        assert_eq!(fields.payload.as_ref(), Some(&body));
     }
 
     #[test]

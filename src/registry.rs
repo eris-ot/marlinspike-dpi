@@ -420,6 +420,9 @@ pub struct MqttFields {
     pub qos: Option<u8>,
     pub retain: Option<bool>,
     pub clean_session: Option<bool>,
+    /// Post-topic publish payload bytes, populated only for PUBLISH (packet_type == 3).
+    /// `None` for all other packet types. Empty Vec means "PUBLISH with zero-byte payload".
+    pub payload: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]

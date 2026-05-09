@@ -1,0 +1,233 @@
+// Sparkplug B wire schema, reconstructed clean-room from the public
+// Sparkplug B specification published by the Eclipse Sparkplug Working Group
+// (https://sparkplug.eclipse.org/specification/). This file is an independent
+// expression of that public protocol schema; no upstream `.proto` source was
+// copied. Message names, field numbers, and field types are preserved verbatim
+// because they are the wire protocol's identity — any byte-compatible
+// implementation of Sparkplug B must use exactly these.
+//
+// Reconstructed for use within marlinspike-dpi. Not affiliated with or
+// endorsed by the Eclipse Foundation.
+
+syntax = "proto2";
+
+package marlinspike.sparkplug_b;
+
+// DataType — the type tag carried alongside Metric / PropertyValue / DataSet
+// values. Indexed values are part of the wire protocol and cannot be renumbered.
+enum DataType {
+    Unknown          = 0;
+
+    // Scalar primitives.
+    Int8             = 1;
+    Int16            = 2;
+    Int32            = 3;
+    Int64            = 4;
+    UInt8            = 5;
+    UInt16           = 6;
+    UInt32           = 7;
+    UInt64           = 8;
+    Float            = 9;
+    Double           = 10;
+    Boolean          = 11;
+    String           = 12;
+    DateTime         = 13;
+    Text             = 14;
+
+    // Composite metric value kinds.
+    UUID             = 15;
+    DataSet          = 16;
+    Bytes            = 17;
+    File             = 18;
+    Template         = 19;
+
+    // PropertyValue-only kinds.
+    PropertySet      = 20;
+    PropertySetList  = 21;
+
+    // Array kinds (Sparkplug B v3 additions).
+    Int8Array        = 22;
+    Int16Array       = 23;
+    Int32Array       = 24;
+    Int64Array       = 25;
+    UInt8Array       = 26;
+    UInt16Array      = 27;
+    UInt32Array      = 28;
+    UInt64Array      = 29;
+    FloatArray       = 30;
+    DoubleArray      = 31;
+    BooleanArray     = 32;
+    StringArray      = 33;
+    DateTimeArray    = 34;
+}
+
+// Top-level Sparkplug B payload carried inside an MQTT PUBLISH frame.
+// All inner messages are nested per the published schema so that prost-build
+// generates them under `payload::*`.
+message Payload {
+
+    // Template — a reusable structure of metrics + parameters. Used for both
+    // template definitions (carried in BIRTH) and template instances.
+    message Template {
+
+        // A scalar parameter on a template instance.
+        message Parameter {
+            optional string name = 1;
+            optional uint32 type = 2;
+
+            oneof value {
+                uint32 int_value                          = 3;
+                uint64 long_value                         = 4;
+                float  float_value                        = 5;
+                double double_value                       = 6;
+                bool   boolean_value                      = 7;
+                string string_value                       = 8;
+                ParameterValueExtension extension_value   = 9;
+            }
+
+            // Reserved range for third-party extension payloads.
+            message ParameterValueExtension {
+                extensions 1 to max;
+            }
+        }
+
+        optional string version       = 1;
+        repeated Metric metrics       = 2;
+        repeated Parameter parameters = 3;
+        // Reference to a template definition by name. Omitted for definitions.
+        optional string template_ref  = 4;
+        optional bool   is_definition = 5;
+        extensions                    6 to max;
+    }
+
+    // DataSet — tabular block of values addressed by column name + row index.
+    message DataSet {
+
+        // One cell of a DataSet row.
+        message DataSetValue {
+            oneof value {
+                uint32 int_value                       = 1;
+                uint64 long_value                      = 2;
+                float  float_value                     = 3;
+                double double_value                    = 4;
+                bool   boolean_value                   = 5;
+                string string_value                    = 6;
+                DataSetValueExtension extension_value  = 7;
+            }
+
+            message DataSetValueExtension {
+                extensions 1 to max;
+            }
+        }
+
+        // One row of cells.
+        message Row {
+            repeated DataSetValue elements = 1;
+            extensions                     2 to max;
+        }
+
+        optional uint64 num_of_columns = 1;
+        repeated string columns        = 2;
+        repeated uint32 types          = 3;
+        repeated Row    rows           = 4;
+        extensions                     5 to max;
+    }
+
+    // PropertyValue — a typed value attached to a metric (or another property).
+    message PropertyValue {
+        optional uint32 type    = 1;
+        optional bool   is_null = 2;
+
+        oneof value {
+            uint32          int_value                = 3;
+            uint64          long_value               = 4;
+            float           float_value              = 5;
+            double          double_value             = 6;
+            bool            boolean_value            = 7;
+            string          string_value             = 8;
+            PropertySet     propertyset_value        = 9;
+            PropertySetList propertysets_value       = 10;
+            PropertyValueExtension extension_value   = 11;
+        }
+
+        message PropertyValueExtension {
+            extensions 1 to max;
+        }
+    }
+
+    // PropertySet — keyed bag of PropertyValues. The conventional Sparkplug
+    // "Quality" property is encoded here with key "Quality" and a uint32 value
+    // following the OPC UA StatusCode convention (0=Bad, 64=Uncertain, 192=Good).
+    message PropertySet {
+        repeated string        keys   = 1;
+        repeated PropertyValue values = 2;
+        extensions                    3 to max;
+    }
+
+    message PropertySetList {
+        repeated PropertySet propertyset = 1;
+        extensions                       2 to max;
+    }
+
+    // MetaData — descriptive fields about the metric payload, mostly used for
+    // file/bytes content and multi-part messages.
+    message MetaData {
+        optional bool   is_multi_part = 1;
+        optional string content_type  = 2;
+        optional uint64 size          = 3;
+        optional uint64 seq           = 4;
+        optional string file_name     = 5;
+        optional string file_type     = 6;
+        optional string md5           = 7;
+        optional string description   = 8;
+        extensions                    9 to max;
+    }
+
+    // Metric — a single tagged value. `name` is carried on BIRTH messages and
+    // `alias` is the compact reference used in subsequent DATA messages.
+    message Metric {
+        optional string      name          = 1;
+        optional uint64      alias         = 2;
+        // Microseconds-since-epoch timestamp of the value sample at the device.
+        optional uint64      timestamp     = 3;
+        // DataType of the carried value, per the DataType enum.
+        optional uint32      datatype      = 4;
+        optional bool        is_historical = 5;
+        optional bool        is_transient  = 6;
+        optional bool        is_null       = 7;
+        optional MetaData    metadata      = 8;
+        optional PropertySet properties    = 9;
+
+        oneof value {
+            uint32   int_value                       = 10;
+            uint64   long_value                      = 11;
+            float    float_value                     = 12;
+            double   double_value                    = 13;
+            bool     boolean_value                   = 14;
+            string   string_value                    = 15;
+            // Bytes / File payloads.
+            bytes    bytes_value                     = 16;
+            DataSet  dataset_value                   = 17;
+            Template template_value                  = 18;
+            MetricValueExtension extension_value     = 19;
+        }
+
+        message MetricValueExtension {
+            extensions 1 to max;
+        }
+    }
+
+    // Microseconds-since-epoch timestamp at the moment the publishing edge node
+    // assembled this payload (distinct from per-Metric source timestamps).
+    optional uint64 timestamp = 1;
+    // Zero or more metrics carried in this payload.
+    repeated Metric metrics   = 2;
+    // Sequence number for ordering / gap detection.
+    optional uint64 seq       = 3;
+    // Optional UUID identifying the payload schema variant.
+    optional string uuid      = 4;
+    // Opaque body for callers that bypass the structured Metric form.
+    optional bytes  body      = 5;
+
+    extensions 6 to max;
+}

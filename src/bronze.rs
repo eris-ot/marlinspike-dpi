@@ -140,7 +140,197 @@ pub struct ExtractedArtifact {
     pub description: Option<String>,
 }
 
+/// Modbus register kind — coil/discrete-input/holding/input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModbusRegKind {
+    Coil,
+    DiscreteInput,
+    HoldingRegister,
+    InputRegister,
+}
+
+/// OPC UA NodeId identifier portion. `StringRaw` and `Opaque` carry raw bytes for
+/// non-UTF-8 round-trips (the OPC UA spec allows null bytes mid-string).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum OpcUaNodeId {
+    Numeric(u32),
+    String(String),
+    StringRaw(Vec<u8>),
+    Guid([u8; 16]),
+    Opaque(Vec<u8>),
+}
+
+/// Typed point identifier preserving each protocol's native addressing.
+///
+/// Variants that carry strings (`CipSymbol`, `Iec61850Reference`, `SparkplugMetric`)
+/// also carry a `*_raw: Option<Vec<u8>>` companion populated only when the wire
+/// bytes were not valid UTF-8, so the embedder gets lossless round-trip.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PointIdentifier {
+    ModbusRegister {
+        unit_id: u8,
+        addr: u16,
+        register_type: ModbusRegKind,
+    },
+    OpcUaNode {
+        namespace_index: u16,
+        identifier: OpcUaNodeId,
+    },
+    CipSymbol {
+        symbol: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        symbol_raw: Option<Vec<u8>>,
+    },
+    CipPath {
+        class: u16,
+        instance: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        attribute: Option<u16>,
+    },
+    DnpPoint {
+        group: u8,
+        variation: u8,
+        index: u32,
+    },
+    Iec104Ioa {
+        common_addr: u16,
+        ioa: u32,
+        type_id: u8,
+    },
+    Iec61850Reference {
+        reference: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reference_raw: Option<Vec<u8>>,
+    },
+    SparkplugMetric {
+        group_id: String,
+        edge_node_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        device_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        metric_name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        metric_name_raw: Option<Vec<u8>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        alias: Option<u64>,
+    },
+    HartCommand {
+        command: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        slot: Option<u8>,
+    },
+    /// Allen-Bradley PCCC data-table address (legacy SLC-500, PLC-5,
+    /// MicroLogix). Encoded over CIP service 0x4B (Execute PCCC) inside
+    /// EtherNet/IP. `file_type` is the PCCC type code (0x82=B, 0x84=N,
+    /// 0x85=F, 0x86=ST, etc.); `file_number` selects the file; `element`
+    /// is the element index within that file.
+    PcccAddress {
+        file_type: u8,
+        file_number: u8,
+        element: u16,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sub_element: Option<u8>,
+    },
+    /// IEEE C37.118 (synchrophasor) per-channel reading. One per phasor
+    /// magnitude, phasor angle, frequency, analog, or digital sample on a
+    /// given PMU.
+    SynchrophasorChannel {
+        idcode: u16,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        station_name: Option<String>,
+        channel_index: u16,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        channel_name: Option<String>,
+        channel_type: SynchrophasorChannelType,
+    },
+}
+
+/// Kind of synchrophasor channel a `ProcessReading` corresponds to. Phasors
+/// produce two readings per phasor (magnitude + angle).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SynchrophasorChannelType {
+    PhasorMagnitude,
+    PhasorAngle,
+    Frequency,
+    FrequencyDerivative,
+    Analog,
+    Digital,
+}
+
+/// Typed value union for a process reading. Primitives only; aggregate types
+/// (DataSet, Template, arrays) are deferred until a protocol needs them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum PointValue {
+    Null,
+    Bool(bool),
+    Int8(i8),
+    Int16(i16),
+    Int32(i32),
+    Int64(i64),
+    UInt8(u8),
+    UInt16(u16),
+    UInt32(u32),
+    UInt64(u64),
+    Float(f32),
+    Double(f64),
+    Text(String),
+    Bytes(Vec<u8>),
+    /// Microseconds since Unix epoch.
+    DateTime(u64),
+}
+
+/// Protocol-native quality bits, preserved verbatim from the wire.
+///
+/// Intentionally minimal API: this enum exposes raw bits and nothing else. No
+/// `is_good()`, no `severity()`, no `to_normalized()` — quality interpretation
+/// is operator policy and lives in the embedder, not in the DPI engine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum RawQuality {
+    /// Protocol carries no native quality on the wire (Modbus, classic S7).
+    None,
+    DnpFlags(u8),
+    Iec104Qds(u8),
+    OpcUaStatusCode(u32),
+    Iec61850Quality(u16),
+    SparkplugQuality {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        value: Option<u32>,
+        is_historical: bool,
+        is_transient: bool,
+        is_null: bool,
+    },
+    CipGeneralStatus(u8),
+    HartFieldDeviceStatus(u8),
+}
+
+/// Process variable Value/Quality/Timestamp reading extracted from the wire.
+///
+/// Emitted by VQT-bearing dissectors (Sparkplug B, OPC UA ReadResponse, CIP
+/// Read Tag, Modbus, DNP3, IEC 104, IEC 61850 MMS, HART-IP). The point identifier,
+/// value type, and quality are preserved as protocol-native; downstream embedders
+/// own naming and quality normalization.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProcessReading {
+    /// Source protocol slug, e.g. "sparkplug_b", "modbus", "opc_ua".
+    pub source_protocol: String,
+    pub point_id: PointIdentifier,
+    pub value: PointValue,
+    pub quality: RawQuality,
+    /// Microseconds since Unix epoch when the device sampled the value, when the
+    /// protocol carries a source timestamp. None for protocols that don't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ts: Option<u64>,
+    /// Microseconds since Unix epoch when the capture observed the frame.
+    pub observed_ts: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BronzeEventFamily {
     ProtocolTransaction(ProtocolTransaction),
@@ -148,9 +338,10 @@ pub enum BronzeEventFamily {
     TopologyObservation(TopologyObservation),
     ParseAnomaly(ParseAnomaly),
     ExtractedArtifact(ExtractedArtifact),
+    ProcessReading(ProcessReading),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BronzeEvent {
     pub event_id: String,
     pub capture_id: String,
@@ -167,6 +358,7 @@ impl BronzeEvent {
             BronzeEventFamily::TopologyObservation(_) => "topology_observation",
             BronzeEventFamily::ParseAnomaly(_) => "parse_anomaly",
             BronzeEventFamily::ExtractedArtifact(_) => "extracted_artifact",
+            BronzeEventFamily::ProcessReading(_) => "process_reading",
         }
     }
 
@@ -279,7 +471,7 @@ pub struct SegmentCheckpoint {
     pub events_emitted: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BronzeBatch {
     pub capture_id: String,
     pub schema_version: String,
@@ -293,4 +485,282 @@ pub fn activity_records(events: &[BronzeEvent]) -> Vec<ActivityRecord> {
         .iter()
         .filter_map(BronzeEvent::activity_record)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn envelope() -> EventEnvelope {
+        EventEnvelope {
+            timestamp: DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap(),
+            interface_id: 0,
+            segment_hash: "seg".into(),
+            frame_index: 0,
+            session_key: "k".into(),
+            src_mac: None,
+            dst_mac: None,
+            src_ip: None,
+            dst_ip: None,
+            src_port: None,
+            dst_port: None,
+            vlan_id: None,
+            transport: TransportProtocol::Tcp,
+            protocol: Some("sparkplug_b".into()),
+            bytes_count: 0,
+            packet_count: 1,
+        }
+    }
+
+    fn reading(point_id: PointIdentifier, value: PointValue, quality: RawQuality) -> BronzeEvent {
+        BronzeEvent {
+            event_id: "e".into(),
+            capture_id: "c".into(),
+            schema_version: BRONZE_SCHEMA_VERSION.into(),
+            envelope: envelope(),
+            family: BronzeEventFamily::ProcessReading(ProcessReading {
+                source_protocol: "sparkplug_b".into(),
+                point_id,
+                value,
+                quality,
+                source_ts: Some(1_700_000_000_000_000),
+                observed_ts: 1_700_000_000_000_001,
+            }),
+        }
+    }
+
+    fn assert_roundtrip(ev: &BronzeEvent) {
+        let json = serde_json::to_string(ev).expect("serialize");
+        let back: BronzeEvent = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(ev, &back);
+    }
+
+    #[test]
+    fn family_name_for_process_reading() {
+        let ev = reading(
+            PointIdentifier::ModbusRegister {
+                unit_id: 1,
+                addr: 100,
+                register_type: ModbusRegKind::HoldingRegister,
+            },
+            PointValue::UInt16(42),
+            RawQuality::None,
+        );
+        assert_eq!(ev.family_name(), "process_reading");
+        assert_eq!(ev.operation(), None);
+        assert_eq!(ev.status(), None);
+        assert_eq!(ev.activity_record(), None);
+    }
+
+    #[test]
+    fn modbus_register_roundtrip() {
+        assert_roundtrip(&reading(
+            PointIdentifier::ModbusRegister {
+                unit_id: 7,
+                addr: 40001,
+                register_type: ModbusRegKind::HoldingRegister,
+            },
+            PointValue::UInt16(2350),
+            RawQuality::None,
+        ));
+    }
+
+    #[test]
+    fn opc_ua_node_roundtrip_all_id_kinds() {
+        for id in [
+            OpcUaNodeId::Numeric(1234),
+            OpcUaNodeId::String("ns=2;s=Boiler/Temp".into()),
+            OpcUaNodeId::StringRaw(vec![0xff, 0x00, 0x80]),
+            OpcUaNodeId::Guid([0u8; 16]),
+            OpcUaNodeId::Opaque(vec![0xde, 0xad, 0xbe, 0xef]),
+        ] {
+            assert_roundtrip(&reading(
+                PointIdentifier::OpcUaNode {
+                    namespace_index: 2,
+                    identifier: id,
+                },
+                PointValue::Double(72.5),
+                RawQuality::OpcUaStatusCode(0),
+            ));
+        }
+    }
+
+    #[test]
+    fn cip_symbol_with_and_without_raw() {
+        assert_roundtrip(&reading(
+            PointIdentifier::CipSymbol {
+                symbol: "Tank1.Level".into(),
+                symbol_raw: None,
+            },
+            PointValue::Float(3.14),
+            RawQuality::CipGeneralStatus(0),
+        ));
+        assert_roundtrip(&reading(
+            PointIdentifier::CipSymbol {
+                symbol: String::from_utf8_lossy(&[0xff, b'X']).into_owned(),
+                symbol_raw: Some(vec![0xff, b'X']),
+            },
+            PointValue::Float(3.14),
+            RawQuality::CipGeneralStatus(0),
+        ));
+    }
+
+    #[test]
+    fn cip_path_roundtrip() {
+        assert_roundtrip(&reading(
+            PointIdentifier::CipPath {
+                class: 0x6B,
+                instance: 1,
+                attribute: Some(2),
+            },
+            PointValue::Int32(-1),
+            RawQuality::CipGeneralStatus(0x04),
+        ));
+    }
+
+    #[test]
+    fn dnp_iec104_iec61850_roundtrip() {
+        assert_roundtrip(&reading(
+            PointIdentifier::DnpPoint {
+                group: 30,
+                variation: 1,
+                index: 5,
+            },
+            PointValue::Int32(123),
+            RawQuality::DnpFlags(0x01),
+        ));
+        assert_roundtrip(&reading(
+            PointIdentifier::Iec104Ioa {
+                common_addr: 1,
+                ioa: 4001,
+                type_id: 36,
+            },
+            PointValue::Float(50.123),
+            RawQuality::Iec104Qds(0x00),
+        ));
+        assert_roundtrip(&reading(
+            PointIdentifier::Iec61850Reference {
+                reference: "IED1LD0/MMXU1.A.phsA.cVal.mag.f".into(),
+                reference_raw: None,
+            },
+            PointValue::Float(12.7),
+            RawQuality::Iec61850Quality(0x0000),
+        ));
+    }
+
+    #[test]
+    fn sparkplug_metric_resolved_and_aliased() {
+        // Resolved (BIRTH-derived): metric_name present, alias may or may not be.
+        assert_roundtrip(&reading(
+            PointIdentifier::SparkplugMetric {
+                group_id: "Plant1".into(),
+                edge_node_id: "PLC-A".into(),
+                device_id: Some("Drive-17".into()),
+                metric_name: Some("BearingTemp".into()),
+                metric_name_raw: None,
+                alias: Some(42),
+            },
+            PointValue::Double(74.2),
+            RawQuality::SparkplugQuality {
+                value: Some(192),
+                is_historical: false,
+                is_transient: false,
+                is_null: false,
+            },
+        ));
+        // Unresolved alias (no BIRTH seen): metric_name None, alias Some.
+        assert_roundtrip(&reading(
+            PointIdentifier::SparkplugMetric {
+                group_id: "Plant1".into(),
+                edge_node_id: "PLC-A".into(),
+                device_id: None,
+                metric_name: None,
+                metric_name_raw: None,
+                alias: Some(42),
+            },
+            PointValue::Null,
+            RawQuality::SparkplugQuality {
+                value: None,
+                is_historical: true,
+                is_transient: false,
+                is_null: true,
+            },
+        ));
+    }
+
+    #[test]
+    fn hart_command_roundtrip() {
+        assert_roundtrip(&reading(
+            PointIdentifier::HartCommand {
+                command: 3,
+                slot: Some(0),
+            },
+            PointValue::Float(20.0),
+            RawQuality::HartFieldDeviceStatus(0x00),
+        ));
+    }
+
+    #[test]
+    fn point_value_all_primitive_variants_roundtrip() {
+        for v in [
+            PointValue::Null,
+            PointValue::Bool(true),
+            PointValue::Int8(-1),
+            PointValue::Int16(-2),
+            PointValue::Int32(-3),
+            PointValue::Int64(-4),
+            PointValue::UInt8(1),
+            PointValue::UInt16(2),
+            PointValue::UInt32(3),
+            PointValue::UInt64(4),
+            PointValue::Float(1.5),
+            PointValue::Double(2.5),
+            PointValue::Text("ok".into()),
+            PointValue::Bytes(vec![0x01, 0x02, 0x03]),
+            PointValue::DateTime(1_700_000_000_000_000),
+        ] {
+            assert_roundtrip(&reading(
+                PointIdentifier::ModbusRegister {
+                    unit_id: 1,
+                    addr: 0,
+                    register_type: ModbusRegKind::HoldingRegister,
+                },
+                v,
+                RawQuality::None,
+            ));
+        }
+    }
+
+    #[test]
+    fn raw_quality_skip_serializing_value_none() {
+        // SparkplugQuality { value: None, .. } should omit the "value" key.
+        let q = RawQuality::SparkplugQuality {
+            value: None,
+            is_historical: false,
+            is_transient: false,
+            is_null: false,
+        };
+        let json = serde_json::to_string(&q).expect("serialize");
+        assert!(!json.contains("\"value\""), "value: None should be skipped, got: {json}");
+        // Roundtrip still works:
+        let back: RawQuality = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(q, back);
+    }
+
+    #[test]
+    fn point_identifier_skip_serializing_optional_raw_fields() {
+        let pid = PointIdentifier::SparkplugMetric {
+            group_id: "g".into(),
+            edge_node_id: "e".into(),
+            device_id: None,
+            metric_name: Some("Temp".into()),
+            metric_name_raw: None,
+            alias: None,
+        };
+        let json = serde_json::to_string(&pid).expect("serialize");
+        assert!(!json.contains("device_id"));
+        assert!(!json.contains("metric_name_raw"));
+        assert!(!json.contains("alias"));
+        assert!(json.contains("metric_name"));
+    }
 }

@@ -2,28 +2,35 @@
 
 Pure-Rust deep packet inspection engine for OT/ICS and IT network monitoring.
 
-Consumes passive packet captures (PCAP / PCAPNG) and emits structured Bronze v2 events: protocol transactions, asset observations, topology observations, parse anomalies, and extracted artifacts. No libpcap, no C dependencies.
+Consumes passive packet captures (PCAP / PCAPNG) and emits structured Bronze v2 events: protocol transactions, asset observations, topology observations, parse anomalies, extracted artifacts, and process readings (Value/Quality/Timestamp). No libpcap, no C dependencies.
 
-**34 protocol dissectors. 21 anomaly detection signatures. Zero C dependencies.**
+**45+ protocol dissectors. 21 anomaly detection signatures. VQT extraction for historian feed. Zero C dependencies.**
 
 Three detection subsystems beyond protocol parsing:
 - **Stovetop** -- frame-level integrity: padding covert channels, runt/oversized frames, CRC validation
 - **ICMPeeker** -- ICMP threat detection: routing manipulation, tunnel detection, recon fingerprinting
 - **Bilgepump** -- stateful L2 monitoring: ARP spoofing, VLAN hopping, STP hijacking, rogue DHCP, identity conflicts
 
+Process-historian extraction:
+- **Sparkplug B** over MQTT — protobuf-decoded with stateful alias resolution from BIRTH messages, gap-epoch unresolvable-alias detection, bdSeq supersession, configurable TTL + LRU session eviction
+- **OPC UA** binary — ReadRequest/ReadResponse correlation, Variant decoding, DataValue with StatusCode quality and Source/Server timestamps
+- **PCCC** (Allen-Bradley legacy) — Protected Typed Logical Read with TNS request/response correlation
+- **IEEE C37.118 synchrophasor** — CFG-2-driven data frame decode emitting per-channel ProcessReadings (phasor magnitude, angle, frequency, dfreq, analogs, digitals)
+
 Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), or an optional **C FFI** surface (feature `ffi`).
 
 ### What Sets This Apart
 
 - **Pure Rust, zero C dependencies.** No libpcap, no libc FFI, no bindgen. The entire stack from PCAP parsing to CRC-32 validation is safe, auditable Rust. Builds anywhere `rustc` runs.
-- **OT/ICS protocol depth.** 16 industrial protocols parsed to application layer -- Modbus, DNP3, IEC 104, IEC 61850 (GOOSE + SV + MMS), S7comm, PROFINET, BACnet, EtherNet/IP, OPC UA, HART-IP, FINS, EtherCAT, MRP, PRP. Not just port identification -- full PDU parsing with function codes, register values, and device identity extraction.
+- **OT/ICS protocol depth.** 18 industrial protocols parsed to application layer -- Modbus, DNP3, IEC 104, IEC 61850 (GOOSE + SV + MMS), S7comm, PROFINET, BACnet, EtherNet/IP, OPC UA, HART-IP, FINS, EtherCAT, MRP, PRP, PCCC, Sparkplug B, IEEE C37.118 synchrophasor. Not just port identification -- full PDU parsing with function codes, register values, device identity, and Value/Quality/Timestamp extraction.
+- **Process-historian-grade VQT extraction.** Typed `ProcessReading` event family with per-protocol native quality preservation (no normalization at the DPI layer — embedder owns policy). Sparkplug B alias resolution, OPC UA NodeId correlation, PCCC three-address-field decode, synchrophasor CFG-driven per-PMU layout. Three timestamps preserved per reading (source, observed, intermediate).
 - **Frame-level integrity inspection (Stovetop).** Every frame is checked for structural anomalies before protocol dissection: runt/oversized detection, Ethernet padding entropy analysis for covert channel detection, FCS CRC-32 validation, DNP3 DLL CRC-16 validation, and capture truncation flagging using preserved `orig_len`.
 - **ICMP threat detection (ICMPeeker).** ICMP redirect detection for routing manipulation attacks. Echo payload entropy analysis for covert tunnel detection (icmpsh, ptunnel). Suspicious type flagging for router advertisement injection, timestamp/address-mask recon.
 - **Stateful L2 monitoring (Bilgepump).** Cross-frame state accumulation for temporal anomaly detection: ARP cache poisoning via MAC/IP binding changes, VLAN hopping via double-tagged 802.1Q analysis, STP root hijacking with whitelist enforcement, rogue DHCP server detection, LLDP/CDP identity conflict tracking, MAC flapping and locally-administered bit detection.
-- **Structured Bronze v2 event model.** Five event families (ProtocolTransaction, AssetObservation, TopologyObservation, ParseAnomaly, ExtractedArtifact) with full packet context in every envelope. Anomaly detections carry decoder tags (`stovetop:*`, `icmpeeker:*`, `bilgepump:*`) for downstream routing.
+- **Structured Bronze v2 event model.** Six event families (ProtocolTransaction, AssetObservation, TopologyObservation, ParseAnomaly, ExtractedArtifact, ProcessReading) with full packet context in every envelope. Typed `PointIdentifier` and `RawQuality` enums preserve protocol-native addressing and quality bits without normalization.
 - **Built-in deduplication.** SHA256-based sliding-window dedup for multi-collector deployments. 5-second window, 1-second quantization. Protocol events and anomaly findings dedup independently.
 - **Embeddable.** `DpiEngine::new()` gives you a ready-to-use engine in one line. No configuration files, no runtime dependencies, no daemon. Process a capture, get structured events back.
-- **247 tests.** Unit tests for every dissector and detector. Integration tests for full-pipeline capture processing. Zero ignored, zero flaky.
+- **377 tests.** Unit tests for every dissector and detector. Integration tests for full-pipeline capture processing. Zero ignored, zero flaky.
 
 ---
 
@@ -49,6 +56,12 @@ Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), o
 | EtherCAT | L2 | 0x88A4 | Datagram headers, ADP/ADO addressing, working counters, vendor/product hints |
 | MRP | L2 | 0x88E3 | MRP_Test/TopologyChange/LinkDown/LinkUp TLVs, domain UUID, ring state |
 | PRP | L2 | 0x88FB | Supervision frames (PRP_Node/RedBox/VDAN/HSR_Node), RCT trailer detection |
+| PCCC | TCP | (over CIP/ENIP 44818) | Allen-Bradley legacy SLC/PLC-5/MicroLogix. Service 0x4B Execute PCCC; Protected Typed Logical Read with TNS request/response correlation; per-element ProcessReading emission with PointIdentifier::PcccAddress |
+| Sparkplug B | TCP | (over MQTT 1883/8883) | Stateful alias resolution from BIRTH messages; bdSeq supersession; gap-epoch unresolvable-alias detection; configurable TTL + LRU session eviction; full datatype-narrowed PointValue + RawQuality::SparkplugQuality emission |
+| IEEE C37.118 (synchrophasor) | TCP/UDP | 4712, 4713 | CFG-2 frame parser captures per-PMU layout (station name, format flags, channel names); data frames decode phasors (mag+angle), frequency, dfreq, analogs, digitals — one ProcessReading per channel |
+| CC-Link IE Field | UDP | 61450 | Port-based recognition (asset inventory; no PDU parsing) |
+| CODESYS | TCP | 1217, 1740, 2455, 11740 | V2/V3 Gateway/Runtime recognition (asset inventory) |
+| IO-Link Wireless | UDP | 59152 | Port-based recognition (asset inventory) |
 
 ### IT / Infrastructure Protocols
 
@@ -66,6 +79,10 @@ Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), o
 | Syslog | UDP | 514 | RFC 3164 + RFC 5424: facility, severity, hostname, app name, message |
 | RADIUS | UDP | 1812, 1813 | Access-Request/Accept/Reject/Accounting, username, NAS-IP, NAS-Identifier, calling/called station ID |
 | ICMP | IP proto 1 | -- | Type/code parsing, echo id/sequence, redirect gateway extraction, timestamp/mask requests, destination unreachable codes |
+| IGMP | IP proto 2 | -- | Membership Query / v1-v3 Report / Leave Group classification |
+| SMB | TCP | 445, 139 | SMB1/SMB2 signature recognition (`\xFF\|\xFE SMB`); traffic classification |
+| Kerberos | TCP/UDP | 88, 464 | ASN.1 application-tag recognition (AS-REQ/REP, TGS-REQ/REP, AP-REQ/REP, KRB-ERROR) |
+| LDAP / LDAPS | TCP | 389 / 636 | ASN.1 SEQUENCE recognition for LDAP; LDAPS port-only (TLS-encrypted payload) |
 
 ### L2 / Link Layer Protocols
 

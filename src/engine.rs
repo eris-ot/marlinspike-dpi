@@ -207,6 +207,14 @@ impl DpiEngine {
                 Box::new(EthercatDecoderWrapper::default()),
                 Box::new(ProfinetDecoderWrapper::default()),
                 Box::new(NtpDecoder::default()),
+                Box::new(SynchrophasorDecoderWrapper::default()),
+                Box::new(SmbRecognizer),
+                Box::new(KerberosRecognizer),
+                Box::new(LdapRecognizer),
+                Box::new(CcLinkRecognizer),
+                Box::new(CodesysRecognizer),
+                Box::new(IoLinkRecognizer),
+                Box::new(IgmpRecognizer),
                 Box::new(MqttDecoder::default()),
                 Box::new(SyslogDecoder::default()),
                 Box::new(FtpDecoder::default()),
@@ -757,25 +765,64 @@ impl DpiEngine {
                             ));
                         }
                     }
-                    _ => {
-                        out.push(parse_anomaly_event(
-                            meta.capture_id.clone(),
-                            build_envelope(
-                                &base_context,
-                                interface_id,
-                                frame_index,
-                                timestamp,
-                                segment_hash,
-                                TransportProtocol::Ipv4,
-                                Some("ip"),
-                                captured_len as u64,
-                                make_ip_session_key(src_ip, dst_ip, 0, 0, "ip"),
-                            ),
-                            "engine",
-                            "low",
-                            "unsupported ipv4 transport protocol",
-                            transport_payload,
-                        ));
+                    other => {
+                        // Any IpProto-interested decoder (e.g. IGMP) gets a
+                        // chance here. If none claim the packet, emit a low-
+                        // severity anomaly so the operator sees the unsupported
+                        // transport.
+                        let session_key =
+                            make_ip_session_key(src_ip, dst_ip, 0, 0, "ip");
+                        let chunk = StreamChunk {
+                            capture_id: &meta.capture_id,
+                            segment_hash,
+                            interface_id,
+                            frame_index,
+                            timestamp,
+                            context: PacketContext {
+                                src_mac,
+                                dst_mac,
+                                src_ip,
+                                dst_ip,
+                                src_port: 0,
+                                dst_port: 0,
+                                vlan_id,
+                                timestamp: timestamp_ns,
+                            },
+                            ethertype,
+                            ip_proto: Some(other),
+                            llc: None,
+                            transport: TransportProtocol::Ipv4,
+                            payload: transport_payload,
+                            session_key: session_key.clone(),
+                            captured_len: captured_len as u64,
+                        };
+                        let mut matched = false;
+                        for decoder in &mut self.decoders {
+                            if interest_matches(decoder.interest(), &chunk) {
+                                matched = true;
+                                decoder.on_datagram(&chunk, &mut out);
+                            }
+                        }
+                        if !matched {
+                            out.push(parse_anomaly_event(
+                                meta.capture_id.clone(),
+                                build_envelope(
+                                    &base_context,
+                                    interface_id,
+                                    frame_index,
+                                    timestamp,
+                                    segment_hash,
+                                    TransportProtocol::Ipv4,
+                                    Some("ip"),
+                                    captured_len as u64,
+                                    session_key,
+                                ),
+                                "engine",
+                                "low",
+                                "unsupported ipv4 transport protocol",
+                                transport_payload,
+                            ));
+                        }
                     }
                 }
             }
@@ -972,6 +1019,73 @@ impl DpiEngine {
                 "extracted_artifact:{}:{}",
                 artifact.artifact_type, artifact.artifact_key
             ),
+            BronzeEventFamily::ProcessReading(reading) => {
+                let pid_key = match &reading.point_id {
+                    crate::bronze::PointIdentifier::ModbusRegister {
+                        unit_id,
+                        addr,
+                        register_type,
+                    } => format!("modbus_register:{unit_id}:{addr}:{register_type:?}"),
+                    crate::bronze::PointIdentifier::OpcUaNode {
+                        namespace_index,
+                        identifier,
+                    } => format!("opc_ua_node:{namespace_index}:{identifier:?}"),
+                    crate::bronze::PointIdentifier::CipSymbol { symbol, .. } => {
+                        format!("cip_symbol:{symbol}")
+                    }
+                    crate::bronze::PointIdentifier::CipPath {
+                        class,
+                        instance,
+                        attribute,
+                    } => format!("cip_path:{class}:{instance}:{attribute:?}"),
+                    crate::bronze::PointIdentifier::DnpPoint {
+                        group,
+                        variation,
+                        index,
+                    } => format!("dnp_point:{group}:{variation}:{index}"),
+                    crate::bronze::PointIdentifier::Iec104Ioa {
+                        common_addr,
+                        ioa,
+                        type_id,
+                    } => format!("iec104_ioa:{common_addr}:{ioa}:{type_id}"),
+                    crate::bronze::PointIdentifier::Iec61850Reference { reference, .. } => {
+                        format!("iec61850_ref:{reference}")
+                    }
+                    crate::bronze::PointIdentifier::SparkplugMetric {
+                        group_id,
+                        edge_node_id,
+                        device_id,
+                        metric_name,
+                        alias,
+                        ..
+                    } => format!(
+                        "sparkplug:{group_id}:{edge_node_id}:{}:{}:{}",
+                        device_id.as_deref().unwrap_or("-"),
+                        metric_name.as_deref().unwrap_or("-"),
+                        alias.map(|a| a.to_string()).unwrap_or_else(|| "-".to_string())
+                    ),
+                    crate::bronze::PointIdentifier::HartCommand { command, slot } => {
+                        format!("hart_cmd:{command}:{slot:?}")
+                    }
+                    crate::bronze::PointIdentifier::PcccAddress {
+                        file_type,
+                        file_number,
+                        element,
+                        sub_element,
+                    } => format!(
+                        "pccc:{file_type:#04x}:{file_number}:{element}:{sub_element:?}"
+                    ),
+                    crate::bronze::PointIdentifier::SynchrophasorChannel {
+                        idcode,
+                        channel_index,
+                        channel_type,
+                        ..
+                    } => format!(
+                        "synphasor:{idcode}:{channel_index}:{channel_type:?}"
+                    ),
+                };
+                format!("process_reading:{}:{pid_key}", reading.source_protocol)
+            }
         };
         !self.dedup.is_duplicate(
             event
@@ -4132,6 +4246,7 @@ impl SessionDecoder for EthercatDecoderWrapper {
 #[derive(Default)]
 struct EthernetIpDecoderWrapper {
     dissector: EthernetIpDissector,
+    pccc_decoder: crate::pccc::PcccDecoder,
 }
 
 impl SessionDecoder for EthernetIpDecoderWrapper {
@@ -4244,6 +4359,23 @@ impl SessionDecoder for EthernetIpDecoderWrapper {
                     ));
                 }
                 if matches!(command, 0x006F | 0x0070) && !cip_data.is_empty() {
+                    // PCCC dispatch: if the CIP service is Execute PCCC
+                    // (request 0x4B / response 0xCB), pull the embedded PCCC
+                    // PDU and let the PcccDecoder produce ProcessReadings.
+                    if let Some(message) = cip_explicit_message(&cip_data) {
+                        if let Some((is_request, pccc_pdu)) =
+                            extract_pccc_pdu(message)
+                        {
+                            let mut events = self.pccc_decoder.handle_pdu(
+                                pccc_pdu,
+                                is_request,
+                                chunk.context.src_ip,
+                                &envelope,
+                                chunk.capture_id,
+                            );
+                            out.append(&mut events);
+                        }
+                    }
                     out.push(artifact_event(
                         chunk.capture_id.to_string(),
                         envelope,
@@ -4279,12 +4411,16 @@ impl SessionDecoder for EthernetIpDecoderWrapper {
 
 struct OpcUaDecoderWrapper {
     dissector: OpcUaDissector,
+    service_decoder: crate::opc_ua::OpcUaServiceDecoder,
+    event_id_counter: u64,
 }
 
 impl Default for OpcUaDecoderWrapper {
     fn default() -> Self {
         Self {
             dissector: OpcUaDissector,
+            service_decoder: crate::opc_ua::OpcUaServiceDecoder::new(),
+            event_id_counter: 0,
         }
     }
 }
@@ -4323,19 +4459,21 @@ impl SessionDecoder for OpcUaDecoderWrapper {
                     attributes.insert("request_id".to_string(), request_id.to_string());
                 }
 
+                let envelope = build_envelope(
+                    &chunk.context,
+                    chunk.interface_id,
+                    chunk.frame_index,
+                    chunk.timestamp,
+                    chunk.segment_hash,
+                    TransportProtocol::Tcp,
+                    Some("opc_ua"),
+                    chunk.captured_len,
+                    chunk.session_key.clone(),
+                );
+
                 out.push(new_event(
                     chunk.capture_id.to_string(),
-                    build_envelope(
-                        &chunk.context,
-                        chunk.interface_id,
-                        chunk.frame_index,
-                        chunk.timestamp,
-                        chunk.segment_hash,
-                        TransportProtocol::Tcp,
-                        Some("opc_ua"),
-                        chunk.captured_len,
-                        chunk.session_key.clone(),
-                    ),
+                    envelope.clone(),
                     BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                         operation: opc_ua_operation_name(&service_type),
                         status: if service_type.starts_with("Error") {
@@ -4357,6 +4495,35 @@ impl SessionDecoder for OpcUaDecoderWrapper {
                                         modbus: None,
 }),
                 ));
+
+                // For MSG chunks with the full 24-byte secure header, hand
+                // the body to the OPC UA service decoder. Read* services
+                // produce ProcessReading events; others are ignored.
+                if message_type == "MSG" && chunk.payload.len() >= 24 {
+                    let secure_channel_id = u32::from_le_bytes([
+                        chunk.payload[8],
+                        chunk.payload[9],
+                        chunk.payload[10],
+                        chunk.payload[11],
+                    ]);
+                    let body = &chunk.payload[24..];
+                    let now_us = chunk.context.timestamp / 1_000;
+                    let counter = &mut self.event_id_counter;
+                    let mut next_id = || {
+                        *counter = counter.wrapping_add(1);
+                        format!("opcua-{}", *counter)
+                    };
+                    let mut events = self.service_decoder.handle_msg_body(
+                        body,
+                        secure_channel_id,
+                        request_id,
+                        &envelope,
+                        now_us,
+                        &mut next_id,
+                        chunk.capture_id,
+                    );
+                    out.append(&mut events);
+                }
             }
             _ => out.push(parse_anomaly_event(
                 chunk.capture_id.to_string(),
@@ -5621,6 +5788,43 @@ fn parse_cip_identity_response(cip_data: &[u8]) -> Option<CipIdentityClaim> {
     })
 }
 
+/// Detect CIP service 0x4B (Execute PCCC) inside an explicit CIP message and
+/// return `(is_request, pccc_pdu_bytes)`. Returns None for any other service
+/// or for malformed messages.
+fn extract_pccc_pdu(message: &[u8]) -> Option<(bool, &[u8])> {
+    if message.is_empty() {
+        return None;
+    }
+    let service = message[0];
+    let is_request = service & 0x80 == 0;
+    if service & 0x7F != 0x4B {
+        return None;
+    }
+    if is_request {
+        if message.len() < 2 {
+            return None;
+        }
+        let path_size_words = message[1] as usize;
+        let header_len = 2 + path_size_words * 2;
+        if message.len() < header_len {
+            return None;
+        }
+        Some((true, &message[header_len..]))
+    } else {
+        // Response: service (1) + reserved (1) + general_status (1)
+        // + ext_status_size (1) + ext status words
+        if message.len() < 4 {
+            return None;
+        }
+        let ext_status_words = message[3] as usize;
+        let header_len = 4 + ext_status_words * 2;
+        if message.len() < header_len {
+            return None;
+        }
+        Some((false, &message[header_len..]))
+    }
+}
+
 fn cip_explicit_message(cip_data: &[u8]) -> Option<&[u8]> {
     if cip_data.len() < 8 {
         return None;
@@ -6023,9 +6227,18 @@ impl SessionDecoder for NtpDecoder {
 
 // ── MQTT decoder ─────────────────────────────────────────────────
 
-#[derive(Default)]
 struct MqttDecoder {
     dissector: MqttDissector,
+    payload_decoders: Vec<Box<dyn crate::mqtt_payload::MqttPayloadDecoder>>,
+}
+
+impl Default for MqttDecoder {
+    fn default() -> Self {
+        Self {
+            dissector: MqttDissector,
+            payload_decoders: vec![Box::new(crate::sparkplug::SparkplugBDecoder::new())],
+        }
+    }
 }
 
 impl SessionDecoder for MqttDecoder {
@@ -6051,6 +6264,8 @@ impl SessionDecoder for MqttDecoder {
                 username,
                 topic,
                 qos,
+                retain,
+                payload: mqtt_payload,
                 ..
             })) => {
                 let envelope = build_envelope(
@@ -6099,7 +6314,7 @@ impl SessionDecoder for MqttDecoder {
                     _ => packet_type_name.clone(),
                 };
 
-                let object_refs = topic.into_iter().collect();
+                let object_refs = topic.clone().into_iter().collect();
 
                 out.push(new_event(
                     chunk.capture_id.to_string(),
@@ -6122,8 +6337,8 @@ impl SessionDecoder for MqttDecoder {
                         "ip".to_string(),
                         chunk.context.src_ip.to_string(),
                     )]);
-                    if let Some(cid) = client_id {
-                        identifiers.insert("client_id".to_string(), cid);
+                    if let Some(ref cid) = client_id {
+                        identifiers.insert("client_id".to_string(), cid.clone());
                     }
                     out.push(new_event(
                         chunk.capture_id.to_string(),
@@ -6139,6 +6354,30 @@ impl SessionDecoder for MqttDecoder {
                             identifiers,
                         }),
                     ));
+                }
+
+                // PUBLISH payloads fan out to registered MqttPayloadDecoders
+                // (Sparkplug B, future UADP / vendor schemas).
+                if packet_type == 3 {
+                    if let (Some(topic_str), Some(payload_bytes)) =
+                        (topic.as_deref(), mqtt_payload.as_deref())
+                    {
+                        let ctx = build_mqtt_publish_context(
+                            chunk,
+                            topic_str,
+                            payload_bytes,
+                            client_id.as_deref(),
+                            qos.unwrap_or(0),
+                            retain.unwrap_or(false),
+                        );
+                        for decoder in self.payload_decoders.iter_mut() {
+                            let mut events = decoder.try_decode(&ctx);
+                            if !events.is_empty() {
+                                out.append(&mut events);
+                                break; // first decoder that claims the payload wins
+                            }
+                        }
+                    }
                 }
             }
             _ => out.push(parse_anomaly_event(
@@ -6160,6 +6399,56 @@ impl SessionDecoder for MqttDecoder {
                 chunk.payload,
             )),
         }
+    }
+}
+
+/// Build an [`MqttPublishContext`] from a [`StreamChunk`] for fanout to
+/// registered [`crate::mqtt_payload::MqttPayloadDecoder`] implementations.
+///
+/// `broker_endpoint` is whichever side of the flow uses port 1883/8883; if
+/// neither matches (unusual) we default to the destination side.
+fn build_mqtt_publish_context<'a>(
+    chunk: &'a StreamChunk<'a>,
+    topic: &'a str,
+    payload: &'a [u8],
+    client_id: Option<&'a str>,
+    qos: u8,
+    retain: bool,
+) -> crate::mqtt_payload::MqttPublishContext<'a> {
+    use crate::mqtt_payload::{FlowFiveTuple, MqttPublishContext};
+    use std::net::SocketAddr;
+
+    let src = SocketAddr::new(chunk.context.src_ip, chunk.context.src_port);
+    let dst = SocketAddr::new(chunk.context.dst_ip, chunk.context.dst_port);
+    let broker_endpoint = if matches!(chunk.context.dst_port, 1883 | 8883) {
+        dst
+    } else if matches!(chunk.context.src_port, 1883 | 8883) {
+        src
+    } else {
+        dst
+    };
+    let publisher_mac = if broker_endpoint == dst {
+        chunk.context.src_mac
+    } else {
+        chunk.context.dst_mac
+    };
+    MqttPublishContext {
+        broker_endpoint,
+        flow_5tuple: FlowFiveTuple {
+            src,
+            dst,
+            transport: 6, // TCP
+        },
+        client_id,
+        topic,
+        payload,
+        retain,
+        qos,
+        // chunk.context.timestamp is nanoseconds since epoch; the publish
+        // context API uses microseconds.
+        packet_ts_us: chunk.context.timestamp / 1_000,
+        vlan_id: chunk.context.vlan_id,
+        publisher_mac,
     }
 }
 
@@ -7374,6 +7663,312 @@ fn bilgepump_alert_to_event(
             raw_excerpt_hex: hex::encode(&raw_excerpt[..raw_excerpt.len().min(32)]),
         }),
     )
+}
+
+// ── SMB / Kerberos / LDAP recognition-only decoders ───────────────────
+//
+// These produce ProtocolTransaction events for traffic classification only.
+// No deep PDU parsing — port + signature byte check.
+
+/// Helper to emit a single ProtocolTransaction recognition event.
+fn emit_recognition(
+    chunk: &StreamChunk<'_>,
+    out: &mut Vec<BronzeEvent>,
+    protocol: &'static str,
+    operation: &'static str,
+    summary: &str,
+) {
+    let envelope = build_envelope(
+        &chunk.context,
+        chunk.interface_id,
+        chunk.frame_index,
+        chunk.timestamp,
+        chunk.segment_hash,
+        chunk.transport,
+        Some(protocol),
+        chunk.captured_len,
+        chunk.session_key.clone(),
+    );
+    let mut attributes = BTreeMap::new();
+    attributes.insert("protocol".to_string(), protocol.to_string());
+    out.push(new_event(
+        chunk.capture_id.to_string(),
+        envelope,
+        BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
+            operation: operation.to_string(),
+            status: "ok".to_string(),
+            request_summary: Some(summary.to_string()),
+            response_summary: None,
+            object_refs: Vec::new(),
+            values: Vec::new(),
+            attributes,
+            modbus: None,
+        }),
+    ));
+}
+
+struct SmbRecognizer;
+
+impl SessionDecoder for SmbRecognizer {
+    fn name(&self) -> &'static str {
+        "smb"
+    }
+
+    fn interest(&self) -> &'static [DecoderInterest] {
+        &[DecoderInterest::TcpPort(445), DecoderInterest::TcpPort(139)]
+    }
+
+    fn on_stream_chunk(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+        let p = chunk.payload;
+        // SMB direct (port 445): the SMB header may start at offset 4 if a
+        // 4-byte NetBIOS-style length prefix is present (always for 139,
+        // sometimes for 445), or at offset 0.
+        let candidates: [usize; 2] = [4, 0];
+        for &off in &candidates {
+            if off + 4 > p.len() {
+                continue;
+            }
+            let sig = &p[off..off + 4];
+            if sig == [0xFF, b'S', b'M', b'B'] {
+                emit_recognition(chunk, out, "smb", "smb1_message", "SMB1 traffic");
+                return;
+            }
+            if sig == [0xFE, b'S', b'M', b'B'] {
+                emit_recognition(chunk, out, "smb", "smb2_message", "SMB2 traffic");
+                return;
+            }
+        }
+    }
+}
+
+struct KerberosRecognizer;
+
+impl SessionDecoder for KerberosRecognizer {
+    fn name(&self) -> &'static str {
+        "kerberos"
+    }
+
+    fn interest(&self) -> &'static [DecoderInterest] {
+        &[
+            DecoderInterest::TcpPort(88),
+            DecoderInterest::UdpPort(88),
+            DecoderInterest::TcpPort(464),
+            DecoderInterest::UdpPort(464),
+        ]
+    }
+
+    fn on_stream_chunk(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+        if looks_like_kerberos(chunk.payload) {
+            emit_recognition(chunk, out, "kerberos", "kerberos_message", "Kerberos traffic");
+        }
+    }
+
+    fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+        if looks_like_kerberos(chunk.payload) {
+            emit_recognition(chunk, out, "kerberos", "kerberos_message", "Kerberos traffic");
+        }
+    }
+}
+
+/// Light Kerberos signature: ASN.1 BER application-tagged messages. KRB
+/// messages start with application-tag bytes 0x6A (AS-REQ), 0x6B (AS-REP),
+/// 0x6C (TGS-REQ), 0x6D (TGS-REP), 0x6E (AP-REQ), 0x6F (AP-REP), 0x7E
+/// (KRB-ERROR). For TCP, a 4-byte length precedes the ASN.1.
+fn looks_like_kerberos(p: &[u8]) -> bool {
+    if p.is_empty() {
+        return false;
+    }
+    let candidates = [0usize, 4];
+    for &off in &candidates {
+        if let Some(b) = p.get(off) {
+            if matches!(*b, 0x6A..=0x6F | 0x7E) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+struct LdapRecognizer;
+
+impl SessionDecoder for LdapRecognizer {
+    fn name(&self) -> &'static str {
+        "ldap"
+    }
+
+    fn interest(&self) -> &'static [DecoderInterest] {
+        &[DecoderInterest::TcpPort(389), DecoderInterest::TcpPort(636)]
+    }
+
+    fn on_stream_chunk(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+        if chunk.context.dst_port == 636 || chunk.context.src_port == 636 {
+            // LDAPS is TLS-encrypted; recognition only by port.
+            emit_recognition(chunk, out, "ldap", "ldaps_traffic", "LDAPS traffic");
+            return;
+        }
+        if looks_like_ldap(chunk.payload) {
+            emit_recognition(chunk, out, "ldap", "ldap_message", "LDAP traffic");
+        }
+    }
+}
+
+/// LDAP messages are ASN.1 BER SEQUENCEs starting with 0x30, followed by
+/// a length encoding. Reject obviously-too-short payloads.
+fn looks_like_ldap(p: &[u8]) -> bool {
+    if p.len() < 2 {
+        return false;
+    }
+    if p[0] != 0x30 {
+        return false;
+    }
+    // Reasonable length byte: short form (< 128) or long-form prefix (0x81..0x84).
+    matches!(p[1], 0x00..=0x7F | 0x81..=0x84)
+}
+
+// CC-Link IE Field — UDP 61450, often multicast (239.192.0.0/16).
+struct CcLinkRecognizer;
+
+impl SessionDecoder for CcLinkRecognizer {
+    fn name(&self) -> &'static str {
+        "cclink"
+    }
+
+    fn interest(&self) -> &'static [DecoderInterest] {
+        &[DecoderInterest::UdpPort(61450)]
+    }
+
+    fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+        emit_recognition(chunk, out, "cclink", "cclink_ie_traffic", "CC-Link IE Field traffic");
+    }
+}
+
+// CODESYS — TCP 1217 (V3 Gateway), 1740 (V2), 2455 (V3 alt), 11740 (V3 Runtime).
+struct CodesysRecognizer;
+
+impl SessionDecoder for CodesysRecognizer {
+    fn name(&self) -> &'static str {
+        "codesys"
+    }
+
+    fn interest(&self) -> &'static [DecoderInterest] {
+        &[
+            DecoderInterest::TcpPort(1217),
+            DecoderInterest::TcpPort(1740),
+            DecoderInterest::TcpPort(2455),
+            DecoderInterest::TcpPort(11740),
+        ]
+    }
+
+    fn on_stream_chunk(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+        let summary = match chunk.context.dst_port.max(chunk.context.src_port) {
+            1217 => "CODESYS V3 Gateway traffic",
+            1740 => "CODESYS V2 traffic",
+            2455 => "CODESYS V3 (alternate) traffic",
+            11740 => "CODESYS V3 Runtime traffic",
+            _ => "CODESYS traffic",
+        };
+        emit_recognition(chunk, out, "codesys", "codesys_traffic", summary);
+    }
+}
+
+// IO-Link Wireless — UDP 59152.
+struct IoLinkRecognizer;
+
+impl SessionDecoder for IoLinkRecognizer {
+    fn name(&self) -> &'static str {
+        "iolink"
+    }
+
+    fn interest(&self) -> &'static [DecoderInterest] {
+        &[DecoderInterest::UdpPort(59152)]
+    }
+
+    fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+        emit_recognition(chunk, out, "iolink", "iolink_traffic", "IO-Link Wireless traffic");
+    }
+}
+
+// IGMP — IP protocol 2. Light parse to extract type byte for Membership Query
+// vs Report distinction; full v3 group records left for future work.
+struct IgmpRecognizer;
+
+impl SessionDecoder for IgmpRecognizer {
+    fn name(&self) -> &'static str {
+        "igmp"
+    }
+
+    fn interest(&self) -> &'static [DecoderInterest] {
+        &[DecoderInterest::IpProto(2)]
+    }
+
+    fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+        if chunk.payload.is_empty() {
+            return;
+        }
+        let igmp_type = chunk.payload[0];
+        let (operation, summary) = match igmp_type {
+            0x11 => ("igmp_membership_query", "IGMP Membership Query"),
+            0x12 => ("igmp_v1_membership_report", "IGMPv1 Membership Report"),
+            0x16 => ("igmp_v2_membership_report", "IGMPv2 Membership Report"),
+            0x17 => ("igmp_leave_group", "IGMPv2 Leave Group"),
+            0x22 => ("igmp_v3_membership_report", "IGMPv3 Membership Report"),
+            _ => ("igmp_message", "IGMP traffic"),
+        };
+        emit_recognition(chunk, out, "igmp", operation, summary);
+    }
+}
+
+// ── Synchrophasor (IEEE C37.118) decoder ──────────────────────────────
+
+#[derive(Default)]
+struct SynchrophasorDecoderWrapper {
+    decoder: crate::synchrophasor::SynchrophasorDecoder,
+}
+
+impl SessionDecoder for SynchrophasorDecoderWrapper {
+    fn name(&self) -> &'static str {
+        "synchrophasor"
+    }
+
+    fn interest(&self) -> &'static [DecoderInterest] {
+        &[
+            DecoderInterest::TcpPort(4712),
+            DecoderInterest::TcpPort(4713),
+            DecoderInterest::UdpPort(4712),
+            DecoderInterest::UdpPort(4713),
+        ]
+    }
+
+    fn on_stream_chunk(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+        self.handle(chunk, out);
+    }
+
+    fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+        self.handle(chunk, out);
+    }
+}
+
+impl SynchrophasorDecoderWrapper {
+    fn handle(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+        if !crate::synchrophasor::looks_like_synchrophasor(chunk.payload) {
+            return;
+        }
+        let envelope = build_envelope(
+            &chunk.context,
+            chunk.interface_id,
+            chunk.frame_index,
+            chunk.timestamp,
+            chunk.segment_hash,
+            chunk.transport,
+            Some("synchrophasor"),
+            chunk.captured_len,
+            chunk.session_key.clone(),
+        );
+        let mut events =
+            self.decoder
+                .handle_frame(chunk.payload, chunk.context.src_ip, &envelope, chunk.capture_id);
+        out.append(&mut events);
+    }
 }
 
 #[cfg(test)]
@@ -9006,5 +9601,621 @@ mod tests {
             )),
             "expected bilgepump VLAN hopping alert"
         );
+    }
+
+    #[test]
+    fn mqtt_decoder_dispatches_sparkplug_publish_to_payload_decoder() {
+        use crate::sparkplug::proto::payload::{metric, Metric as PbMetric};
+        use crate::sparkplug::proto::{DataType, Payload as PbPayload};
+        use prost::Message as _;
+        use std::net::{IpAddr, Ipv4Addr};
+
+        // Build a Sparkplug NBIRTH protobuf payload with one bdSeq metric and
+        // one named metric.
+        let pb_payload = PbPayload {
+            timestamp: Some(1_700_000_000_000),
+            seq: Some(0),
+            metrics: vec![
+                PbMetric {
+                    name: Some("bdSeq".into()),
+                    datatype: Some(DataType::Int64 as u32),
+                    value: Some(metric::Value::LongValue(1)),
+                    ..Default::default()
+                },
+                PbMetric {
+                    name: Some("Tank1.Level".into()),
+                    alias: Some(10),
+                    datatype: Some(DataType::Double as u32),
+                    timestamp: Some(1_700_000_000_500),
+                    value: Some(metric::Value::DoubleValue(72.5)),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let sparkplug_bytes = pb_payload.encode_to_vec();
+
+        // Wrap in an MQTT PUBLISH frame. QoS 0 (no packet identifier).
+        let topic = b"spBv1.0/Plant1/NBIRTH/PLC-A";
+        let mut variable = Vec::new();
+        variable.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+        variable.extend_from_slice(topic);
+        variable.extend_from_slice(&sparkplug_bytes);
+        let mut mqtt_frame = Vec::new();
+        mqtt_frame.push(0x30); // PUBLISH, QoS 0, no retain
+        // Variable-length remaining length encoding for >127.
+        let mut remaining = variable.len();
+        loop {
+            let mut byte = (remaining & 0x7F) as u8;
+            remaining >>= 7;
+            if remaining > 0 {
+                byte |= 0x80;
+            }
+            mqtt_frame.push(byte);
+            if remaining == 0 {
+                break;
+            }
+        }
+        mqtt_frame.extend_from_slice(&variable);
+
+        // Drive MqttDecoder directly with a synthetic StreamChunk.
+        let timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp(1_700_000_000, 1_000)
+            .unwrap();
+        let chunk = StreamChunk {
+            capture_id: "test-cap",
+            segment_hash: "seg",
+            interface_id: 0,
+            frame_index: 1,
+            timestamp,
+            context: PacketContext {
+                src_mac: [0x02, 0x00, 0x00, 0x00, 0x00, 0x01],
+                dst_mac: [0x02, 0x00, 0x00, 0x00, 0x00, 0x02],
+                src_ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 50)),
+                dst_ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+                src_port: 53212,
+                dst_port: 1883,
+                vlan_id: None,
+                // PacketContext.timestamp is nanoseconds since epoch.
+                timestamp: 1_700_000_000_000_001_000,
+            },
+            ethertype: 0x0800,
+            ip_proto: Some(6),
+            llc: None,
+            transport: TransportProtocol::Tcp,
+            payload: &mqtt_frame,
+            session_key: "sess".into(),
+            captured_len: mqtt_frame.len() as u64,
+        };
+
+        let mut decoder = MqttDecoder::default();
+        let mut out = Vec::new();
+        decoder.on_stream_chunk(&chunk, &mut out);
+
+        // Expect: 1 ProtocolTransaction (PUBLISH) + 2 ProcessReadings (one per metric).
+        let publish = out
+            .iter()
+            .find(|ev| matches!(&ev.family, BronzeEventFamily::ProtocolTransaction(tx) if tx.operation == "publish"))
+            .expect("publish ProtocolTransaction");
+        assert_eq!(publish.protocol(), Some("mqtt"));
+
+        let readings: Vec<_> = out
+            .iter()
+            .filter_map(|ev| match &ev.family {
+                BronzeEventFamily::ProcessReading(r) => Some(r),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(readings.len(), 2, "expected 2 ProcessReadings, got {}", readings.len());
+        // Find Tank1.Level and verify it decoded correctly.
+        let tank = readings
+            .iter()
+            .find(|r| matches!(
+                &r.point_id,
+                crate::bronze::PointIdentifier::SparkplugMetric { metric_name: Some(n), .. }
+                    if n == "Tank1.Level"
+            ))
+            .expect("Tank1.Level reading");
+        assert_eq!(tank.source_protocol, "sparkplug_b");
+        assert_eq!(tank.value, crate::bronze::PointValue::Double(72.5));
+        // observed_ts is microseconds; chunk timestamp ns / 1000.
+        assert_eq!(tank.observed_ts, 1_700_000_000_000_001);
+        // source_ts is metric timestamp (ms) * 1000.
+        assert_eq!(tank.source_ts, Some(1_700_000_000_500_000));
+    }
+
+    /// Wrap a Sparkplug protobuf payload in an MQTT PUBLISH frame (QoS 0,
+    /// no packet identifier).
+    fn mqtt_publish_frame(topic: &[u8], payload: &[u8]) -> Vec<u8> {
+        let mut variable = Vec::new();
+        variable.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+        variable.extend_from_slice(topic);
+        variable.extend_from_slice(payload);
+        let mut frame = Vec::new();
+        frame.push(0x30); // PUBLISH, QoS 0, no retain
+        let mut remaining = variable.len();
+        loop {
+            let mut byte = (remaining & 0x7F) as u8;
+            remaining >>= 7;
+            if remaining > 0 {
+                byte |= 0x80;
+            }
+            frame.push(byte);
+            if remaining == 0 {
+                break;
+            }
+        }
+        frame.extend_from_slice(&variable);
+        frame
+    }
+
+    #[test]
+    fn engine_end_to_end_sparkplug_birth_then_data() {
+        use crate::sparkplug::proto::payload::{metric, Metric as PbMetric};
+        use crate::sparkplug::proto::{DataType, Payload as PbPayload};
+        use prost::Message as _;
+
+        let nbirth = PbPayload {
+            timestamp: Some(1_700_000_000_000),
+            seq: Some(0),
+            metrics: vec![
+                PbMetric {
+                    name: Some("bdSeq".into()),
+                    datatype: Some(DataType::Int64 as u32),
+                    value: Some(metric::Value::LongValue(1)),
+                    ..Default::default()
+                },
+                PbMetric {
+                    name: Some("Tank1.Level".into()),
+                    alias: Some(10),
+                    datatype: Some(DataType::Double as u32),
+                    timestamp: Some(1_700_000_000_500),
+                    value: Some(metric::Value::DoubleValue(50.0)),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let ndata = PbPayload {
+            timestamp: Some(1_700_000_001_000),
+            seq: Some(1),
+            metrics: vec![PbMetric {
+                alias: Some(10),
+                datatype: Some(DataType::Double as u32),
+                timestamp: Some(1_700_000_001_500),
+                value: Some(metric::Value::DoubleValue(51.5)),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let frame_birth = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x01],
+            [0x02, 0, 0, 0, 0, 0x02],
+            [10, 0, 0, 50],
+            [10, 0, 0, 1],
+            53212,
+            1883,
+            &mqtt_publish_frame(b"spBv1.0/Plant1/NBIRTH/PLC-A", &nbirth.encode_to_vec()),
+            None,
+        );
+        let frame_data = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x01],
+            [0x02, 0, 0, 0, 0, 0x02],
+            [10, 0, 0, 50],
+            [10, 0, 0, 1],
+            53212,
+            1883,
+            &mqtt_publish_frame(b"spBv1.0/Plant1/NDATA/PLC-A", &ndata.encode_to_vec()),
+            None,
+        );
+
+        // Build a PCAPNG with both frames so they share segment + flow state.
+        let mut pcapng = Vec::new();
+        // SHB
+        pcapng.extend_from_slice(&0x0A0D0D0Au32.to_le_bytes());
+        pcapng.extend_from_slice(&28u32.to_le_bytes());
+        pcapng.extend_from_slice(&0x1A2B3C4Du32.to_le_bytes());
+        pcapng.extend_from_slice(&1u16.to_le_bytes());
+        pcapng.extend_from_slice(&0u16.to_le_bytes());
+        pcapng.extend_from_slice(&0xFFFF_FFFF_FFFF_FFFFu64.to_le_bytes());
+        pcapng.extend_from_slice(&28u32.to_le_bytes());
+        // IDB (Ethernet linktype)
+        pcapng.extend_from_slice(&0x0000_0001u32.to_le_bytes());
+        pcapng.extend_from_slice(&20u32.to_le_bytes());
+        pcapng.extend_from_slice(&1u16.to_le_bytes());
+        pcapng.extend_from_slice(&0u16.to_le_bytes());
+        pcapng.extend_from_slice(&65535u32.to_le_bytes());
+        pcapng.extend_from_slice(&20u32.to_le_bytes());
+        // EPBs
+        pcapng.extend_from_slice(&build_epb(&frame_birth, 1_700_000_000_000_001));
+        pcapng.extend_from_slice(&build_epb(&frame_data, 1_700_000_001_000_001));
+
+        let mut engine = DpiEngine::new();
+        let output = engine
+            .process_segment_to_vec(&SegmentMeta::new("sparkplug-corpus"), std::io::Cursor::new(pcapng))
+            .expect("process");
+
+        let readings: Vec<_> = output
+            .events
+            .iter()
+            .filter_map(|ev| match &ev.family {
+                BronzeEventFamily::ProcessReading(r) => Some(r),
+                _ => None,
+            })
+            .collect();
+        // BIRTH carries 2 metrics (bdSeq + Tank1.Level), DATA carries 1.
+        assert_eq!(readings.len(), 3, "expected 3 ProcessReadings, got {}", readings.len());
+        // The DATA reading should resolve alias 10 to "Tank1.Level" via state
+        // populated by the prior BIRTH frame.
+        let data_reading = readings
+            .iter()
+            .find(|r| r.observed_ts == 1_700_000_001_000_001)
+            .expect("DATA-frame reading");
+        match &data_reading.point_id {
+            crate::bronze::PointIdentifier::SparkplugMetric { metric_name, alias, .. } => {
+                assert_eq!(metric_name.as_deref(), Some("Tank1.Level"));
+                assert_eq!(*alias, Some(10));
+            }
+            other => panic!("wrong PointId: {other:?}"),
+        }
+        assert_eq!(data_reading.value, crate::bronze::PointValue::Double(51.5));
+        assert_eq!(data_reading.source_ts, Some(1_700_000_001_500_000));
+    }
+
+    #[test]
+    fn smb_recognizer_detects_smb2_with_netbios_prefix() {
+        // 4-byte NetBIOS-style length prefix + SMB2 header (0xFE 'SMB').
+        let mut payload = vec![0x00, 0x00, 0x00, 0x40];
+        payload.extend_from_slice(&[0xFE, b'S', b'M', b'B']);
+        payload.extend(std::iter::repeat(0u8).take(60));
+        let frame = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x01],
+            [0x02, 0, 0, 0, 0, 0x02],
+            [10, 0, 0, 50],
+            [10, 0, 0, 1],
+            53212,
+            445,
+            &payload,
+            None,
+        );
+        let pcapng = build_pcapng(&frame);
+        let mut engine = DpiEngine::new();
+        let output = engine
+            .process_segment_to_vec(&SegmentMeta::new("smb-test"), std::io::Cursor::new(pcapng))
+            .unwrap();
+        assert!(
+            output.events.iter().any(|ev| matches!(
+                &ev.family,
+                BronzeEventFamily::ProtocolTransaction(tx)
+                    if tx.operation == "smb2_message"
+            )),
+            "expected smb2_message transaction"
+        );
+    }
+
+    #[test]
+    fn smb_recognizer_detects_smb1() {
+        let payload: Vec<u8> = std::iter::once(0u8)
+            .chain(std::iter::once(0))
+            .chain(std::iter::once(0))
+            .chain(std::iter::once(0x40))
+            .chain([0xFF, b'S', b'M', b'B'])
+            .chain(std::iter::repeat(0).take(40))
+            .collect();
+        let frame = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x01],
+            [0x02, 0, 0, 0, 0, 0x02],
+            [10, 0, 0, 50],
+            [10, 0, 0, 1],
+            53212,
+            445,
+            &payload,
+            None,
+        );
+        let pcapng = build_pcapng(&frame);
+        let mut engine = DpiEngine::new();
+        let output = engine
+            .process_segment_to_vec(&SegmentMeta::new("smb-test"), std::io::Cursor::new(pcapng))
+            .unwrap();
+        assert!(output.events.iter().any(|ev| matches!(
+            &ev.family,
+            BronzeEventFamily::ProtocolTransaction(tx) if tx.operation == "smb1_message"
+        )));
+    }
+
+    #[test]
+    fn kerberos_recognizer_detects_as_req() {
+        // ASN.1 application-tag 0x6A (KRB-AS-REQ).
+        let payload: Vec<u8> = std::iter::once(0u8)
+            .chain(std::iter::once(0))
+            .chain(std::iter::once(0))
+            .chain(std::iter::once(0x40))
+            .chain([0x6A])
+            .chain(std::iter::repeat(0).take(60))
+            .collect();
+        let frame = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x01],
+            [0x02, 0, 0, 0, 0, 0x02],
+            [10, 0, 0, 50],
+            [10, 0, 0, 1],
+            53212,
+            88,
+            &payload,
+            None,
+        );
+        let pcapng = build_pcapng(&frame);
+        let mut engine = DpiEngine::new();
+        let output = engine
+            .process_segment_to_vec(&SegmentMeta::new("krb-test"), std::io::Cursor::new(pcapng))
+            .unwrap();
+        assert!(output.events.iter().any(|ev| matches!(
+            &ev.family,
+            BronzeEventFamily::ProtocolTransaction(tx) if tx.operation == "kerberos_message"
+        )));
+    }
+
+    #[test]
+    fn ldap_recognizer_detects_sequence() {
+        // ASN.1 SEQUENCE 0x30 + short length.
+        let mut payload = vec![0x30, 0x40];
+        payload.extend(std::iter::repeat(0u8).take(64));
+        let frame = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x01],
+            [0x02, 0, 0, 0, 0, 0x02],
+            [10, 0, 0, 50],
+            [10, 0, 0, 1],
+            53212,
+            389,
+            &payload,
+            None,
+        );
+        let pcapng = build_pcapng(&frame);
+        let mut engine = DpiEngine::new();
+        let output = engine
+            .process_segment_to_vec(&SegmentMeta::new("ldap-test"), std::io::Cursor::new(pcapng))
+            .unwrap();
+        assert!(output.events.iter().any(|ev| matches!(
+            &ev.family,
+            BronzeEventFamily::ProtocolTransaction(tx) if tx.operation == "ldap_message"
+        )));
+    }
+
+    #[test]
+    fn ldap_recognizer_emits_ldaps_for_port_636() {
+        let payload = vec![0x16, 0x03, 0x01, 0x00, 0x40, 0x01, 0x00, 0x00, 0x3C];
+        let frame = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x01],
+            [0x02, 0, 0, 0, 0, 0x02],
+            [10, 0, 0, 50],
+            [10, 0, 0, 1],
+            53212,
+            636,
+            &payload,
+            None,
+        );
+        let pcapng = build_pcapng(&frame);
+        let mut engine = DpiEngine::new();
+        let output = engine
+            .process_segment_to_vec(&SegmentMeta::new("ldaps-test"), std::io::Cursor::new(pcapng))
+            .unwrap();
+        assert!(output.events.iter().any(|ev| matches!(
+            &ev.family,
+            BronzeEventFamily::ProtocolTransaction(tx) if tx.operation == "ldaps_traffic"
+        )));
+    }
+
+    #[test]
+    fn engine_end_to_end_opc_ua_read_request_then_response() {
+        use crate::opc_ua::services::{READ_REQUEST_TYPE_ID, READ_RESPONSE_TYPE_ID};
+
+        // Build the raw OPC UA `MSG` body for a ReadRequest of two NodeIds.
+        fn null_node_id() -> Vec<u8> {
+            vec![0x00, 0x00]
+        }
+        fn build_request_header(handle: u32) -> Vec<u8> {
+            let mut b = Vec::new();
+            b.extend_from_slice(&null_node_id());
+            b.extend_from_slice(&0i64.to_le_bytes());
+            b.extend_from_slice(&handle.to_le_bytes());
+            b.extend_from_slice(&0u32.to_le_bytes());
+            b.extend_from_slice(&(-1i32).to_le_bytes());
+            b.extend_from_slice(&0u32.to_le_bytes());
+            b.extend_from_slice(&null_node_id());
+            b.push(0x00);
+            b
+        }
+        fn build_response_header(handle: u32, status: u32) -> Vec<u8> {
+            let mut b = Vec::new();
+            b.extend_from_slice(&0i64.to_le_bytes());
+            b.extend_from_slice(&handle.to_le_bytes());
+            b.extend_from_slice(&status.to_le_bytes());
+            b.push(0x00);
+            b.extend_from_slice(&(-1i32).to_le_bytes());
+            b.extend_from_slice(&null_node_id());
+            b.push(0x00);
+            b
+        }
+
+        let mut req_body = Vec::new();
+        // ReadRequest TypeId (FourByte: ns=0, id=631).
+        req_body.push(0x01);
+        req_body.push(0x00);
+        req_body.extend_from_slice(&(READ_REQUEST_TYPE_ID as u16).to_le_bytes());
+        req_body.extend_from_slice(&build_request_header(1));
+        req_body.extend_from_slice(&0.0f64.to_le_bytes());
+        req_body.extend_from_slice(&0u32.to_le_bytes());
+        req_body.extend_from_slice(&2i32.to_le_bytes()); // 2 nodes
+        for id in [1234u16, 5678u16] {
+            req_body.push(0x01);
+            req_body.push(0x02); // ns=2
+            req_body.extend_from_slice(&id.to_le_bytes());
+            req_body.extend_from_slice(&13u32.to_le_bytes()); // attribute = Value
+            req_body.extend_from_slice(&(-1i32).to_le_bytes());
+            req_body.extend_from_slice(&0u16.to_le_bytes());
+            req_body.extend_from_slice(&(-1i32).to_le_bytes());
+        }
+
+        let mut resp_body = Vec::new();
+        resp_body.push(0x01);
+        resp_body.push(0x00);
+        resp_body.extend_from_slice(&(READ_RESPONSE_TYPE_ID as u16).to_le_bytes());
+        resp_body.extend_from_slice(&build_response_header(1, 0));
+        resp_body.extend_from_slice(&2i32.to_le_bytes());
+        for v in [50.0f64, 51.5f64] {
+            resp_body.push(0x01); // HAS_VALUE
+            resp_body.push(11); // T_DOUBLE
+            resp_body.extend_from_slice(&v.to_le_bytes());
+        }
+
+        // Build full OPC UA MSG chunks: 8-byte header + 16-byte secure fields
+        // + body. secure_channel_id matches between request and response so
+        // the decoder pairs them.
+        fn build_msg_chunk(secure_channel_id: u32, request_id: u32, body: &[u8]) -> Vec<u8> {
+            let total = 24 + body.len();
+            let mut out = Vec::with_capacity(total);
+            out.extend_from_slice(b"MSG");
+            out.push(b'F');
+            out.extend_from_slice(&(total as u32).to_le_bytes());
+            out.extend_from_slice(&secure_channel_id.to_le_bytes());
+            out.extend_from_slice(&7u32.to_le_bytes()); // security_token_id
+            out.extend_from_slice(&1u32.to_le_bytes()); // sequence_number
+            out.extend_from_slice(&request_id.to_le_bytes());
+            out.extend_from_slice(body);
+            out
+        }
+
+        let req_chunk = build_msg_chunk(42, 100, &req_body);
+        let resp_chunk = build_msg_chunk(42, 100, &resp_body);
+
+        // Request: client → server (dst port 4840).
+        let req_frame = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x01],
+            [0x02, 0, 0, 0, 0, 0x02],
+            [10, 0, 0, 50],
+            [10, 0, 0, 1],
+            53212,
+            4840,
+            &req_chunk,
+            None,
+        );
+        // Response: server → client (src port 4840).
+        let resp_frame = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x02],
+            [0x02, 0, 0, 0, 0, 0x01],
+            [10, 0, 0, 1],
+            [10, 0, 0, 50],
+            4840,
+            53212,
+            &resp_chunk,
+            None,
+        );
+
+        let mut pcapng = Vec::new();
+        pcapng.extend_from_slice(&0x0A0D0D0Au32.to_le_bytes());
+        pcapng.extend_from_slice(&28u32.to_le_bytes());
+        pcapng.extend_from_slice(&0x1A2B3C4Du32.to_le_bytes());
+        pcapng.extend_from_slice(&1u16.to_le_bytes());
+        pcapng.extend_from_slice(&0u16.to_le_bytes());
+        pcapng.extend_from_slice(&0xFFFF_FFFF_FFFF_FFFFu64.to_le_bytes());
+        pcapng.extend_from_slice(&28u32.to_le_bytes());
+        pcapng.extend_from_slice(&0x0000_0001u32.to_le_bytes());
+        pcapng.extend_from_slice(&20u32.to_le_bytes());
+        pcapng.extend_from_slice(&1u16.to_le_bytes());
+        pcapng.extend_from_slice(&0u16.to_le_bytes());
+        pcapng.extend_from_slice(&65535u32.to_le_bytes());
+        pcapng.extend_from_slice(&20u32.to_le_bytes());
+        pcapng.extend_from_slice(&build_epb(&req_frame, 1_700_000_000_000_001));
+        pcapng.extend_from_slice(&build_epb(&resp_frame, 1_700_000_000_500_001));
+
+        let mut engine = DpiEngine::new();
+        let output = engine
+            .process_segment_to_vec(&SegmentMeta::new("opcua-corpus"), std::io::Cursor::new(pcapng))
+            .expect("process");
+
+        let readings: Vec<_> = output
+            .events
+            .iter()
+            .filter_map(|ev| match &ev.family {
+                BronzeEventFamily::ProcessReading(r) => Some(r),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(readings.len(), 2, "expected 2 ProcessReadings, got {}", readings.len());
+
+        // First reading: NodeId ns=2 id=1234 paired with value 50.0.
+        let first = readings
+            .iter()
+            .find(|r| matches!(
+                &r.point_id,
+                crate::bronze::PointIdentifier::OpcUaNode { namespace_index: 2, identifier }
+                    if *identifier == crate::bronze::OpcUaNodeId::Numeric(1234)
+            ))
+            .expect("expected NodeId 1234");
+        assert_eq!(first.source_protocol, "opc_ua");
+        assert_eq!(first.value, crate::bronze::PointValue::Double(50.0));
+        assert!(matches!(first.quality, crate::bronze::RawQuality::OpcUaStatusCode(0)));
+        assert_eq!(first.observed_ts, 1_700_000_000_500_001);
+
+        // Second reading should be 5678 → 51.5.
+        let second = readings
+            .iter()
+            .find(|r| matches!(
+                &r.point_id,
+                crate::bronze::PointIdentifier::OpcUaNode { namespace_index: 2, identifier }
+                    if *identifier == crate::bronze::OpcUaNodeId::Numeric(5678)
+            ))
+            .expect("expected NodeId 5678");
+        assert_eq!(second.value, crate::bronze::PointValue::Double(51.5));
+    }
+
+    #[test]
+    fn engine_end_to_end_sparkplug_data_without_birth_emits_anomaly() {
+        use crate::sparkplug::proto::payload::{metric, Metric as PbMetric};
+        use crate::sparkplug::proto::{DataType, Payload as PbPayload};
+        use prost::Message as _;
+
+        let ndata = PbPayload {
+            metrics: vec![PbMetric {
+                alias: Some(99),
+                datatype: Some(DataType::Double as u32),
+                value: Some(metric::Value::DoubleValue(1.0)),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let frame = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x01],
+            [0x02, 0, 0, 0, 0, 0x02],
+            [10, 0, 0, 50],
+            [10, 0, 0, 1],
+            53212,
+            1883,
+            &mqtt_publish_frame(b"spBv1.0/Plant1/NDATA/Edge", &ndata.encode_to_vec()),
+            None,
+        );
+        let pcapng = build_pcapng(&frame);
+
+        let mut engine = DpiEngine::new();
+        let output = engine
+            .process_segment_to_vec(&SegmentMeta::new("sparkplug-corpus-gap"), std::io::Cursor::new(pcapng))
+            .expect("process");
+
+        // Should see one ProcessReading (with metric_name=None) and one
+        // sparkplug_b ParseAnomaly for the gap.
+        assert!(output.events.iter().any(|ev| matches!(
+            &ev.family,
+            BronzeEventFamily::ParseAnomaly(a) if a.decoder == "sparkplug_b"
+        )));
+        let unresolved = output.events.iter().find_map(|ev| match &ev.family {
+            BronzeEventFamily::ProcessReading(r) => Some(r),
+            _ => None,
+        }).expect("ProcessReading present");
+        match &unresolved.point_id {
+            crate::bronze::PointIdentifier::SparkplugMetric { metric_name, alias, .. } => {
+                assert!(metric_name.is_none());
+                assert_eq!(*alias, Some(99));
+            }
+            _ => panic!(),
+        }
     }
 }

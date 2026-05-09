@@ -35,14 +35,20 @@ pub mod dissectors;
 pub mod bilgepump;
 pub mod engine;
 pub mod icmpeeker;
+pub mod mqtt_payload;
+pub mod opc_ua;
+pub mod pccc;
 pub mod registry;
+pub mod sparkplug;
 pub mod stovetop;
+pub mod synchrophasor;
 
 #[cfg(feature = "ffi")]
 pub mod ffi;
 
 pub use crate::bronze::{
     BRONZE_SCHEMA_VERSION, BronzeBatch, BronzeEvent, BronzeEventFamily, EventEnvelope,
+    ModbusRegKind, OpcUaNodeId, PointIdentifier, PointValue, ProcessReading, RawQuality,
     SegmentCheckpoint, activity_records,
 };
 pub use crate::corpus::{
