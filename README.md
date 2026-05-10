@@ -264,10 +264,22 @@ Every packet processed produces zero or more `BronzeEvent`s, each wrapping an `E
 | **TopologyObservation** | Network relationship | ARP neighbor, LACP bond, STP root path, MRP ring |
 | **ParseAnomaly** | Malformed, invalid, or suspicious packet | Bad MBAP length, truncated DNP3 frame, ICMP redirect, non-zero padding |
 | **ExtractedArtifact** | Binary payload extraction | Modbus write data, DNP3 application payload |
+| **ProcessReading** | Process variable Value/Quality/Timestamp from the wire | Sparkplug B metric, OPC UA ReadResponse, PCCC data-table read, IEEE C37.118 phasor |
 
 ### EventEnvelope
 
 Every event carries full packet context: timestamp, src/dst MAC, src/dst IP, src/dst port, VLAN ID, transport protocol, frame index, segment hash, and byte/packet counts.
+
+## Output Formats
+
+Bronze JSON is canonical. Renderers under `output::` transform it into common downstream formats; each is a pure function of the event stream with no engine dependency.
+
+| Renderer | Purpose | Module |
+|----------|---------|--------|
+| **InfluxDB Line Protocol** | Process historian ingest for `ProcessReading` events | `output::influx_line` |
+| **OCSF (Open Cybersecurity Schema Framework) v1.4.0** | SIEM ingest. Maps `ProtocolTransaction` to Network/HTTP/DNS/SMB/SSH/Authentication, `AssetObservation` to Device Inventory Info, `ParseAnomaly` to Detection Finding | `output::ocsf` |
+
+`ProcessReading` events have no OCSF mapping (process telemetry is out of scope for OCSF) and `ProtocolTransaction` events have no Influx mapping (use OCSF or Bronze JSON for those).
 
 ## Deduplication
 
