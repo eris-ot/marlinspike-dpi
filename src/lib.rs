@@ -37,6 +37,7 @@ pub mod engine;
 pub mod icmpeeker;
 pub mod mqtt_payload;
 pub mod opc_ua;
+pub mod output;
 pub mod pccc;
 pub mod registry;
 pub mod sparkplug;
