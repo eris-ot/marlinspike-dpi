@@ -69,6 +69,8 @@ Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), o
 | TriStation | UDP | 1502 | Schneider/Triconex SIS controllers (Tricon, Trident, Tri-GP). Function code naming per public TRITON write-ups; high-severity ParseAnomaly on `SetControlProgram` (0x70 — TRITON payload-delivery command); AssetObservation for engineering-workstation and controller roles |
 | OPC UA PubSub | UDP | 4840 | UADP NetworkMessage parsing: version, publisher_id (all 5 types), group header, payload header / dataset writer IDs. TopologyObservation per publisher; ProtocolTransaction per publish. Dataset value decode deferred. |
 | MELSEC SLMP | TCP | 5007 | Mitsubishi iQ-R / iQ-F / Q series. 4E binary framing, command + subcommand naming for batch read/write, random read/write, remote run/stop/reset, CPU model. Serial-number request/response pairing, end-code propagation, AssetObservation from Read CPU Model response (model string captured) |
+| Yokogawa Vnet/IP | UDP | 32768 | Centum VP / ProSafe-RS DCS. Best-effort header parsing per Wireshark dissector (length, sequence, function code, source/dest vnet addresses); spec is proprietary so unknown function codes are emitted by hex. AssetObservation per source vnet address |
+| OSIsoft PI | TCP | 5450, 5460-5462 | PI Server / PI Connector / AF Server. Recognition by port and magic-byte fingerprint (`PINETMGR`, `PISystem`, `PI-API`, `AFServer`); version-string capture when `3.4.x.y` visible. AssetObservation role=`osisoft_pi_server`. Deep parse not feasible (proprietary). |
 
 ### IT / Infrastructure Protocols
 
@@ -92,6 +94,11 @@ Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), o
 | LDAP / LDAPS | TCP | 389 / 636 | ASN.1 SEQUENCE recognition for LDAP; LDAPS port-only (TLS-encrypted payload) |
 | RDP | TCP | 3389 | TPKT + ITU X.224 Connection Request / Connection Confirm parsing; `mstshash=` cookie extraction (note: spoofable); requested/selected protocol bitmask; negotiation failure code propagation. Stops at encryption boundary. |
 | mDNS / WS-Discovery | UDP | 5353 / 3702 | mDNS: full DNS message parse with compression pointers; PTR/SRV/TXT/A/AAAA → AssetObservation. WS-Discovery: byte-pattern SOAP envelope match for Probe / ProbeMatch / Hello / Bye / Resolve; XAddrs + Types extraction → AssetObservation |
+| DCE/RPC | TCP | 135 + dynamic | MS-RPCE common header, BIND / ALTER_CONTEXT context-list with mixed-endianness UUID decoding; known interface naming (samr, lsarpc, srvsvc, winreg, atsvc, eventlog, epmapper, svcctl, drsuapi, efsrpc); REQUEST/RESPONSE opnum extraction; call-id pairing |
+| TFTP | UDP | 69 | RFC 1350. RRQ/WRQ/ERROR opcode dispatch, filename + mode extraction; high-severity ParseAnomaly on firmware-shaped WRQ filenames (`.bin`, `.hex`, `.fw`, etc.) — unauthorized firmware push detection |
+| IPsec IKE | UDP | 500, 4500 | IKEv1 + IKEv2 28-byte header; exchange-type naming (Main/Aggressive/Quick Mode; SA_INIT, IKE_AUTH, CREATE_CHILD_SA, INFORMATIONAL); initiator/responder SPI extraction; payload chain walk for Vendor ID payloads (Microsoft, Cisco Unity, DPD, NAT-T); NAT-T non-ESP marker handling on 4500 |
+| VNC / RFB | TCP | 5900-5910 | RFC 6143 handshake: server/client ProtocolVersion banners, security-types list (v3.7+) or single u32 (v3.3); Invalid-with-reason path; chosen security type if observable. Stops at encryption boundary. |
+| WinRM / WS-Management | TCP | 5985, 5986 | Byte-pattern POST /wsman detection on 5985, SOAP `<a:Action>` URI extraction (Get/Put/Create/Delete/Enumerate/Pull, MS Shell Command/Receive/Send/Signal); 5986 is TLS-opaque (recognition + AssetObservation only) |
 
 ### L2 / Link Layer Protocols
 

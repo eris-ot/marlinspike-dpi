@@ -22,9 +22,11 @@ pub(crate) mod modbus;
 pub(crate) mod opc_ua;
 pub(crate) mod opc_ua_pubsub;
 pub(crate) mod omron_fins;
+pub(crate) mod osi_pi;
 pub(crate) mod profinet;
 pub(crate) mod s7comm;
 pub(crate) mod tristation;
+pub(crate) mod vnet_ip;
 
 /// Normalise an operation label to `snake_case`, falling back to `fallback`
 /// if the result would be empty.  Used by IT and OT decoders alike.
