@@ -1,6 +1,5 @@
 //! Dissector registry — dispatches packets to protocol-specific parsers.
 
-use std::collections::BTreeMap;
 use std::net::IpAddr;
 
 use crate::dissectors::{
@@ -109,52 +108,9 @@ pub use crate::dissectors::iec104::Iec104Fields;
 
 pub use crate::dissectors::fins::OmronFinsFields;
 
-/// Direction of a Modbus PDU relative to the server (unit).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModbusDirection {
-    /// Client → server (master → slave).
-    Request,
-    /// Server → client (slave → master).
-    Response,
-}
-
-/// Structured Modbus PDU extracted from a single MBAP frame.
-///
-/// Carries the full semantic content needed by Silver for register profiling:
-/// start address, quantity, values, direction, and exception code.
-#[derive(Debug, Clone)]
-pub struct ModbusPdu {
-    /// Base function code (high-bit stripped).
-    pub function_code: u8,
-    /// Request or response frame.
-    pub direction: ModbusDirection,
-    /// Starting register / coil address (0-based). None for response frames
-    /// where the server does not echo the address (FC 01/02/03/04 response).
-    pub start_addr: Option<u16>,
-    /// Quantity of registers or coils. Populated on requests for read FCs and
-    /// on both request and response for write-multiple FCs.
-    pub qty: Option<u16>,
-    /// Register or coil values. Write FCs populate this on the request;
-    /// read FCs populate this on the response. Coil bits are packed per the
-    /// Modbus spec and stored one-per-u16 (0 or 1) for uniform handling.
-    pub values: Vec<u16>,
-    /// Exception code present when the frame is an exception response.
-    pub exception_code: Option<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ModbusFields {
-    pub transaction_id: u16,
-    pub unit_id: u8,
-    pub function_code: u8,
-    pub is_exception: bool,
-    pub exception_code: u8,
-    /// Structured PDU — the authoritative source for Silver register profiling.
-    pub pdu: Option<ModbusPdu>,
-    /// Legacy flat register pairs kept for backward compat with engine helpers.
-    pub registers: Vec<(u16, u16)>,
-    pub device_identification: BTreeMap<String, String>,
-}
+pub use crate::dissectors::modbus::ModbusDirection;
+pub use crate::dissectors::modbus::ModbusPdu;
+pub use crate::dissectors::modbus::ModbusFields;
 
 pub use crate::dissectors::dnp3::Dnp3Fields;
 
@@ -168,82 +124,17 @@ pub use crate::dissectors::profinet::ProfinetFields;
 
 pub use crate::dissectors::dhcp::DhcpFields;
 
-#[derive(Debug, Clone)]
-pub struct SnmpFields {
-    pub version: String,
-    pub community: Option<String>,
-    pub pdu_type: String,
-    pub request_id: Option<i32>,
-    pub var_binds: Vec<SnmpVarBind>,
-    pub sys_name: Option<String>,
-    pub sys_descr: Option<String>,
-    pub sys_object_id: Option<String>,
-    pub engine_id: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SnmpVarBind {
-    pub oid: String,
-    pub value: Option<String>,
-}
+pub use crate::dissectors::snmp::SnmpFields;
+pub use crate::dissectors::snmp::SnmpVarBind;
 
 pub use crate::dissectors::cdp::CdpFields;
 
 pub use crate::dissectors::stp::StpFields;
 
-#[derive(Debug, Clone)]
-pub struct DnsFields {
-    pub transaction_id: u16,
-    pub is_response: bool,
-    pub queries: Vec<String>,
-    pub answers: Vec<String>,
-    /// Structured DNS resource records from answer + additional sections.
-    /// Populated for mDNS responses; gives access to TXT key=value, SRV
-    /// targets, and A/AAAA bindings that the flat `answers` strings lose.
-    pub records: Vec<DnsRecord>,
-}
-
-/// A parsed DNS resource record (answer, authority, or additional).
-#[derive(Debug, Clone)]
-pub struct DnsRecord {
-    /// Owner name (e.g. "Bathroom TV._airplay._tcp.local").
-    pub name: String,
-    /// Record type: A, AAAA, PTR, TXT, SRV, etc.
-    pub rtype: DnsRecordType,
-    /// Parsed data — varies by record type.
-    pub data: DnsRecordData,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DnsRecordType {
-    A,
-    AAAA,
-    PTR,
-    TXT,
-    SRV,
-    Other(u16),
-}
-
-#[derive(Debug, Clone)]
-pub enum DnsRecordData {
-    /// A record: IPv4 address.
-    A(String),
-    /// AAAA record: IPv6 address.
-    Aaaa(String),
-    /// PTR record: domain name.
-    Ptr(String),
-    /// TXT record: key=value pairs.
-    Txt(Vec<String>),
-    /// SRV record: target host and port.
-    Srv {
-        target: String,
-        port: u16,
-        priority: u16,
-        weight: u16,
-    },
-    /// Unparsed record.
-    Raw(Vec<u8>),
-}
+pub use crate::dissectors::dns::DnsFields;
+pub use crate::dissectors::dns::DnsRecord;
+pub use crate::dissectors::dns::DnsRecordType;
+pub use crate::dissectors::dns::DnsRecordData;
 
 pub use crate::dissectors::tcp::TlsFields;
 
@@ -269,28 +160,8 @@ pub use crate::dissectors::vtp::VtpFields;
 
 pub use crate::dissectors::mrp::MrpFields;
 
-#[derive(Debug, Clone)]
-pub struct MstpFields {
-    pub protocol_version: u8,
-    pub bpdu_type: u8,
-    pub flags: u8,
-    pub root_id: String,
-    pub root_path_cost: u32,
-    pub bridge_id: String,
-    pub port_id: u16,
-    pub config_name: Option<String>,
-    pub revision_level: Option<u16>,
-    pub msti_records: Vec<MstiRecord>,
-}
-
-#[derive(Debug, Clone)]
-pub struct MstiRecord {
-    pub flags: u8,
-    pub regional_root: String,
-    pub internal_path_cost: u32,
-    pub bridge_priority: u8,
-    pub remaining_hops: u8,
-}
+pub use crate::dissectors::mstp::MstpFields;
+pub use crate::dissectors::mstp::MstiRecord;
 
 pub use crate::dissectors::pvst::PvstFields;
 
@@ -298,29 +169,9 @@ pub use crate::dissectors::prp::PrpFields;
 
 pub use crate::dissectors::lacp::LacpFields;
 
-#[derive(Debug, Clone)]
-pub struct LacpPartner {
-    pub system_priority: u16,
-    pub system: String,
-    pub key: u16,
-    pub port_priority: u16,
-    pub port: u16,
-    pub state: u8,
-    pub state_flags: Vec<String>,
-}
+pub use crate::dissectors::lacp::LacpPartner;
 
-#[derive(Debug, Clone)]
-pub struct IcmpFields {
-    pub icmp_type: u8,
-    pub icmp_code: u8,
-    pub checksum: u16,
-    pub type_name: String,
-    pub code_name: String,
-    pub identifier: Option<u16>,
-    pub sequence: Option<u16>,
-    pub gateway_ip: Option<String>,
-    pub payload_len: usize,
-}
+pub use crate::dissectors::icmp::IcmpFields;
 
 // ── Trait + Registry ───────────────────────────────────────────
 

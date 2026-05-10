@@ -1,6 +1,25 @@
 //! SNMP dissector with small BER decoder focused on enrichment fields.
 
-use crate::registry::{PacketContext, ProtocolData, ProtocolDissector, SnmpFields, SnmpVarBind};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
+
+#[derive(Debug, Clone)]
+pub struct SnmpFields {
+    pub version: String,
+    pub community: Option<String>,
+    pub pdu_type: String,
+    pub request_id: Option<i32>,
+    pub var_binds: Vec<SnmpVarBind>,
+    pub sys_name: Option<String>,
+    pub sys_descr: Option<String>,
+    pub sys_object_id: Option<String>,
+    pub engine_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SnmpVarBind {
+    pub oid: String,
+    pub value: Option<String>,
+}
 
 #[derive(Default)]
 pub struct SnmpDissector;

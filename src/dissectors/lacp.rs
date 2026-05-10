@@ -3,7 +3,18 @@
 //! EtherType 0x8809 (Slow Protocols), subtype 0x01.
 //! Extracts actor and partner system identity, port, key, and state flags.
 
-use crate::registry::{LacpPartner, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
+
+#[derive(Debug, Clone)]
+pub struct LacpPartner {
+    pub system_priority: u16,
+    pub system: String,
+    pub key: u16,
+    pub port_priority: u16,
+    pub port: u16,
+    pub state: u8,
+    pub state_flags: Vec<String>,
+}
 
 pub const SLOW_PROTOCOLS_ETHERTYPE: u16 = 0x8809;
 

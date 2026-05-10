@@ -1,9 +1,60 @@
 //! DNS dissector — parses DNS queries and responses (RFC 1035).
 
-use crate::registry::{
-    DnsFields, DnsRecord, DnsRecordData, DnsRecordType, PacketContext, ProtocolData,
-    ProtocolDissector,
-};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
+
+#[derive(Debug, Clone)]
+pub struct DnsFields {
+    pub transaction_id: u16,
+    pub is_response: bool,
+    pub queries: Vec<String>,
+    pub answers: Vec<String>,
+    /// Structured DNS resource records from answer + additional sections.
+    /// Populated for mDNS responses; gives access to TXT key=value, SRV
+    /// targets, and A/AAAA bindings that the flat `answers` strings lose.
+    pub records: Vec<DnsRecord>,
+}
+
+/// A parsed DNS resource record (answer, authority, or additional).
+#[derive(Debug, Clone)]
+pub struct DnsRecord {
+    /// Owner name (e.g. "Bathroom TV._airplay._tcp.local").
+    pub name: String,
+    /// Record type: A, AAAA, PTR, TXT, SRV, etc.
+    pub rtype: DnsRecordType,
+    /// Parsed data — varies by record type.
+    pub data: DnsRecordData,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DnsRecordType {
+    A,
+    AAAA,
+    PTR,
+    TXT,
+    SRV,
+    Other(u16),
+}
+
+#[derive(Debug, Clone)]
+pub enum DnsRecordData {
+    /// A record: IPv4 address.
+    A(String),
+    /// AAAA record: IPv6 address.
+    Aaaa(String),
+    /// PTR record: domain name.
+    Ptr(String),
+    /// TXT record: key=value pairs.
+    Txt(Vec<String>),
+    /// SRV record: target host and port.
+    Srv {
+        target: String,
+        port: u16,
+        priority: u16,
+        weight: u16,
+    },
+    /// Unparsed record.
+    Raw(Vec<u8>),
+}
 
 #[derive(Default)]
 pub struct DnsDissector;

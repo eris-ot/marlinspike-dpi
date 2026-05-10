@@ -11,9 +11,54 @@
 
 use std::collections::BTreeMap;
 
-use crate::registry::{
-    ModbusDirection, ModbusFields, ModbusPdu, PacketContext, ProtocolData, ProtocolDissector,
-};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
+
+/// Direction of a Modbus PDU relative to the server (unit).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModbusDirection {
+    /// Client → server (master → slave).
+    Request,
+    /// Server → client (slave → master).
+    Response,
+}
+
+/// Structured Modbus PDU extracted from a single MBAP frame.
+///
+/// Carries the full semantic content needed by Silver for register profiling:
+/// start address, quantity, values, direction, and exception code.
+#[derive(Debug, Clone)]
+pub struct ModbusPdu {
+    /// Base function code (high-bit stripped).
+    pub function_code: u8,
+    /// Request or response frame.
+    pub direction: ModbusDirection,
+    /// Starting register / coil address (0-based). None for response frames
+    /// where the server does not echo the address (FC 01/02/03/04 response).
+    pub start_addr: Option<u16>,
+    /// Quantity of registers or coils. Populated on requests for read FCs and
+    /// on both request and response for write-multiple FCs.
+    pub qty: Option<u16>,
+    /// Register or coil values. Write FCs populate this on the request;
+    /// read FCs populate this on the response. Coil bits are packed per the
+    /// Modbus spec and stored one-per-u16 (0 or 1) for uniform handling.
+    pub values: Vec<u16>,
+    /// Exception code present when the frame is an exception response.
+    pub exception_code: Option<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModbusFields {
+    pub transaction_id: u16,
+    pub unit_id: u8,
+    pub function_code: u8,
+    pub is_exception: bool,
+    pub exception_code: u8,
+    /// Structured PDU — the authoritative source for Silver register profiling.
+    pub pdu: Option<ModbusPdu>,
+    /// Legacy flat register pairs kept for backward compat with engine helpers.
+    pub registers: Vec<(u16, u16)>,
+    pub device_identification: BTreeMap<String, String>,
+}
 
 #[derive(Default)]
 pub struct ModbusDissector;

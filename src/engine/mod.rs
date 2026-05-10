@@ -174,6 +174,19 @@ impl DpiEngine {
         self.process_segment_to_vec(meta, reader)
     }
 
+    /// Streaming-canonical API: processes a capture segment and emits Bronze
+    /// events directly to `sink` as they are produced, returning only the
+    /// checkpoint. Prefer this over `process_segment_to_vec` for live ingest
+    /// or when memory-bounded back-pressure is required.
+    pub fn process_streaming<R: Read + Seek, S: BronzeSink>(
+        &mut self,
+        meta: &SegmentMeta,
+        reader: R,
+        sink: &mut S,
+    ) -> Result<SegmentCheckpoint, DpiError> {
+        self.process_segment(meta, reader, sink)
+    }
+
     pub fn process_segment<R: Read + Seek, S: BronzeSink>(
         &mut self,
         meta: &SegmentMeta,

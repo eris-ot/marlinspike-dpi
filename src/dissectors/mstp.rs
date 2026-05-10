@@ -3,7 +3,30 @@
 //! Same LLC (DSAP=0x42, SSAP=0x42) as STP/RSTP, but version >= 3 with MSTI
 //! configuration records appended after the standard 35-byte BPDU.
 
-use crate::registry::{MstpFields, MstiRecord, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
+
+#[derive(Debug, Clone)]
+pub struct MstpFields {
+    pub protocol_version: u8,
+    pub bpdu_type: u8,
+    pub flags: u8,
+    pub root_id: String,
+    pub root_path_cost: u32,
+    pub bridge_id: String,
+    pub port_id: u16,
+    pub config_name: Option<String>,
+    pub revision_level: Option<u16>,
+    pub msti_records: Vec<MstiRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MstiRecord {
+    pub flags: u8,
+    pub regional_root: String,
+    pub internal_path_cost: u32,
+    pub bridge_priority: u8,
+    pub remaining_hops: u8,
+}
 
 #[derive(Default)]
 pub struct MstpDissector;

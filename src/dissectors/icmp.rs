@@ -5,7 +5,20 @@
 //! provides protocol visibility (ProtocolTransaction / AssetObservation),
 //! while stovetop flags malicious usage patterns.
 
-use crate::registry::{IcmpFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
+
+#[derive(Debug, Clone)]
+pub struct IcmpFields {
+    pub icmp_type: u8,
+    pub icmp_code: u8,
+    pub checksum: u16,
+    pub type_name: String,
+    pub code_name: String,
+    pub identifier: Option<u16>,
+    pub sequence: Option<u16>,
+    pub gateway_ip: Option<String>,
+    pub payload_len: usize,
+}
 
 #[derive(Default)]
 pub struct IcmpDissector;
