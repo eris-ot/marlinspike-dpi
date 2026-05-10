@@ -140,50 +140,7 @@ impl DpiEngine {
                 std::time::Duration::from_secs(5),
                 std::time::Duration::from_secs(1),
             ),
-            decoders: vec![
-                Box::new(ArpDecoder::default()),
-                Box::new(LldpDecoder::default()),
-                Box::new(CdpDecoder::default()),
-                Box::new(StpDecoder::default()),
-                Box::new(BacnetDecoder::default()),
-                Box::new(DnsDecoder::default()),
-                Box::new(DhcpDecoder::default()),
-                Box::new(SnmpDecoder::default()),
-                Box::new(HttpDecoder::default()),
-                Box::new(TlsDecoder),
-                Box::new(ModbusDecoder::default()),
-                Box::new(Dnp3DecoderWrapper::default()),
-                Box::new(Iec104DecoderWrapper::default()),
-                Box::new(OmronFinsDecoder::default()),
-                Box::new(HartIpDecoderWrapper::default()),
-                Box::new(EthernetIpDecoderWrapper::default()),
-                Box::new(OpcUaDecoderWrapper::default()),
-                Box::new(Iec61850DecoderWrapper::default()),
-                Box::new(S7commDecoderWrapper::default()),
-                Box::new(EthercatDecoderWrapper::default()),
-                Box::new(ProfinetDecoderWrapper::default()),
-                Box::new(NtpDecoder::default()),
-                Box::new(SynchrophasorDecoderWrapper::default()),
-                Box::new(SmbRecognizer),
-                Box::new(KerberosRecognizer),
-                Box::new(LdapRecognizer),
-                Box::new(CcLinkRecognizer),
-                Box::new(CodesysRecognizer),
-                Box::new(IoLinkRecognizer),
-                Box::new(IgmpRecognizer),
-                Box::new(MqttDecoder::default()),
-                Box::new(SyslogDecoder::default()),
-                Box::new(FtpDecoder::default()),
-                Box::new(SshDecoder::default()),
-                Box::new(RadiusDecoder::default()),
-                Box::new(VtpDecoder::default()),
-                Box::new(MrpDecoder::default()),
-                Box::new(MstpDecoder::default()),
-                Box::new(PvstDecoder::default()),
-                Box::new(PrpDecoder::default()),
-                Box::new(LacpDecoder::default()),
-                Box::new(IcmpDecoder::default()),
-            ],
+            decoders: collect_registered_decoders(),
             frame_inspector: FrameInspector::new(stovetop_config),
             icmpeeker_config: IcmpeekerConfig::default(),
             bilgepump: BilgepumpMonitor::new(BilgepumpConfig::default()),
@@ -1458,6 +1415,18 @@ pub(crate) fn empty_envelope(
     }
 }
 
+/// Walk every `inventory::submit!`-registered decoder, sort by name for
+/// deterministic ordering across builds, and instantiate via each
+/// registration's factory closure. The fallback to alphabetical name order
+/// keeps test assertions on emission ordering stable across the inventory
+/// crate's link-time iteration order which is otherwise platform-dependent.
+fn collect_registered_decoders() -> Vec<Box<dyn SessionDecoder>> {
+    let mut regs: Vec<&decoders::DecoderRegistration> =
+        inventory::iter::<decoders::DecoderRegistration>().collect();
+    regs.sort_by_key(|r| r.name);
+    regs.into_iter().map(|r| (r.factory)()).collect()
+}
+
 pub(crate) fn ip_to_string(ip: IpAddr) -> Option<String> {
     match ip {
         IpAddr::V4(v4) if v4 == Ipv4Addr::UNSPECIFIED => None,
@@ -1662,27 +1631,6 @@ fn bilgepump_alert_to_event(
 }
 
 pub(crate) mod decoders;
-pub(crate) use decoders::it_app::{
-    DhcpDecoder, DnsDecoder, HttpDecoder, MqttDecoder, SnmpDecoder, TlsDecoder,
-};
-pub(crate) use decoders::it_basic::{
-    FtpDecoder, IcmpDecoder, NtpDecoder, RadiusDecoder, SshDecoder, SyslogDecoder,
-};
-pub(crate) use decoders::link_layer::{
-    ArpDecoder, CdpDecoder, LacpDecoder, LldpDecoder, MrpDecoder, MstpDecoder, PrpDecoder,
-    PvstDecoder, StpDecoder, VtpDecoder,
-};
-pub(crate) use decoders::ot::{
-    BacnetDecoder, Dnp3DecoderWrapper, EthercatDecoderWrapper,
-    EthernetIpDecoderWrapper, HartIpDecoderWrapper, Iec104DecoderWrapper, Iec61850DecoderWrapper,
-    ModbusDecoder, OmronFinsDecoder, OpcUaDecoderWrapper, ProfinetDecoderWrapper,
-    S7commDecoderWrapper,
-};
-pub(crate) use decoders::recognizers::{
-    CcLinkRecognizer, CodesysRecognizer, IgmpRecognizer, IoLinkRecognizer, KerberosRecognizer,
-    LdapRecognizer, SmbRecognizer,
-};
-pub(crate) use decoders::synchrophasor::SynchrophasorDecoderWrapper;
 
 #[cfg(test)]
 mod tests {
@@ -3400,7 +3348,7 @@ mod tests {
             captured_len: mqtt_frame.len() as u64,
         };
 
-        let mut decoder = MqttDecoder::default();
+        let mut decoder = decoders::it_app::MqttDecoder::default();
         let mut out = Vec::new();
         decoder.on_stream_chunk(&chunk, &mut out);
 

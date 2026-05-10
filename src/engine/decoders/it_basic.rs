@@ -76,6 +76,7 @@ impl SessionDecoder for NtpDecoder {
                         values: vec![],
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -183,6 +184,7 @@ impl SessionDecoder for SyslogDecoder {
                         values: vec![],
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -312,6 +314,7 @@ impl SessionDecoder for FtpDecoder {
                         values: vec![],
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -419,6 +422,7 @@ impl SessionDecoder for SshDecoder {
                         values: vec![],
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -562,6 +566,7 @@ impl SessionDecoder for RadiusDecoder {
                         values: vec![],
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -694,9 +699,36 @@ impl SessionDecoder for IcmpDecoder {
                 values: Vec::new(),
                 attributes: attrs,
                         modbus: None,
+                                        protocol_fields: None,
 }),
         ));
     }
 }
 
 // ── Stovetop finding → BronzeEvent helpers ────────────────────
+
+// ── Inventory registration ──────────────────────────────────────
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "ntp",
+    factory: || Box::new(NtpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "syslog",
+    factory: || Box::new(SyslogDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "ftp",
+    factory: || Box::new(FtpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "ssh",
+    factory: || Box::new(SshDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "radius",
+    factory: || Box::new(RadiusDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "icmp",
+    factory: || Box::new(IcmpDecoder::default()),
+});

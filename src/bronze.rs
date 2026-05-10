@@ -86,6 +86,25 @@ pub struct ModbusBronzeFields {
     pub direction: String,
 }
 
+/// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
+/// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
+/// enum that downstream consumers can pattern-match without string lookups.
+///
+/// Variants are added per protocol as decoders migrate from `attributes` to
+/// typed emission. Protocols with no variant yet keep populating `attributes`;
+/// migrating them is a follow-up. The `attributes` field is retained for
+/// backward compatibility through this transition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "protocol", content = "fields", rename_all = "snake_case")]
+pub enum ProtocolFields {
+    Modbus(ModbusBronzeFields),
+    // Future variants land here as decoders migrate. Expected next:
+    //   Dnp3(Dnp3BronzeFields), Iec104(Iec104BronzeFields),
+    //   S7comm(S7commBronzeFields), OpcUa(OpcUaBronzeFields),
+    //   EthernetIp(EthernetIpBronzeFields), Iec61850(Iec61850BronzeFields),
+    //   HartIp(HartIpBronzeFields), Sparkplug(SparkplugBronzeFields).
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolTransaction {
     pub operation: String,
@@ -95,9 +114,15 @@ pub struct ProtocolTransaction {
     pub object_refs: Vec<String>,
     pub values: Vec<ObjectValue>,
     pub attributes: BTreeMap<String, String>,
-    /// Modbus-specific fields;  only when .
+    /// Modbus-specific fields. Deprecated — populate `protocol_fields` with
+    /// `ProtocolFields::Modbus(...)` instead. Retained for backward compat
+    /// through the v1.x line; will be removed in v2.0.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modbus: Option<ModbusBronzeFields>,
+    /// Typed protocol-specific payload. Populated by decoders migrated to
+    /// the typed surface; `None` for protocols still using `attributes`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_fields: Option<ProtocolFields>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

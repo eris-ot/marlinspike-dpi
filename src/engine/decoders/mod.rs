@@ -1,8 +1,23 @@
 //! Per-protocol session decoders. Each submodule owns one decoder
 //! implementation (or a tightly-related family) plus its private state.
 //!
-//! Decoders are registered in `DpiEngine::new()` and dispatched by the
-//! engine pipeline based on `DecoderInterest`.
+//! Decoders self-register via `inventory::submit!(DecoderRegistration { ... })`
+//! at the bottom of their file. `DpiEngine::new()` collects every registration
+//! at startup, sorts by name for determinism, and instantiates each decoder
+//! through its factory closure. Adding a new protocol is a single new file +
+//! one `submit!` block — no central registration list to edit.
+
+use crate::engine::SessionDecoder;
+
+/// One self-registered decoder. `name` is the diagnostic protocol slug
+/// (`"modbus"`, `"sparkplug_b"`, etc.); `factory` constructs a fresh decoder
+/// instance each time `DpiEngine::new()` is called.
+pub(crate) struct DecoderRegistration {
+    pub(crate) name: &'static str,
+    pub(crate) factory: fn() -> Box<dyn SessionDecoder>,
+}
+
+inventory::collect!(DecoderRegistration);
 
 pub(crate) mod it_app;
 pub(crate) mod it_basic;

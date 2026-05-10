@@ -45,6 +45,7 @@ fn emit_recognition(
             values: Vec::new(),
             attributes,
             modbus: None,
+                                        protocol_fields: None,
         }),
     ));
 }
@@ -258,3 +259,33 @@ impl SessionDecoder for IgmpRecognizer {
         emit_recognition(chunk, out, "igmp", operation, summary);
     }
 }
+
+// ── Inventory registration ──────────────────────────────────────
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "smb",
+    factory: || Box::new(SmbRecognizer),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "kerberos",
+    factory: || Box::new(KerberosRecognizer),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "ldap",
+    factory: || Box::new(LdapRecognizer),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "cclink",
+    factory: || Box::new(CcLinkRecognizer),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "codesys",
+    factory: || Box::new(CodesysRecognizer),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "iolink",
+    factory: || Box::new(IoLinkRecognizer),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "igmp",
+    factory: || Box::new(IgmpRecognizer),
+});

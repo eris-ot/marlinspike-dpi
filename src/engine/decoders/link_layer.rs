@@ -501,6 +501,7 @@ impl SessionDecoder for VtpDecoder {
                         values: vec![],
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -969,3 +970,45 @@ impl SessionDecoder for LacpDecoder {
     }
 }
 
+
+// ── Inventory registration ──────────────────────────────────────
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "arp",
+    factory: || Box::new(ArpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "lldp",
+    factory: || Box::new(LldpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "cdp",
+    factory: || Box::new(CdpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "stp",
+    factory: || Box::new(StpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "vtp",
+    factory: || Box::new(VtpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "mrp",
+    factory: || Box::new(MrpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "mstp",
+    factory: || Box::new(MstpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "pvst",
+    factory: || Box::new(PvstDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "prp",
+    factory: || Box::new(PrpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "lacp",
+    factory: || Box::new(LacpDecoder::default()),
+});

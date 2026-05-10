@@ -120,6 +120,7 @@ impl SessionDecoder for BacnetDecoder {
                         values: Vec::new(),
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -258,6 +259,7 @@ impl SessionDecoder for Dnp3DecoderWrapper {
                         values: Vec::new(),
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
                 for event in dnp3_role_observations(
@@ -425,6 +427,7 @@ impl SessionDecoder for Iec104DecoderWrapper {
                     values: Vec::new(),
                     attributes,
                                 modbus: None,
+                                        protocol_fields: None,
 }),
             ));
 
@@ -647,6 +650,7 @@ impl OmronFinsDecoder {
                 values: Vec::new(),
                 attributes,
                         modbus: None,
+                                        protocol_fields: None,
 }),
         ));
 
@@ -922,6 +926,7 @@ impl HartIpDecoderWrapper {
                 values: Vec::new(),
                 attributes,
                         modbus: None,
+                                        protocol_fields: None,
 }),
         ));
 
@@ -1211,6 +1216,7 @@ impl Iec61850DecoderWrapper {
                 values: Vec::new(),
                 attributes,
                         modbus: None,
+                                        protocol_fields: None,
 }),
         ));
 
@@ -1339,6 +1345,7 @@ impl SessionDecoder for EthercatDecoderWrapper {
                         values: Vec::new(),
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -1544,6 +1551,7 @@ impl SessionDecoder for EthernetIpDecoderWrapper {
                         values: Vec::new(),
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
                 for identity in parse_cip_identity_claims(command, &cip_data) {
@@ -1723,6 +1731,7 @@ impl SessionDecoder for OpcUaDecoderWrapper {
                         values: Vec::new(),
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -1856,6 +1865,7 @@ impl SessionDecoder for S7commDecoderWrapper {
                         values: Vec::new(),
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -1970,6 +1980,7 @@ impl SessionDecoder for ProfinetDecoderWrapper {
                         values: Vec::new(),
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -2120,6 +2131,7 @@ impl SessionDecoder for ModbusDecoder {
                                 fields.is_exception,
                                 fields.exception_code,
                             ),
+                            protocol_fields: None,
                         }),
                     ));
                     if !fields.device_identification.is_empty() {
@@ -2163,6 +2175,7 @@ impl SessionDecoder for ModbusDecoder {
                                 fields.is_exception,
                                 fields.exception_code,
                             ),
+                            protocol_fields: None,
                         }),
                     ));
                     if !fields.device_identification.is_empty() {
@@ -2239,6 +2252,7 @@ impl SessionDecoder for ModbusDecoder {
                             false,
                             0,
                         ),
+                        protocol_fields: None,
                     }),
                 ));
             }
@@ -3216,3 +3230,53 @@ fn modbus_identity_observation(
         }),
     )
 }
+
+// ── Inventory registration ──────────────────────────────────────
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "bacnet",
+    factory: || Box::new(BacnetDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "dnp3",
+    factory: || Box::new(Dnp3DecoderWrapper::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "iec104",
+    factory: || Box::new(Iec104DecoderWrapper::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "omron_fins",
+    factory: || Box::new(OmronFinsDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "hart_ip",
+    factory: || Box::new(HartIpDecoderWrapper::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "iec61850",
+    factory: || Box::new(Iec61850DecoderWrapper::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "ethercat",
+    factory: || Box::new(EthercatDecoderWrapper::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "ethernet_ip",
+    factory: || Box::new(EthernetIpDecoderWrapper::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "opc_ua",
+    factory: || Box::new(OpcUaDecoderWrapper::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "s7comm",
+    factory: || Box::new(S7commDecoderWrapper::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "profinet",
+    factory: || Box::new(ProfinetDecoderWrapper::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "modbus",
+    factory: || Box::new(ModbusDecoder::default()),
+});

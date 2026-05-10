@@ -60,3 +60,9 @@ impl SynchrophasorDecoderWrapper {
         out.append(&mut events);
     }
 }
+
+// ── Inventory registration ──────────────────────────────────────
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "synchrophasor",
+    factory: || Box::new(SynchrophasorDecoderWrapper::default()),
+});

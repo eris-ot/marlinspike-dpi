@@ -93,6 +93,7 @@ impl SessionDecoder for DnsDecoder {
                             .collect(),
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
                 if is_response {
@@ -468,6 +469,7 @@ impl SessionDecoder for DhcpDecoder {
                         values: Vec::new(),
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -628,6 +630,7 @@ impl SessionDecoder for SnmpDecoder {
                             .collect(),
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -755,6 +758,7 @@ impl SessionDecoder for HttpDecoder {
                         values: Vec::new(),
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
             }
@@ -809,6 +813,7 @@ impl SessionDecoder for TlsDecoder {
                 values: Vec::new(),
                 attributes,
                         modbus: None,
+                                        protocol_fields: None,
 }),
         ));
         if let Some(sni) = tls.sni {
@@ -1070,6 +1075,7 @@ impl SessionDecoder for MqttDecoder {
                         values: vec![],
                         attributes,
                                         modbus: None,
+                                        protocol_fields: None,
 }),
                 ));
 
@@ -1195,3 +1201,29 @@ fn build_mqtt_publish_context<'a>(
 }
 
 
+
+// ── Inventory registration ──────────────────────────────────────
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "dns",
+    factory: || Box::new(DnsDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "dhcp",
+    factory: || Box::new(DhcpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "snmp",
+    factory: || Box::new(SnmpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "http",
+    factory: || Box::new(HttpDecoder::default()),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "tls",
+    factory: || Box::new(TlsDecoder),
+});
+inventory::submit!(crate::engine::decoders::DecoderRegistration {
+    name: "mqtt",
+    factory: || Box::new(MqttDecoder::default()),
+});
