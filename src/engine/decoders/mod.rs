@@ -19,9 +19,11 @@ pub(crate) struct DecoderRegistration {
 
 inventory::collect!(DecoderRegistration);
 
+pub(crate) mod discovery;
 pub(crate) mod it_app;
 pub(crate) mod it_basic;
 pub(crate) mod link_layer;
 pub(crate) mod ot;
+pub(crate) mod rdp;
 pub(crate) mod recognizers;
 pub(crate) mod synchrophasor;

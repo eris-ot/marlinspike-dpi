@@ -8,18 +8,23 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use crate::registry::{format_mac, PacketContext};
 
+pub(crate) mod ads;
 pub(crate) mod bacnet;
 pub(crate) mod dnp3;
 pub(crate) mod ethercat;
 pub(crate) mod ethernet_ip;
+pub(crate) mod ge_srtp;
 pub(crate) mod hart_ip;
 pub(crate) mod iec104;
 pub(crate) mod iec61850;
+pub(crate) mod melsec;
 pub(crate) mod modbus;
 pub(crate) mod opc_ua;
+pub(crate) mod opc_ua_pubsub;
 pub(crate) mod omron_fins;
 pub(crate) mod profinet;
 pub(crate) mod s7comm;
+pub(crate) mod tristation;
 
 /// Normalise an operation label to `snake_case`, falling back to `fallback`
 /// if the result would be empty.  Used by IT and OT decoders alike.

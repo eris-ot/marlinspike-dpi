@@ -64,6 +64,11 @@ Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), o
 | CC-Link IE Field | UDP | 61450 | Port-based recognition (asset inventory; no PDU parsing) |
 | CODESYS | TCP | 1217, 1740, 2455, 11740 | V2/V3 Gateway/Runtime recognition (asset inventory) |
 | IO-Link Wireless | UDP | 59152 | Port-based recognition (asset inventory) |
+| Beckhoff ADS | TCP | 48898 | TwinCAT. AMS/TCP framing, full AMS header (NetIDs, ports, command, state flags, error code), invoke-ID request/response pairing, command naming, AssetObservation per source NetID |
+| GE SRTP | TCP | 18245 | GE PACSystems / 90-30 / 90-70 PLCs. 56-byte header parse, service request code naming, sequence-number request/response pairing, status code propagation |
+| TriStation | UDP | 1502 | Schneider/Triconex SIS controllers (Tricon, Trident, Tri-GP). Function code naming per public TRITON write-ups; high-severity ParseAnomaly on `SetControlProgram` (0x70 — TRITON payload-delivery command); AssetObservation for engineering-workstation and controller roles |
+| OPC UA PubSub | UDP | 4840 | UADP NetworkMessage parsing: version, publisher_id (all 5 types), group header, payload header / dataset writer IDs. TopologyObservation per publisher; ProtocolTransaction per publish. Dataset value decode deferred. |
+| MELSEC SLMP | TCP | 5007 | Mitsubishi iQ-R / iQ-F / Q series. 4E binary framing, command + subcommand naming for batch read/write, random read/write, remote run/stop/reset, CPU model. Serial-number request/response pairing, end-code propagation, AssetObservation from Read CPU Model response (model string captured) |
 
 ### IT / Infrastructure Protocols
 
@@ -85,6 +90,8 @@ Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), o
 | SMB | TCP | 445, 139 | SMB1/SMB2 signature recognition (`\xFF\|\xFE SMB`); traffic classification |
 | Kerberos | TCP/UDP | 88, 464 | ASN.1 application-tag recognition (AS-REQ/REP, TGS-REQ/REP, AP-REQ/REP, KRB-ERROR) |
 | LDAP / LDAPS | TCP | 389 / 636 | ASN.1 SEQUENCE recognition for LDAP; LDAPS port-only (TLS-encrypted payload) |
+| RDP | TCP | 3389 | TPKT + ITU X.224 Connection Request / Connection Confirm parsing; `mstshash=` cookie extraction (note: spoofable); requested/selected protocol bitmask; negotiation failure code propagation. Stops at encryption boundary. |
+| mDNS / WS-Discovery | UDP | 5353 / 3702 | mDNS: full DNS message parse with compression pointers; PTR/SRV/TXT/A/AAAA → AssetObservation. WS-Discovery: byte-pattern SOAP envelope match for Probe / ProbeMatch / Hello / Bye / Resolve; XAddrs + Types extraction → AssetObservation |
 
 ### L2 / Link Layer Protocols
 
