@@ -307,12 +307,21 @@ marlinspike-dpi \
   --pretty
 ```
 
+```bash
+marlinspike-dpi --input capture.pcap --format ocsf > events.ndjson
+marlinspike-dpi --input capture.pcap --format influx > readings.lp
+```
+
 Options:
 
 - `--input <path>` -- PCAP or PCAPNG capture file
 - `--capture-id <id>` -- stable identifier stamped into Bronze output (defaults to filename)
-- `--output <path>` -- JSON output path (stdout when omitted)
-- `--pretty` -- pretty-print JSON
+- `--output <path>` -- output path (stdout when omitted)
+- `--pretty` -- pretty-print Bronze JSON (no effect on `ocsf` / `influx`)
+- `--format <bronze|ocsf|influx>` -- output format (default `bronze`)
+    - `bronze` -- canonical Bronze envelope JSON
+    - `ocsf` -- OCSF v1.4.0 records as NDJSON (one JSON object per line); skips ProcessReading / ExtractedArtifact / TopologyObservation
+    - `influx` -- InfluxDB Line Protocol, one line per `ProcessReading`; skips every other family
 
 Output envelope:
 

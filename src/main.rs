@@ -4,9 +4,23 @@ use std::path::PathBuf;
 use std::process;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+use fm_dpi::output::{influx_line, ocsf};
 use fm_dpi::{DpiEngine, DpiSegmentOutput, SegmentMeta};
 use serde::Serialize;
+
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+#[clap(rename_all = "lowercase")]
+enum Format {
+    /// Canonical Bronze envelope JSON (engine + version + input + output).
+    Bronze,
+    /// OCSF v1.4.0 records, one JSON object per line (NDJSON). Skips
+    /// ProcessReading, ExtractedArtifact, TopologyObservation (no OCSF class).
+    Ocsf,
+    /// InfluxDB Line Protocol, one line per ProcessReading. Skips every
+    /// other Bronze family.
+    Influx,
+}
 
 #[derive(Debug, Parser)]
 #[command(
@@ -22,13 +36,18 @@ struct Cli {
     #[arg(long)]
     capture_id: Option<String>,
 
-    /// Optional JSON output path. Defaults to stdout when omitted.
+    /// Optional output path. Defaults to stdout when omitted.
     #[arg(long)]
     output: Option<PathBuf>,
 
-    /// Pretty-print JSON output.
+    /// Pretty-print Bronze JSON output. No effect for `ocsf` / `influx` formats,
+    /// which have their own native line-oriented framing.
     #[arg(long, default_value_t = false)]
     pretty: bool,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = Format::Bronze)]
+    format: Format,
 }
 
 #[derive(Debug, Serialize)]
@@ -68,7 +87,7 @@ fn build_output(cli: &Cli) -> Result<(String, DpiSegmentOutput, usize)> {
     Ok((capture_id, output, bytes.len()))
 }
 
-fn write_json(cli: &Cli, payload: &str) -> Result<()> {
+fn write_payload(cli: &Cli, payload: &str) -> Result<()> {
     if let Some(path) = &cli.output {
         fs::write(path, format!("{payload}\n"))
             .with_context(|| format!("failed to write output: {}", path.display()))?;
@@ -79,7 +98,7 @@ fn write_json(cli: &Cli, payload: &str) -> Result<()> {
     let mut writer = BufWriter::new(stdout.lock());
     writer
         .write_all(payload.as_bytes())
-        .context("failed to write JSON to stdout")?;
+        .context("failed to write payload to stdout")?;
     writer.write_all(b"\n").context("failed to flush newline")?;
     writer.flush().context("failed to flush stdout")?;
     Ok(())
@@ -88,23 +107,30 @@ fn write_json(cli: &Cli, payload: &str) -> Result<()> {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let (capture_id, output, size_bytes) = build_output(&cli)?;
-    let envelope = OutputEnvelope {
-        engine: "marlinspike-dpi",
-        version: env!("CARGO_PKG_VERSION"),
-        input: InputMeta {
-            path: cli.input.display().to_string(),
-            capture_id: &capture_id,
-            size_bytes,
-        },
-        output: &output,
+
+    let payload = match cli.format {
+        Format::Bronze => {
+            let envelope = OutputEnvelope {
+                engine: "marlinspike-dpi",
+                version: env!("CARGO_PKG_VERSION"),
+                input: InputMeta {
+                    path: cli.input.display().to_string(),
+                    capture_id: &capture_id,
+                    size_bytes,
+                },
+                output: &output,
+            };
+            if cli.pretty {
+                serde_json::to_string_pretty(&envelope)?
+            } else {
+                serde_json::to_string(&envelope)?
+            }
+        }
+        Format::Ocsf => ocsf::render_ndjson(&output.events),
+        Format::Influx => influx_line::render_many(&output.events),
     };
 
-    let json = if cli.pretty {
-        serde_json::to_string_pretty(&envelope)?
-    } else {
-        serde_json::to_string(&envelope)?
-    };
-    write_json(&cli, &json)
+    write_payload(&cli, &payload)
 }
 
 fn main() {
