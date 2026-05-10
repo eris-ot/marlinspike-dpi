@@ -10,6 +10,7 @@ use crate::registry::{format_mac, PacketContext};
 
 pub(crate) mod ads;
 pub(crate) mod bacnet;
+pub(crate) mod cip_safety;
 pub(crate) mod dnp3;
 pub(crate) mod ethercat;
 pub(crate) mod ethernet_ip;
@@ -19,6 +20,7 @@ pub(crate) mod iec104;
 pub(crate) mod iec61850;
 pub(crate) mod melsec;
 pub(crate) mod modbus;
+pub(crate) mod opc_classic;
 pub(crate) mod opc_ua;
 pub(crate) mod opc_ua_pubsub;
 pub(crate) mod omron_fins;

@@ -71,6 +71,8 @@ Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), o
 | MELSEC SLMP | TCP | 5007 | Mitsubishi iQ-R / iQ-F / Q series. 4E binary framing, command + subcommand naming for batch read/write, random read/write, remote run/stop/reset, CPU model. Serial-number request/response pairing, end-code propagation, AssetObservation from Read CPU Model response (model string captured) |
 | Yokogawa Vnet/IP | UDP | 32768 | Centum VP / ProSafe-RS DCS. Best-effort header parsing per Wireshark dissector (length, sequence, function code, source/dest vnet addresses); spec is proprietary so unknown function codes are emitted by hex. AssetObservation per source vnet address |
 | OSIsoft PI | TCP | 5450, 5460-5462 | PI Server / PI Connector / AF Server. Recognition by port and magic-byte fingerprint (`PINETMGR`, `PISystem`, `PI-API`, `AFServer`); version-string capture when `3.4.x.y` visible. AssetObservation role=`osisoft_pi_server`. Deep parse not feasible (proprietary). |
+| OPC Classic (DA/HDA/AE) | TCP | 135 (+ dynamic) | DCOM-based legacy OPC riding DCE/RPC. Detects OPC interface UUIDs (`IOPCServer`, `IOPCAsyncIO2`, `IOPCHDA_Server`, `IOPCEventServer`, etc.) in BIND PDUs; mixed-endian UUID decoding. Endpoint-mapper dynamic-port tracking not yet implemented. |
+| CIP Safety | TCP | 44818 | SIL-3 safety profile over CIP/EtherNet/IP. Detects Network Safety Segment (0x50) in Forward_Open (0x54) and Large_Forward_Open (0x5B) connection paths. Emits cip_safety_forward_open with connection serial / vendor / originator serial / RPI / transport type. Internal safety-segment fields not yet parsed (Type 1/2/Extended). |
 
 ### IT / Infrastructure Protocols
 
@@ -99,6 +101,13 @@ Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), o
 | IPsec IKE | UDP | 500, 4500 | IKEv1 + IKEv2 28-byte header; exchange-type naming (Main/Aggressive/Quick Mode; SA_INIT, IKE_AUTH, CREATE_CHILD_SA, INFORMATIONAL); initiator/responder SPI extraction; payload chain walk for Vendor ID payloads (Microsoft, Cisco Unity, DPD, NAT-T); NAT-T non-ESP marker handling on 4500 |
 | VNC / RFB | TCP | 5900-5910 | RFC 6143 handshake: server/client ProtocolVersion banners, security-types list (v3.7+) or single u32 (v3.3); Invalid-with-reason path; chosen security type if observable. Stops at encryption boundary. |
 | WinRM / WS-Management | TCP | 5985, 5986 | Byte-pattern POST /wsman detection on 5985, SOAP `<a:Action>` URI extraction (Get/Put/Create/Delete/Enumerate/Pull, MS Shell Command/Receive/Send/Signal); 5986 is TLS-opaque (recognition + AssetObservation only) |
+| NetBIOS / NBT | UDP / TCP | 137, 138, 139 | NBNS name service (DNS-like, encoded names with suffix-byte role inference: workstation, file server, master browser, domain controllers); NetBIOS Datagram Service header parse with source-name/dest-name extraction |
+| TACACS+ | TCP | 49 | RFC 8907. 12-byte plaintext header (type, seq, session_id, flags); for unencrypted bodies (flag bit 0), AUTHEN START extracts action / authen_type / service / priv_lvl / username / port / rem_addr. Body is XOR-obfuscated (not encrypted) — header alone gives login visibility |
+| WireGuard | UDP | 51820 | Handshake Initiation / Response / Cookie Reply / Transport Data dispatch; sender_index + receiver_index extraction; reserved-byte sanity check identifies WG even on non-default ports |
+| NetFlow / IPFIX | UDP | 2055, 4739, 9995, 9996 | v5 (24-byte header + records), v9 (FlowSets), IPFIX/v10 (Sets) export-message parse. Per-packet attributes (record count / FlowSet ids / Set ids, sequence, observation domain). Template tracking across packets deferred. AssetObservation per exporter + collector |
+| QUIC | UDP | 80, 443 | Long-header parse (INITIAL / 0-RTT / HANDSHAKE / RETRY / Version Negotiation): version, DCID, SCID; short-header recognition only (DCID is context-dependent). AEAD payload not decrypted — SNI extraction intentionally out of scope. |
+| SMTP / SMTPS | TCP | 25, 465, 587 | Line-oriented ASCII command parse (HELO/EHLO/MAIL FROM/RCPT TO/DATA/RSET/QUIT/STARTTLS/AUTH); server banner with vendor heuristic (Postfix/Sendmail/Exchange/Exim/IIS). STARTTLS-220 marks session as encrypted. 465 is TLS from byte 0 — recognition only. |
+| OpenVPN | UDP / TCP | 1194 | Opcode/key_id 5-bit/3-bit split; HARD_RESET / SOFT_RESET / CONTROL / ACK / DATA / WKC dispatch including v1/v2/v3 hard-reset variants. Session ID (8 bytes) extraction; TCP 2-byte BE length-prefix reassembly |
 
 ### L2 / Link Layer Protocols
 
