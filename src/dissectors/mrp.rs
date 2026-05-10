@@ -3,7 +3,7 @@
 //! EtherType 0x88E3. TLV-based frames: MRP_Test, MRP_TopologyChange,
 //! MRP_LinkDown, MRP_LinkUp, MRP_Common.
 
-use crate::registry::{MrpFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 pub const MRP_ETHERTYPE: u16 = 0x88E3;
 
@@ -137,6 +137,17 @@ impl ProtocolDissector for MrpDissector {
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {
         Some(ProtocolData::Mrp(self.parse_fields(data)?))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct MrpFields {
+    pub version: u16,
+    pub frame_type: u16,
+    pub frame_type_name: String,
+    pub domain_uuid: Option<String>,
+    pub ring_state: Option<String>,
+    pub priority: Option<u16>,
+    pub source_mac: Option<String>,
 }
 
 #[cfg(test)]

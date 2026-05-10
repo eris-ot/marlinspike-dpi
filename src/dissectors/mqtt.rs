@@ -1,6 +1,6 @@
 //! MQTT dissector — extracts connect metadata and publish topics from MQTT 3.1/3.1.1/5.0.
 
-use crate::registry::{MqttFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct MqttDissector;
@@ -204,6 +204,23 @@ impl ProtocolDissector for MqttDissector {
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {
         Some(ProtocolData::Mqtt(self.parse_fields(data)?))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct MqttFields {
+    pub packet_type: u8,
+    pub packet_type_name: String,
+    pub protocol_name: Option<String>,
+    pub protocol_version: Option<u8>,
+    pub client_id: Option<String>,
+    pub username: Option<String>,
+    pub topic: Option<String>,
+    pub qos: Option<u8>,
+    pub retain: Option<bool>,
+    pub clean_session: Option<bool>,
+    /// Post-topic publish payload bytes, populated only for PUBLISH (packet_type == 3).
+    /// `None` for all other packet types. Empty Vec means "PUBLISH with zero-byte payload".
+    pub payload: Option<Vec<u8>>,
 }
 
 #[cfg(test)]

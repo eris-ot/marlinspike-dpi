@@ -1,6 +1,6 @@
 //! OMRON FINS dissector with lightweight FINS/UDP and FINS/TCP parsing.
 
-use crate::registry::{OmronFinsFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct OmronFinsDissector;
@@ -225,6 +225,30 @@ struct FinsHeader {
     source_node: u8,
     source_unit: u8,
     service_id: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct OmronFinsFields {
+    pub frame_variant: String,
+    pub tcp_command: Option<u32>,
+    pub tcp_error_code: Option<u32>,
+    pub icf: Option<u8>,
+    pub rsv: Option<u8>,
+    pub gateway_count: Option<u8>,
+    pub destination_network: Option<u8>,
+    pub destination_node: Option<u8>,
+    pub destination_unit: Option<u8>,
+    pub source_network: Option<u8>,
+    pub source_node: Option<u8>,
+    pub source_unit: Option<u8>,
+    pub service_id: Option<u8>,
+    pub command_code: Option<u16>,
+    pub command_name: Option<String>,
+    pub memory_area: Option<u8>,
+    pub memory_word: Option<u16>,
+    pub memory_bit: Option<u8>,
+    pub item_count: Option<u16>,
+    pub payload: Vec<u8>,
 }
 
 #[cfg(test)]

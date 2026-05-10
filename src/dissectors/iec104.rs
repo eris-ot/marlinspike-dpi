@@ -1,6 +1,6 @@
 //! IEC 60870-5-104 dissector with lightweight APCI/ASDU parsing.
 
-use crate::registry::{Iec104Fields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct Iec104Dissector;
@@ -128,6 +128,19 @@ fn iec104_u_format_name(code: u8) -> &'static str {
         0x83 => "testfr_con",
         _ => "u_format",
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Iec104Fields {
+    pub frame_type: String,
+    pub send_sequence: Option<u16>,
+    pub receive_sequence: Option<u16>,
+    pub u_format: Option<String>,
+    pub type_id: Option<u8>,
+    pub cause_of_transmission: Option<u16>,
+    pub common_address: Option<u16>,
+    pub information_object_address: Option<u32>,
+    pub payload: Vec<u8>,
 }
 
 #[cfg(test)]

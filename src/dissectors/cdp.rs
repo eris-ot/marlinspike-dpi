@@ -1,6 +1,6 @@
 //! CDP dissector — enrichment-first parsing for Cisco Discovery Protocol TLVs.
 
-use crate::registry::{CdpFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct CdpDissector;
@@ -145,6 +145,21 @@ fn decode_capabilities(bits: u32, out: &mut Vec<String>) {
             out.push(name.to_string());
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct CdpFields {
+    pub version: u8,
+    pub ttl: u8,
+    pub checksum: u16,
+    pub device_id: String,
+    pub port_id: String,
+    pub platform: Option<String>,
+    pub software_version: Option<String>,
+    pub capabilities: Vec<String>,
+    pub native_vlan: Option<u16>,
+    pub duplex: Option<String>,
+    pub management_addresses: Vec<String>,
 }
 
 #[cfg(test)]

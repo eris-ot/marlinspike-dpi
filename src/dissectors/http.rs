@@ -1,6 +1,6 @@
 //! HTTP dissector — parses HTTP/1.x request and response first lines.
 
-use crate::registry::{HttpFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct HttpDissector;
@@ -90,6 +90,16 @@ fn find_header(text: &str, name: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[derive(Debug, Clone)]
+pub struct HttpFields {
+    pub method: String,
+    pub host: String,
+    pub uri: String,
+    pub status_code: u16,
+    pub content_type: String,
+    pub content_length: u64,
 }
 
 #[cfg(test)]

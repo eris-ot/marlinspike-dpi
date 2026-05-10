@@ -1,6 +1,6 @@
 //! NTP dissector — extracts time synchronisation metadata from NTP packets.
 
-use crate::registry::{NtpFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct NtpDissector;
@@ -99,6 +99,21 @@ impl ProtocolDissector for NtpDissector {
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {
         Some(ProtocolData::Ntp(self.parse_fields(data)?))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct NtpFields {
+    pub version: u8,
+    pub mode: u8,
+    pub mode_name: String,
+    pub leap_indicator: u8,
+    pub stratum: u8,
+    pub poll: i8,
+    pub precision: i8,
+    pub root_delay_ms: f64,
+    pub root_dispersion_ms: f64,
+    pub reference_id: String,
+    pub reference_timestamp: f64,
 }
 
 #[cfg(test)]

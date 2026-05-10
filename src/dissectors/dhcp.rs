@@ -1,6 +1,6 @@
 //! DHCP dissector focused on enrichment-first BOOTP/DHCP option extraction.
 
-use crate::registry::{DhcpFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct DhcpDissector;
@@ -144,6 +144,23 @@ fn format_client_id(bytes: &[u8]) -> String {
         .map(|b| format!("{:02x}", b))
         .collect::<Vec<_>>()
         .join(":")
+}
+
+#[derive(Debug, Clone)]
+pub struct DhcpFields {
+    pub op: u8,
+    pub xid: u32,
+    pub client_mac: [u8; 6],
+    pub ciaddr: Option<String>,
+    pub yiaddr: Option<String>,
+    pub siaddr: Option<String>,
+    pub giaddr: Option<String>,
+    pub message_type: Option<u8>,
+    pub hostname: Option<String>,
+    pub client_id: Option<String>,
+    pub vendor_class: Option<String>,
+    pub requested_ip: Option<String>,
+    pub server_id: Option<String>,
 }
 
 #[cfg(test)]

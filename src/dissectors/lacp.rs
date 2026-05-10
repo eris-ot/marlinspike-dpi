@@ -3,7 +3,7 @@
 //! EtherType 0x8809 (Slow Protocols), subtype 0x01.
 //! Extracts actor and partner system identity, port, key, and state flags.
 
-use crate::registry::{LacpFields, LacpPartner, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{LacpPartner, PacketContext, ProtocolData, ProtocolDissector};
 
 pub const SLOW_PROTOCOLS_ETHERTYPE: u16 = 0x8809;
 
@@ -124,6 +124,14 @@ impl ProtocolDissector for LacpDissector {
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {
         Some(ProtocolData::Lacp(self.parse_fields(data)?))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct LacpFields {
+    pub version: u8,
+    pub actor: LacpPartner,
+    pub partner: LacpPartner,
+    pub max_delay: Option<u16>,
 }
 
 #[cfg(test)]

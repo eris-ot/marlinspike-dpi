@@ -103,55 +103,11 @@ impl ProtocolData {
 
 // ── Field structs ──────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
-pub struct BacnetFields {
-    pub link_variant: String,
-    pub bvlc_function: Option<String>,
-    pub npdu_control: u8,
-    pub apdu_type: String,
-    pub service: String,
-    pub invoke_id: Option<u8>,
-    pub device_instance: Option<u32>,
-    pub vendor_id: Option<u16>,
-    pub payload: Vec<u8>,
-}
+pub use crate::dissectors::bacnet::BacnetFields;
 
-#[derive(Debug, Clone)]
-pub struct Iec104Fields {
-    pub frame_type: String,
-    pub send_sequence: Option<u16>,
-    pub receive_sequence: Option<u16>,
-    pub u_format: Option<String>,
-    pub type_id: Option<u8>,
-    pub cause_of_transmission: Option<u16>,
-    pub common_address: Option<u16>,
-    pub information_object_address: Option<u32>,
-    pub payload: Vec<u8>,
-}
+pub use crate::dissectors::iec104::Iec104Fields;
 
-#[derive(Debug, Clone)]
-pub struct OmronFinsFields {
-    pub frame_variant: String,
-    pub tcp_command: Option<u32>,
-    pub tcp_error_code: Option<u32>,
-    pub icf: Option<u8>,
-    pub rsv: Option<u8>,
-    pub gateway_count: Option<u8>,
-    pub destination_network: Option<u8>,
-    pub destination_node: Option<u8>,
-    pub destination_unit: Option<u8>,
-    pub source_network: Option<u8>,
-    pub source_node: Option<u8>,
-    pub source_unit: Option<u8>,
-    pub service_id: Option<u8>,
-    pub command_code: Option<u16>,
-    pub command_name: Option<String>,
-    pub memory_area: Option<u8>,
-    pub memory_word: Option<u16>,
-    pub memory_bit: Option<u8>,
-    pub item_count: Option<u16>,
-    pub payload: Vec<u8>,
-}
+pub use crate::dissectors::fins::OmronFinsFields;
 
 /// Direction of a Modbus PDU relative to the server (unit).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,59 +156,17 @@ pub struct ModbusFields {
     pub device_identification: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct Dnp3Fields {
-    pub source_address: u16,
-    pub destination_address: u16,
-    pub function_code: u8,
-    pub application_data: Vec<u8>,
-}
+pub use crate::dissectors::dnp3::Dnp3Fields;
 
-#[derive(Debug, Clone)]
-pub struct EthernetIpFields {
-    pub command: u16,
-    pub session_handle: u32,
-    pub cip_data: Vec<u8>,
-}
+pub use crate::dissectors::ethernet_ip::EthernetIpFields;
 
-#[derive(Debug, Clone)]
-pub struct OpcUaFields {
-    pub message_type: String,
-    pub request_id: u32,
-    pub service_type: String,
-}
+pub use crate::dissectors::opc_ua::OpcUaFields;
 
-#[derive(Debug, Clone)]
-pub struct S7commFields {
-    pub rosctr: u8,
-    pub function: u8,
-    pub parameter: Vec<u8>,
-    pub data: Vec<u8>,
-}
+pub use crate::dissectors::s7comm::S7commFields;
 
-#[derive(Debug, Clone)]
-pub struct ProfinetFields {
-    pub frame_id: u16,
-    pub service_type: String,
-    pub payload: Vec<u8>,
-}
+pub use crate::dissectors::profinet::ProfinetFields;
 
-#[derive(Debug, Clone)]
-pub struct DhcpFields {
-    pub op: u8,
-    pub xid: u32,
-    pub client_mac: [u8; 6],
-    pub ciaddr: Option<String>,
-    pub yiaddr: Option<String>,
-    pub siaddr: Option<String>,
-    pub giaddr: Option<String>,
-    pub message_type: Option<u8>,
-    pub hostname: Option<String>,
-    pub client_id: Option<String>,
-    pub vendor_class: Option<String>,
-    pub requested_ip: Option<String>,
-    pub server_id: Option<String>,
-}
+pub use crate::dissectors::dhcp::DhcpFields;
 
 #[derive(Debug, Clone)]
 pub struct SnmpFields {
@@ -273,34 +187,9 @@ pub struct SnmpVarBind {
     pub value: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct CdpFields {
-    pub version: u8,
-    pub ttl: u8,
-    pub checksum: u16,
-    pub device_id: String,
-    pub port_id: String,
-    pub platform: Option<String>,
-    pub software_version: Option<String>,
-    pub capabilities: Vec<String>,
-    pub native_vlan: Option<u16>,
-    pub duplex: Option<String>,
-    pub management_addresses: Vec<String>,
-}
+pub use crate::dissectors::cdp::CdpFields;
 
-#[derive(Debug, Clone)]
-pub struct StpFields {
-    pub protocol_version: u8,
-    pub bpdu_type: u8,
-    pub flags: u8,
-    pub root_id: String,
-    pub root_path_cost: u32,
-    pub bridge_id: String,
-    pub port_id: u16,
-    pub hello_time: u16,
-    pub max_age: u16,
-    pub forward_delay: u16,
-}
+pub use crate::dissectors::stp::StpFields;
 
 #[derive(Debug, Clone)]
 pub struct DnsFields {
@@ -356,139 +245,29 @@ pub enum DnsRecordData {
     Raw(Vec<u8>),
 }
 
-#[derive(Debug, Clone)]
-pub struct TlsFields {
-    pub version: String,
-    pub cipher_suite: String,
-    pub sni: String,
-    pub certificate_subjects: Vec<String>,
-}
+pub use crate::dissectors::tcp::TlsFields;
 
-#[derive(Debug, Clone)]
-pub struct HttpFields {
-    pub method: String,
-    pub host: String,
-    pub uri: String,
-    pub status_code: u16,
-    pub content_type: String,
-    pub content_length: u64,
-}
+pub use crate::dissectors::http::HttpFields;
 
-#[derive(Debug, Clone)]
-pub struct ArpFields {
-    pub operation: u16,
-    pub sender_mac: [u8; 6],
-    pub sender_ip: [u8; 4],
-    pub target_mac: [u8; 6],
-    pub target_ip: [u8; 4],
-}
+pub use crate::dissectors::arp::ArpFields;
 
-#[derive(Debug, Clone)]
-pub struct LldpFields {
-    pub chassis_id: String,
-    pub port_id: String,
-    pub ttl: u16,
-    pub system_name: String,
-    pub system_description: String,
-    pub capabilities: Vec<String>,
-}
+pub use crate::dissectors::lldp::LldpFields;
 
-#[derive(Debug, Clone)]
-pub struct NtpFields {
-    pub version: u8,
-    pub mode: u8,
-    pub mode_name: String,
-    pub leap_indicator: u8,
-    pub stratum: u8,
-    pub poll: i8,
-    pub precision: i8,
-    pub root_delay_ms: f64,
-    pub root_dispersion_ms: f64,
-    pub reference_id: String,
-    pub reference_timestamp: f64,
-}
+pub use crate::dissectors::ntp::NtpFields;
 
-#[derive(Debug, Clone)]
-pub struct MqttFields {
-    pub packet_type: u8,
-    pub packet_type_name: String,
-    pub protocol_name: Option<String>,
-    pub protocol_version: Option<u8>,
-    pub client_id: Option<String>,
-    pub username: Option<String>,
-    pub topic: Option<String>,
-    pub qos: Option<u8>,
-    pub retain: Option<bool>,
-    pub clean_session: Option<bool>,
-    /// Post-topic publish payload bytes, populated only for PUBLISH (packet_type == 3).
-    /// `None` for all other packet types. Empty Vec means "PUBLISH with zero-byte payload".
-    pub payload: Option<Vec<u8>>,
-}
+pub use crate::dissectors::mqtt::MqttFields;
 
-#[derive(Debug, Clone)]
-pub struct SyslogFields {
-    pub facility: u8,
-    pub facility_name: String,
-    pub severity: u8,
-    pub severity_name: String,
-    pub hostname: Option<String>,
-    pub app_name: Option<String>,
-    pub message: Option<String>,
-}
+pub use crate::dissectors::syslog::SyslogFields;
 
-#[derive(Debug, Clone)]
-pub struct FtpFields {
-    pub is_response: bool,
-    pub command: Option<String>,
-    pub argument: Option<String>,
-    pub reply_code: Option<u16>,
-    pub reply_text: Option<String>,
-    pub banner: Option<String>,
-}
+pub use crate::dissectors::ftp::FtpFields;
 
-#[derive(Debug, Clone)]
-pub struct SshFields {
-    pub protocol_version: String,
-    pub software_version: String,
-    pub comments: Option<String>,
-    pub banner: String,
-}
+pub use crate::dissectors::ssh::SshFields;
 
-#[derive(Debug, Clone)]
-pub struct RadiusFields {
-    pub code: u8,
-    pub code_name: String,
-    pub identifier: u8,
-    pub username: Option<String>,
-    pub nas_ip_address: Option<String>,
-    pub nas_identifier: Option<String>,
-    pub calling_station_id: Option<String>,
-    pub called_station_id: Option<String>,
-    pub nas_port_type: Option<u32>,
-    pub framed_ip_address: Option<String>,
-    pub service_type: Option<u32>,
-}
+pub use crate::dissectors::radius::RadiusFields;
 
-#[derive(Debug, Clone)]
-pub struct VtpFields {
-    pub version: u8,
-    pub message_type: u8,
-    pub message_type_name: String,
-    pub domain_name: String,
-    pub revision: Option<u32>,
-    pub vlans: Vec<u16>,
-}
+pub use crate::dissectors::vtp::VtpFields;
 
-#[derive(Debug, Clone)]
-pub struct MrpFields {
-    pub version: u16,
-    pub frame_type: u16,
-    pub frame_type_name: String,
-    pub domain_uuid: Option<String>,
-    pub ring_state: Option<String>,
-    pub priority: Option<u16>,
-    pub source_mac: Option<String>,
-}
+pub use crate::dissectors::mrp::MrpFields;
 
 #[derive(Debug, Clone)]
 pub struct MstpFields {
@@ -513,36 +292,11 @@ pub struct MstiRecord {
     pub remaining_hops: u8,
 }
 
-#[derive(Debug, Clone)]
-pub struct PvstFields {
-    pub protocol_version: u8,
-    pub bpdu_type: u8,
-    pub flags: u8,
-    pub root_id: String,
-    pub root_path_cost: u32,
-    pub bridge_id: String,
-    pub port_id: u16,
-    pub originating_vlan: Option<u16>,
-}
+pub use crate::dissectors::pvst::PvstFields;
 
-#[derive(Debug, Clone)]
-pub struct PrpFields {
-    pub supervision_path: u16,
-    pub supervision_version: u16,
-    pub supervision_type: u16,
-    pub supervision_type_name: String,
-    pub source_mac: Option<String>,
-    pub red_box_mac: Option<String>,
-    pub sequence_nr: Option<u16>,
-}
+pub use crate::dissectors::prp::PrpFields;
 
-#[derive(Debug, Clone)]
-pub struct LacpFields {
-    pub version: u8,
-    pub actor: LacpPartner,
-    pub partner: LacpPartner,
-    pub max_delay: Option<u16>,
-}
+pub use crate::dissectors::lacp::LacpFields;
 
 #[derive(Debug, Clone)]
 pub struct LacpPartner {

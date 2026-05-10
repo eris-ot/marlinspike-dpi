@@ -3,7 +3,7 @@
 //! SSH banners follow RFC 4253 §4.2: `SSH-protoversion-softwareversion SP comments`
 //! This dissector only parses the initial banner exchange; encrypted traffic is opaque.
 
-use crate::registry::{PacketContext, ProtocolData, ProtocolDissector, SshFields};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct SshDissector;
@@ -53,6 +53,14 @@ impl ProtocolDissector for SshDissector {
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {
         Some(ProtocolData::Ssh(self.parse_fields(data)?))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct SshFields {
+    pub protocol_version: String,
+    pub software_version: String,
+    pub comments: Option<String>,
+    pub banner: String,
 }
 
 #[cfg(test)]

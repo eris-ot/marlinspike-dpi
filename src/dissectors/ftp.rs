@@ -1,6 +1,6 @@
 //! FTP dissector — extracts commands, reply codes, and server banners.
 
-use crate::registry::{FtpFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct FtpDissector;
@@ -78,6 +78,16 @@ impl ProtocolDissector for FtpDissector {
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {
         Some(ProtocolData::Ftp(self.parse_fields(data)?))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct FtpFields {
+    pub is_response: bool,
+    pub command: Option<String>,
+    pub argument: Option<String>,
+    pub reply_code: Option<u16>,
+    pub reply_text: Option<String>,
+    pub banner: Option<String>,
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! DNP3 protocol dissector with full data link, transport, and application layer parsing.
 
-use crate::registry::{Dnp3Fields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct Dnp3Dissector;
@@ -120,6 +120,14 @@ impl ProtocolDissector for Dnp3Dissector {
             application_data,
         }))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Dnp3Fields {
+    pub source_address: u16,
+    pub destination_address: u16,
+    pub function_code: u8,
+    pub application_data: Vec<u8>,
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! BACnet dissector with lightweight BVLC/NPDU/APDU parsing.
 
-use crate::registry::{BacnetFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct BacnetDissector;
@@ -294,6 +294,19 @@ fn bacnet_confirmed_service_name(code: u8) -> &'static str {
         0x1A => "read_range",
         _ => "confirmed_service",
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct BacnetFields {
+    pub link_variant: String,
+    pub bvlc_function: Option<String>,
+    pub npdu_control: u8,
+    pub apdu_type: String,
+    pub service: String,
+    pub invoke_id: Option<u8>,
+    pub device_instance: Option<u32>,
+    pub vendor_id: Option<u16>,
+    pub payload: Vec<u8>,
 }
 
 #[cfg(test)]

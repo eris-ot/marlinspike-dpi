@@ -1,7 +1,7 @@
 //! Syslog dissector — extracts facility, severity, hostname, and app name from
 //! BSD-style (RFC 3164) and structured (RFC 5424) syslog messages.
 
-use crate::registry::{PacketContext, ProtocolData, ProtocolDissector, SyslogFields};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct SyslogDissector;
@@ -170,6 +170,17 @@ impl ProtocolDissector for SyslogDissector {
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {
         Some(ProtocolData::Syslog(self.parse_fields(data)?))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct SyslogFields {
+    pub facility: u8,
+    pub facility_name: String,
+    pub severity: u8,
+    pub severity_name: String,
+    pub hostname: Option<String>,
+    pub app_name: Option<String>,
+    pub message: Option<String>,
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 //! LLDP dissector — parses Link Layer Discovery Protocol TLV chain
 //! (EtherType 0x88CC, IEEE 802.1AB).
 
-use crate::registry::{LldpFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct LldpDissector;
@@ -145,6 +145,16 @@ fn decode_capabilities(bits: u16, out: &mut Vec<String>) {
             out.push(name.to_string());
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct LldpFields {
+    pub chassis_id: String,
+    pub port_id: String,
+    pub ttl: u16,
+    pub system_name: String,
+    pub system_description: String,
+    pub capabilities: Vec<String>,
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! PROFINET protocol dissector with Frame ID classification and DCP parsing.
 
-use crate::registry::{PacketContext, ProfinetFields, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 pub struct ProfinetDissector;
 
@@ -138,6 +138,13 @@ impl ProtocolDissector for ProfinetDissector {
             }))
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProfinetFields {
+    pub frame_id: u16,
+    pub service_type: String,
+    pub payload: Vec<u8>,
 }
 
 #[cfg(test)]

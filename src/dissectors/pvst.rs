@@ -3,7 +3,7 @@
 //! SNAP OUI 00:00:0C, PID 0x010B. Standard STP/RSTP BPDU payload with an
 //! originating-VLAN TLV appended (type=0x0000, length=0x0002, vlan_id).
 
-use crate::registry::{PacketContext, ProtocolData, ProtocolDissector, PvstFields};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct PvstDissector;
@@ -86,6 +86,18 @@ impl ProtocolDissector for PvstDissector {
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {
         Some(ProtocolData::Pvst(self.parse_fields(data)?))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct PvstFields {
+    pub protocol_version: u8,
+    pub bpdu_type: u8,
+    pub flags: u8,
+    pub root_id: String,
+    pub root_path_cost: u32,
+    pub bridge_id: String,
+    pub port_id: u16,
+    pub originating_vlan: Option<u16>,
 }
 
 #[cfg(test)]

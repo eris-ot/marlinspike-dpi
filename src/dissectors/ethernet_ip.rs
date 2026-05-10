@@ -1,6 +1,6 @@
 //! EtherNet/IP protocol dissector with full encapsulation header and CIP payload parsing.
 
-use crate::registry::{EthernetIpFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct EthernetIpDissector;
@@ -79,6 +79,13 @@ impl ProtocolDissector for EthernetIpDissector {
             cip_data,
         }))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct EthernetIpFields {
+    pub command: u16,
+    pub session_handle: u32,
+    pub cip_data: Vec<u8>,
 }
 
 #[cfg(test)]

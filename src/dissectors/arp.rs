@@ -1,6 +1,6 @@
 //! ARP dissector — parses ARP requests and replies (EtherType 0x0806).
 
-use crate::registry::{ArpFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct ArpDissector;
@@ -51,6 +51,15 @@ impl ProtocolDissector for ArpDissector {
             target_ip,
         }))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ArpFields {
+    pub operation: u16,
+    pub sender_mac: [u8; 6],
+    pub sender_ip: [u8; 4],
+    pub target_mac: [u8; 6],
+    pub target_ip: [u8; 4],
 }
 
 #[cfg(test)]

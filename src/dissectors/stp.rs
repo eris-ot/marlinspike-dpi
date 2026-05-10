@@ -1,6 +1,6 @@
 //! STP dissector — enrichment-first parsing for spanning tree BPDUs.
 
-use crate::registry::{PacketContext, ProtocolData, ProtocolDissector, StpFields};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct StpDissector;
@@ -72,6 +72,20 @@ fn format_bridge_id(bytes: &[u8]) -> String {
         "{priority}/{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
         bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]
     )
+}
+
+#[derive(Debug, Clone)]
+pub struct StpFields {
+    pub protocol_version: u8,
+    pub bpdu_type: u8,
+    pub flags: u8,
+    pub root_id: String,
+    pub root_path_cost: u32,
+    pub bridge_id: String,
+    pub port_id: u16,
+    pub hello_time: u16,
+    pub max_age: u16,
+    pub forward_delay: u16,
 }
 
 #[cfg(test)]

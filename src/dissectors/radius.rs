@@ -4,7 +4,7 @@
 //! NAS-IP-Address, NAS-Identifier, User-Name, Calling-Station-Id, Called-Station-Id,
 //! NAS-Port-Type, Service-Type, Framed-IP-Address.
 
-use crate::registry::{PacketContext, ProtocolData, ProtocolDissector, RadiusFields};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct RadiusDissector;
@@ -148,6 +148,21 @@ impl ProtocolDissector for RadiusDissector {
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {
         Some(ProtocolData::Radius(self.parse_fields(data)?))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct RadiusFields {
+    pub code: u8,
+    pub code_name: String,
+    pub identifier: u8,
+    pub username: Option<String>,
+    pub nas_ip_address: Option<String>,
+    pub nas_identifier: Option<String>,
+    pub calling_station_id: Option<String>,
+    pub called_station_id: Option<String>,
+    pub nas_port_type: Option<u32>,
+    pub framed_ip_address: Option<String>,
+    pub service_type: Option<u32>,
 }
 
 #[cfg(test)]

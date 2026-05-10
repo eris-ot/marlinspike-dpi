@@ -2,7 +2,7 @@
 //!
 //! SNAP OUI 00:00:0C, PID 0x2003. Extracts domain name, revision, and VLAN list.
 
-use crate::registry::{PacketContext, ProtocolData, ProtocolDissector, VtpFields};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 #[derive(Default)]
 pub struct VtpDissector;
@@ -98,6 +98,16 @@ impl ProtocolDissector for VtpDissector {
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {
         Some(ProtocolData::Vtp(self.parse_fields(data)?))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct VtpFields {
+    pub version: u8,
+    pub message_type: u8,
+    pub message_type_name: String,
+    pub domain_name: String,
+    pub revision: Option<u32>,
+    pub vlans: Vec<u16>,
 }
 
 #[cfg(test)]

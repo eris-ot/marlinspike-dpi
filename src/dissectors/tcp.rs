@@ -80,6 +80,14 @@ impl TcpHeader {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TlsFields {
+    pub version: String,
+    pub cipher_suite: String,
+    pub sni: String,
+    pub certificate_subjects: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

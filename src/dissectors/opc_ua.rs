@@ -1,6 +1,6 @@
 //! OPC UA Binary protocol dissector with message header and MSG-type field extraction.
 
-use crate::registry::{OpcUaFields, PacketContext, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 pub struct OpcUaDissector;
 
@@ -113,6 +113,13 @@ impl ProtocolDissector for OpcUaDissector {
             service_type,
         }))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct OpcUaFields {
+    pub message_type: String,
+    pub request_id: u32,
+    pub service_type: String,
 }
 
 #[cfg(test)]

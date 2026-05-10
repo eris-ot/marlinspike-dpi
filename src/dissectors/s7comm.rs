@@ -1,6 +1,6 @@
 //! S7comm protocol dissector with TPKT, COTP, and S7 PDU parsing.
 
-use crate::registry::{PacketContext, ProtocolData, ProtocolDissector, S7commFields};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 pub struct S7commDissector;
 
@@ -139,6 +139,14 @@ impl ProtocolDissector for S7commDissector {
             data: s7_data,
         }))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct S7commFields {
+    pub rosctr: u8,
+    pub function: u8,
+    pub parameter: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 #[cfg(test)]

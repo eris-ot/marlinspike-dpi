@@ -4,7 +4,7 @@
 //! identify PRP nodes and their redundancy state. Data-frame trailers (RCT)
 //! are parsed when detected at the end of payloads.
 
-use crate::registry::{PacketContext, PrpFields, ProtocolData, ProtocolDissector};
+use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
 pub const PRP_SUPERVISION_ETHERTYPE: u16 = 0x88FB;
 pub const PRP_RCT_SUFFIX: u16 = 0x88FB;
@@ -117,6 +117,17 @@ impl ProtocolDissector for PrpDissector {
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {
         Some(ProtocolData::Prp(self.parse_fields(data)?))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct PrpFields {
+    pub supervision_path: u16,
+    pub supervision_version: u16,
+    pub supervision_type: u16,
+    pub supervision_type_name: String,
+    pub source_mac: Option<String>,
+    pub red_box_mac: Option<String>,
+    pub sequence_nr: Option<u16>,
 }
 
 #[cfg(test)]
