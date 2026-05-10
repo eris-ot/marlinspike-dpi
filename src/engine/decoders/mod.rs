@@ -19,12 +19,15 @@ pub(crate) struct DecoderRegistration {
 
 inventory::collect!(DecoderRegistration);
 
+pub(crate) mod amqp;
+pub(crate) mod coap;
 pub(crate) mod dcerpc;
 pub(crate) mod discovery;
 pub(crate) mod ike;
 pub(crate) mod it_app;
 pub(crate) mod it_basic;
 pub(crate) mod link_layer;
+pub(crate) mod mqtt_sn;
 pub(crate) mod netbios;
 pub(crate) mod netflow;
 pub(crate) mod openvpn;
@@ -32,6 +35,7 @@ pub(crate) mod ot;
 pub(crate) mod quic;
 pub(crate) mod rdp;
 pub(crate) mod recognizers;
+pub(crate) mod sip_rtp;
 pub(crate) mod smtp;
 pub(crate) mod synchrophasor;
 pub(crate) mod tacacs;

@@ -8,13 +8,17 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use crate::registry::{format_mac, PacketContext};
 
+pub(crate) mod ab_csp;
 pub(crate) mod ads;
 pub(crate) mod bacnet;
+pub(crate) mod bacnet_sc;
 pub(crate) mod cip_safety;
 pub(crate) mod dnp3;
+pub(crate) mod dnp3_sav5;
 pub(crate) mod ethercat;
 pub(crate) mod ethernet_ip;
 pub(crate) mod ge_srtp;
+pub(crate) mod gvcp;
 pub(crate) mod hart_ip;
 pub(crate) mod iec104;
 pub(crate) mod iec61850;
