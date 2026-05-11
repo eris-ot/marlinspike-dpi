@@ -22,6 +22,7 @@ Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), o
 **Docs:**
 - [`CHANGELOG.md`](./CHANGELOG.md) — release history (1.0.0 → 1.13.0)
 - [`docs/protocols.md`](./docs/protocols.md) — per-decoder reference (consolidated file-top docs)
+- [`docs/parse-depth-matrix.md`](./docs/parse-depth-matrix.md) — per-protocol parse-depth matrix (Full / Deep / Shallow / Recognition / Opaque)
 - [`docs/bronze-v2-schema.md`](./docs/bronze-v2-schema.md) — Bronze v2 event schema with sample JSON
 - [`examples/`](./examples/) — runnable examples: `basic`, `ocsf_output`, `extract_readings`, `streaming`
 
