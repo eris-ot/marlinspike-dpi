@@ -19,6 +19,12 @@ Process-historian extraction:
 
 Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), or an optional **C FFI** surface (feature `ffi`).
 
+**Docs:**
+- [`CHANGELOG.md`](./CHANGELOG.md) — release history (1.0.0 → 1.13.0)
+- [`docs/protocols.md`](./docs/protocols.md) — per-decoder reference (consolidated file-top docs)
+- [`docs/bronze-v2-schema.md`](./docs/bronze-v2-schema.md) — Bronze v2 event schema with sample JSON
+- [`examples/`](./examples/) — runnable examples: `basic`, `ocsf_output`, `extract_readings`, `streaming`
+
 ### What Sets This Apart
 
 - **Pure Rust, zero C dependencies.** No libpcap, no libc FFI, no bindgen. The entire stack from PCAP parsing to CRC-32 validation is safe, auditable Rust. Builds anywhere `rustc` runs.
