@@ -86,6 +86,7 @@ pub struct ModbusBronzeFields {
     pub direction: String,
 }
 
+<<<<<<< HEAD
 /// DNP3-specific fields carried on a `ProtocolTransaction`. Present when the
 /// DNP3 decoder successfully parses a frame.
 ///
@@ -166,6 +167,52 @@ pub struct Iec104BronzeFields {
     pub direction: String,
 }
 
+/// S7comm-specific fields carried on a parsed S7 PDU transaction.
+///
+/// Populated for all S7comm messages regardless of ROSCTR type. Optional fields
+/// are `None` when not applicable to the specific PDU type (e.g., `error_class`
+/// only appears on Ack-Data responses; `userdata_function_group` only on
+/// Userdata messages).
+///
+/// Memory-area fields (`area`) are `None` for PDU types that carry no item list
+/// (Setup Communication, Stop PLC, etc.) and are derived from the first item in
+/// the parameter block for Read/Write Var requests.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct S7commBronzeFields {
+    /// Raw ROSCTR byte: Job=0x01, Ack=0x02, Ack_Data=0x03, Userdata=0x07.
+    pub rosctr: u8,
+    /// Human-readable ROSCTR label: "job", "ack", "ack_data", "userdata", "unknown".
+    pub rosctr_name: String,
+    /// PDU reference number used to pair requests and responses.
+    pub protocol_data_unit_ref: u16,
+    /// Function code from the parameter block's first byte. `None` when the
+    /// parameter block is empty (bare Ack frames).
+    pub function_code: Option<u8>,
+    /// Human-readable function name derived from the function code.
+    pub function_name: Option<String>,
+    /// Error class byte from the Ack-Data extended header. `None` for non-Ack-Data PDUs.
+    pub error_class: Option<u8>,
+    /// Error code byte from the Ack-Data extended header. `None` for non-Ack-Data PDUs.
+    pub error_code: Option<u8>,
+    /// Userdata function group (high nibble of parameter byte 7). Populated only
+    /// when rosctr == 0x07.
+    pub userdata_function_group: Option<u8>,
+    /// Userdata function subcode (low nibble of parameter byte 7). Populated only
+    /// when rosctr == 0x07.
+    pub userdata_function_subcode: Option<u8>,
+    /// Number of items in the Read/Write Var parameter list. `None` for other
+    /// function codes or when the parameter block is too short.
+    pub item_count: Option<u8>,
+    /// Memory area code from the first S7 Any-Pointer item (Read/Write Var).
+    /// Common values: 0x81=I (inputs), 0x82=Q (outputs), 0x83=M (bit memory),
+    /// 0x84=DB (data block), 0x1C=C (counters), 0x1D=T (timers).
+    /// `None` when no item is present or for other function codes.
+    pub area: Option<u8>,
+    /// Transaction direction relative to the observed flow:
+    /// "request", "response", or "observed".
+    pub direction: String,
+}
+
 /// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
 /// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
 /// enum that downstream consumers can pattern-match without string lookups.
@@ -180,8 +227,8 @@ pub enum ProtocolFields {
     Modbus(ModbusBronzeFields),
     Dnp3(Dnp3BronzeFields),
     Iec104(Iec104BronzeFields),
+    S7comm(S7commBronzeFields),
     // Future variants land here as decoders migrate. Expected next:
-    //   S7comm(S7commBronzeFields),
     //   OpcUa(OpcUaBronzeFields), EthernetIp(EthernetIpBronzeFields),
     //   Iec61850(Iec61850BronzeFields), HartIp(HartIpBronzeFields),
     //   Sparkplug(SparkplugBronzeFields).

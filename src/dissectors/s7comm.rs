@@ -1,4 +1,12 @@
 //! S7comm protocol dissector with TPKT, COTP, and S7 PDU parsing.
+//!
+//! The dissector returns [`crate::registry::S7commFields`] containing the raw
+//! ROSCTR, function code, parameter block, and data block. The decoder layer in
+//! `crate::engine::decoders::ot::s7comm` lifts these into a typed
+//! [`crate::bronze::S7commBronzeFields`] carried on
+//! [`crate::bronze::ProtocolTransaction::protocol_fields`] as
+//! `ProtocolFields::S7comm(...)`, alongside the legacy `attributes` map for
+//! backward compatibility through the v1.x line.
 
 use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
