@@ -86,7 +86,6 @@ pub struct ModbusBronzeFields {
     pub direction: String,
 }
 
-<<<<<<< HEAD
 /// DNP3-specific fields carried on a `ProtocolTransaction`. Present when the
 /// DNP3 decoder successfully parses a frame.
 ///
@@ -213,6 +212,62 @@ pub struct S7commBronzeFields {
     pub direction: String,
 }
 
+/// OPC UA Binary (TCP) transaction fields lifted from the wire header.
+///
+/// Covers the transport-level handshake (HEL/ACK), secure-channel lifecycle
+/// (OPN/CLO), application-layer messages (MSG), and error frames (ERR). The
+/// full Variant payload is carried by [`ProcessReading`]; this struct is
+/// scoped to the *transaction*, not the values.
+///
+/// All fields use primitive types so they serialise cleanly to JSON for the
+/// Silver register profile and the forensic workbench API.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpcUaBronzeFields {
+    /// Three-character message type code: "HEL", "ACK", "OPN", "CLO", "MSG",
+    /// "ERR", or "RHE".
+    pub message_type: String,
+    /// Chunk type byte decoded as a single-character string: "F" (final),
+    /// "C" (continuation), or "A" (abort). Represented as `String` because
+    /// `char` serde round-trips are fiddly across JSON implementations.
+    pub chunk_type: String,
+    /// Secure channel identifier from the OPN/CLO/MSG extended header.
+    /// `None` for HEL/ACK/ERR frames that do not carry this field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secure_channel_id: Option<u32>,
+    /// Request identifier from the MSG full header (bytes 20–23).
+    /// `None` when the frame type has no request-id field or header is truncated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<u32>,
+    /// Sequence number from the MSG full header (bytes 16–19).
+    /// `None` when the frame type has no sequence-number field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sequence_number: Option<u32>,
+    /// Numeric NodeId of the service request/response (e.g. ReadRequest=629,
+    /// WriteRequest=671, BrowseRequest=525). Decoded from the MSG body.
+    /// `None` when not yet decoded or for non-MSG frame types.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_node_id: Option<u32>,
+    /// Human-readable service name where known (e.g. "ReadRequest",
+    /// "WriteResponse", "BrowseRequest"). Derived from `service_node_id`
+    /// or from the `service_type` string parsed by the dissector.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_name: Option<String>,
+    /// Status/error code for ACK, ERR, and response frames. For ERR frames
+    /// this is the 32-bit error code at bytes 8–11; for MSG responses it is
+    /// the service-level status code where present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u32>,
+    /// True when the direction heuristic identified this frame as a client
+    /// request (dst_port is 4840 or 12001).
+    pub is_request: bool,
+    /// True when the direction heuristic identified this frame as a server
+    /// response (src_port is 4840 or 12001).
+    pub is_response: bool,
+    /// Coarse direction label: "request", "response", "session" (HEL/ACK/OPN/CLO),
+    /// or "error".
+    pub direction: String,
+}
+
 /// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
 /// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
 /// enum that downstream consumers can pattern-match without string lookups.
@@ -228,10 +283,10 @@ pub enum ProtocolFields {
     Dnp3(Dnp3BronzeFields),
     Iec104(Iec104BronzeFields),
     S7comm(S7commBronzeFields),
+    OpcUa(OpcUaBronzeFields),
     // Future variants land here as decoders migrate. Expected next:
-    //   OpcUa(OpcUaBronzeFields), EthernetIp(EthernetIpBronzeFields),
-    //   Iec61850(Iec61850BronzeFields), HartIp(HartIpBronzeFields),
-    //   Sparkplug(SparkplugBronzeFields).
+    //   EthernetIp(EthernetIpBronzeFields), Iec61850(Iec61850BronzeFields),
+    //   HartIp(HartIpBronzeFields), Sparkplug(SparkplugBronzeFields).
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
