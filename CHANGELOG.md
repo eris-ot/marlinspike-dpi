@@ -8,7 +8,31 @@ breaking changes will bump the major version (planned `v2.0` removes the depreca
 `attributes: BTreeMap<String, String>` escape hatch and the `modbus` sub-field on
 `ProtocolTransaction`).
 
-## [1.13.0] — 2026-05-11
+## [1.14.0] — 2026-05-11
+
+Depth release — six protocols promoted from recognition / shallow to full deep parse. The README headline number (50+ dissectors) doesn't change; depth does. Each promotion shipped via an isolated worktree agent and was merged after the full suite passed.
+
+### Added — full deep parsers
+
+- **Kerberos** (RFC 4120) — promoted from ASN.1 application-tag recognition to full parser. Per-message extraction in the clear: AS-REQ / AS-REP / TGS-REQ / TGS-REP / AP-REQ / KRB-ERROR with client principal (cname), server principal (sname), realm, etype lists, kdc-options, nonce, from/till/rtime timestamps, ap-options, embedded Ticket realm + sname, KRB-ERROR code + e-text. AssetObservation for KDC servers and authenticating clients. TCP 4-byte length prefix handled. EncryptedData payloads (EncTicketPart, EncKDCRepPart, EncAuthenticator, EncAPRepPart) and PA-DATA extensions (FAST, PKINIT) intentionally opaque. New file: `src/engine/decoders/kerberos.rs`.
+- **LDAP / LDAPv3** (RFC 4511) — promoted from ASN.1 SEQUENCE recognition to full BER op parser. bind / search / modify / add / del / compare / abandon / extended / unbind ops; per-op DN, base, scope, sizeLimit, timeLimit, filter-type discriminator, attribute selectors, result codes. messageID-based req/response pairing. StartTLS OID (`1.3.6.1.4.1.1466.20037`) recognised. TCP chunk-straddling messages buffered. LDAPS port 636 stays recognition-only (TLS-encrypted). New file: `src/engine/decoders/ldap.rs`.
+- **IGMP** (RFC 2236 + RFC 3376) — promoted from type-byte classification to full deep parse. v1/v2 8-byte header with group address; v3 Query S-flag / QRV / float-decoded QQIC / source-address list; v3 Membership Report group records with record-type / aux-data-len / per-record source addresses. Float-encoded max-resp-code + QQIC per §4.1.1. TopologyObservation `multicast_join` on Join-style ops. New file: `src/engine/decoders/igmp.rs`.
+- **SMB2 / SMB3** (MS-SMB2) — promoted from signature recognition to full deep parser. NEGOTIATE / SESSION_SETUP / TREE_CONNECT / CREATE / CLOSE / READ / WRITE / IOCTL / LOGOFF. UNC path extraction on TREE_CONNECT; filename + DesiredAccess + ShareAccess + CreateDisposition on CREATE; FileId tracked from CREATE through subsequent READ / WRITE / CLOSE. **10 FSCTL codes named** with severity tagging — `FSCTL_PIPE_TRANSCEIVE` high-severity on `\PIPE\svcctl` / samr / atsvc / drsuapi (SCM access — classic lateral-movement signal). MessageId request/response pairing with LRU bounds. NetBIOS Session Service framing on 139 and 445; compound requests walked via NextCommand. NT-status code naming (`STATUS_LOGON_FAILURE`, `STATUS_ACCESS_DENIED`, etc.). SMB3 Transform PDUs (0xFD) recognised but encrypted payload opaque. New file: `src/engine/decoders/smb2.rs`. SMB1 stays in the recognizer (legacy, low-value).
+- **OPC UA PubSub** DataSetMessage decode — promoted from NetworkMessage-header-only to per-field DSM decoder. Variant (built-in types 1–13) and DataValue field encodings; StatusCode → `RawQuality::OpcUaStatusCode`, SourceTimestamp → Unix-micros via Windows FILETIME conversion (`(ft - 116444736000000000) / 10`). Emits `ProcessReading` per field — completes the UADP VQT path. RawData encoding skipped (low anomaly emitted; requires out-of-band PublishedDataSet config). Field NodeIds fall back to `OpcUaNodeId::Numeric(field_index)` when config is not on the wire. AssetObservation per first-seen publisher_id. Modified file: `src/engine/decoders/ot/opc_ua_pubsub.rs`.
+
+### Changed — cross-packet state
+
+- **NetFlow / IPFIX** template tracking — the v1 deferral on template correlation is reversed. Cross-packet template store keyed by `(exporter, observation_domain, template_id)` with 1024-entry LRU eviction. NetFlow v9 FlowSet ID 0 (Template), 1 (Options Template), and ≥256 (Data FlowSets) handled; IPFIX (v10) Set ID 2 (Template), 3 (Options Template), and ≥256 (Data) handled. **24 IANA IPFIX Information Elements** mapped by name: octet/packet delta counts, IPv4 + IPv6 source + destination addresses + prefix lengths, transport ports, protocolIdentifier, ipClassOfService, tcpControlBits, BGP source + destination AS numbers, ingress + egress interfaces, ipNextHopIPv4Address, source + destination MAC addresses, flowStart/EndSysUpTime, flowStart/EndMilliseconds. IPv4 dotted-decimal, IPv6 colon-hex, MAC `aa:bb:cc:dd:ee:ff` formatting. PEN enterprise field bytes skipped at declared length. Options Template contents deferred (track existence, don't decode option records). `template_unresolved` low-severity anomaly when a Data FlowSet references an unknown template. Modified file: `src/engine/decoders/netflow.rs`.
+
+### Removed
+
+- `KerberosRecognizer`, `LdapRecognizer`, `IgmpRecognizer` structs removed from `src/engine/decoders/recognizers.rs` (the deeper decoders own these now). `SmbRecognizer` retained for SMB1 only — the SMB2 path in the recognizer silently returns to avoid double-emission.
+
+### Tests
+
+- +86 tests (786 lib + 4 CLI + 1 doctest = 791 total). Per-decoder deltas: IGMP +12, Kerberos +13, LDAP +14, NetFlow +11, OPC UA PubSub +11, SMB2 +25.
+
+
 
 Telecom AAA + automotive/industrial TSN + gas-pipeline SCADA.
 
@@ -224,6 +248,7 @@ Initial public release.
 - Pure Rust, zero C dependencies.
 - 247 tests.
 
+[1.14.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.14.0
 [1.13.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.13.0
 [1.12.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.12.0
 [1.11.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.11.0
