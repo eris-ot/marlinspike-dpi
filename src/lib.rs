@@ -5,7 +5,7 @@
 //! protocol transactions, asset observations, topology, parse anomalies,
 //! and extracted artifacts.
 //!
-//! 34 protocol dissectors, plus three detection subsystems:
+//! 50+ protocol dissectors, plus three detection subsystems:
 //! - **[`stovetop`]** — frame-level integrity (padding, CRC, runt/oversized)
 //! - **[`icmpeeker`]** — ICMP threat detection (redirects, tunnels, recon)
 //! - **[`bilgepump`]** — stateful L2 monitoring (ARP spoofing, VLAN hopping,
