@@ -125,6 +125,47 @@ pub struct Dnp3BronzeFields {
     pub object_groups: Vec<u8>,
 }
 
+/// IEC 60870-5-104 typed fields carried on a [`ProtocolTransaction`].
+///
+/// Covers APCI frame classification (I/S/U), sequence numbers, U-function
+/// names, ASDU type, cause-of-transmission, and addressing. All fields use
+/// primitive types so they serialise cleanly to JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Iec104BronzeFields {
+    /// APCI frame type: "i_frame", "s_frame", or "u_frame".
+    pub apci_type: String,
+    /// N(S) send sequence number — present for I-frames only.
+    pub send_sequence: Option<u16>,
+    /// N(R) receive sequence number — present for I-frames and S-frames.
+    pub receive_sequence: Option<u16>,
+    /// U-frame function name (e.g. "startdt_act", "testfr_con") — present for
+    /// U-frames only.
+    pub u_function: Option<String>,
+    /// ASDU type identifier (e.g. 1 = M_SP_NA_1, 45 = C_SC_NA_1).
+    pub asdu_type_id: Option<u8>,
+    /// Human-readable ASDU type name where known.
+    pub asdu_type_name: Option<String>,
+    /// Cause of transmission (6-bit field, 0–63).
+    pub cause_of_transmission: Option<u8>,
+    /// Human-readable cause name where known.
+    pub cause_of_transmission_name: Option<String>,
+    /// Negative-confirm bit from COT byte 1.
+    pub is_negative_confirm: bool,
+    /// Test bit from COT byte 1.
+    pub is_test: bool,
+    /// Originator address from COT byte 2 (0 = absent).
+    pub originator_address: Option<u8>,
+    /// ASDU common address (station address).
+    pub common_address: Option<u16>,
+    /// Number of information objects (variable-structure qualifier count).
+    pub num_objects: Option<u8>,
+    /// SQ bit — true when objects are addressed as a contiguous sequence.
+    pub is_sequence: bool,
+    /// Transaction direction derived from port and COT: "request", "response",
+    /// "spontaneous", or "observed".
+    pub direction: String,
+}
+
 /// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
 /// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
 /// enum that downstream consumers can pattern-match without string lookups.
@@ -138,8 +179,9 @@ pub struct Dnp3BronzeFields {
 pub enum ProtocolFields {
     Modbus(ModbusBronzeFields),
     Dnp3(Dnp3BronzeFields),
+    Iec104(Iec104BronzeFields),
     // Future variants land here as decoders migrate. Expected next:
-    //   Iec104(Iec104BronzeFields), S7comm(S7commBronzeFields),
+    //   S7comm(S7commBronzeFields),
     //   OpcUa(OpcUaBronzeFields), EthernetIp(EthernetIpBronzeFields),
     //   Iec61850(Iec61850BronzeFields), HartIp(HartIpBronzeFields),
     //   Sparkplug(SparkplugBronzeFields).
