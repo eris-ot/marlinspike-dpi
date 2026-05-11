@@ -6,3 +6,4 @@
 
 pub mod influx_line;
 pub mod ocsf;
+pub mod zeek;

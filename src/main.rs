@@ -5,7 +5,7 @@ use std::process;
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use fm_dpi::output::{influx_line, ocsf};
+use fm_dpi::output::{influx_line, ocsf, zeek};
 use fm_dpi::{DpiEngine, DpiSegmentOutput, SegmentMeta};
 use serde::Serialize;
 
@@ -20,6 +20,10 @@ enum Format {
     /// InfluxDB Line Protocol, one line per ProcessReading. Skips every
     /// other Bronze family.
     Influx,
+    /// Zeek JSON Streaming Log format (NDJSON). One JSON object per line with
+    /// a `_path` field naming the log type. Deduplicates conn rows per
+    /// session_key. Compatible with Zeek 4.x+ JSON log consumers.
+    Zeek,
 }
 
 #[derive(Debug, Parser)]
@@ -128,6 +132,7 @@ fn run() -> Result<()> {
         }
         Format::Ocsf => ocsf::render_ndjson(&output.events),
         Format::Influx => influx_line::render_many(&output.events),
+        Format::Zeek => zeek::render_many(&output.events),
     };
 
     write_payload(&cli, &payload)
