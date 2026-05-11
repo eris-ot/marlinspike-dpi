@@ -75,15 +75,21 @@ impl ProtocolDissector for Dnp3Dissector {
             return Some(ProtocolData::Dnp3(Dnp3Fields {
                 source_address,
                 destination_address,
+                dll_control: data[3],
+                transport_seq: 0,
+                transport_fir: false,
+                transport_fin: false,
                 function_code: 0,
+                app_control: 0,
+                iin: None,
                 application_data: Vec::new(),
             }));
         }
 
         let transport_byte = data[DLL_HEADER_SIZE];
-        let _fin = (transport_byte & 0x80) != 0;
-        let _fir = (transport_byte & 0x40) != 0;
-        let _transport_seq = transport_byte & 0x3F;
+        let transport_fin = (transport_byte & 0x80) != 0;
+        let transport_fir = (transport_byte & 0x40) != 0;
+        let transport_seq = transport_byte & 0x3F;
 
         // --- Application Layer ---
         // Application layer starts after DLL header (10) + transport header (1) = offset 11.
@@ -92,19 +98,30 @@ impl ProtocolDissector for Dnp3Dissector {
             return Some(ProtocolData::Dnp3(Dnp3Fields {
                 source_address,
                 destination_address,
+                dll_control: data[3],
+                transport_seq,
+                transport_fir,
+                transport_fin,
                 function_code: 0,
+                app_control: 0,
+                iin: None,
                 application_data: Vec::new(),
             }));
         }
 
-        let _app_control = data[app_offset];
+        let app_control = data[app_offset];
         let function_code = data[app_offset + 1];
 
         // For responses (0x81, 0x82) the next 2 bytes are Internal Indications (IIN).
-        let app_data_start = if function_code == 0x81 || function_code == 0x82 {
-            app_offset + 4 // control(1) + fc(1) + IIN(2)
+        let (iin, app_data_start) = if function_code == 0x81 || function_code == 0x82 {
+            let iin_val = if data.len() >= app_offset + 4 {
+                Some(u16::from_le_bytes([data[app_offset + 2], data[app_offset + 3]]))
+            } else {
+                None
+            };
+            (iin_val, app_offset + 4) // control(1) + fc(1) + IIN(2)
         } else {
-            app_offset + 2 // control(1) + fc(1)
+            (None, app_offset + 2) // control(1) + fc(1)
         };
 
         let application_data = if app_data_start < data.len() {
@@ -116,7 +133,13 @@ impl ProtocolDissector for Dnp3Dissector {
         Some(ProtocolData::Dnp3(Dnp3Fields {
             source_address,
             destination_address,
+            dll_control: data[3],
+            transport_seq,
+            transport_fir,
+            transport_fin,
             function_code,
+            app_control,
+            iin,
             application_data,
         }))
     }
@@ -126,7 +149,21 @@ impl ProtocolDissector for Dnp3Dissector {
 pub struct Dnp3Fields {
     pub source_address: u16,
     pub destination_address: u16,
+    /// Raw DLL control byte (DIR/PRM/FCB/FCV/FC bits).
+    pub dll_control: u8,
+    /// Transport-layer sequence number (6-bit, 0–63).
+    pub transport_seq: u8,
+    /// Transport FIR bit — first fragment.
+    pub transport_fir: bool,
+    /// Transport FIN bit — final fragment.
+    pub transport_fin: bool,
+    /// Application-layer function code.
     pub function_code: u8,
+    /// Raw application-layer control byte (FIR/FIN/CON/UNS/SEQ).
+    pub app_control: u8,
+    /// Internal Indication flags (IIN1 | IIN2 << 8), present on Response (0x81)
+    /// and UnsolicitedResponse (0x82) only.
+    pub iin: Option<u16>,
     pub application_data: Vec<u8>,
 }
 

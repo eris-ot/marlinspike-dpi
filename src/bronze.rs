@@ -86,6 +86,45 @@ pub struct ModbusBronzeFields {
     pub direction: String,
 }
 
+/// DNP3-specific fields carried on a `ProtocolTransaction`. Present when the
+/// DNP3 decoder successfully parses a frame.
+///
+/// Fields cover the data link layer addressing, transport-layer framing bits,
+/// application-layer function code, IIN flags (response only), and a summary
+/// of object groups referenced in the application payload. Rare edge-case
+/// attributes (e.g. data-link reset acknowledgements) remain in `attributes`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Dnp3BronzeFields {
+    /// DNP3 data link layer source address.
+    pub source_addr: u16,
+    /// DNP3 data link layer destination address.
+    pub destination_addr: u16,
+    /// Raw DLL control byte (DIR/PRM/FCB/FCV/FC nibble).
+    pub dll_control: u8,
+    /// Transport-layer sequence number (0–63).
+    pub transport_seq: u8,
+    /// Transport FIR bit — this fragment is the first of a multi-block message.
+    pub transport_fir: bool,
+    /// Transport FIN bit — this fragment is the last of a multi-block message.
+    pub transport_fin: bool,
+    /// Application-layer function code.
+    pub application_function_code: u8,
+    /// Human-readable name for `application_function_code`, e.g. `"Read"`,
+    /// `"Response"`, `"UnsolicitedResponse"`.
+    pub application_function_name: String,
+    /// Application-layer sequence number extracted from the control byte (bits 0–3).
+    pub application_seq: u8,
+    /// Internal Indication flags word (IIN1 | IIN2 << 8). Present on `Response`
+    /// (0x81) and `UnsolicitedResponse` (0x82) only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iin_flags: Option<u16>,
+    /// Transaction direction: `"request"`, `"response"`, or `"unsolicited"`.
+    pub direction: String,
+    /// Object group numbers referenced in the application data payload.
+    /// Empty for messages with no object headers (Confirm, restart commands, etc.).
+    pub object_groups: Vec<u8>,
+}
+
 /// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
 /// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
 /// enum that downstream consumers can pattern-match without string lookups.
@@ -98,11 +137,12 @@ pub struct ModbusBronzeFields {
 #[serde(tag = "protocol", content = "fields", rename_all = "snake_case")]
 pub enum ProtocolFields {
     Modbus(ModbusBronzeFields),
+    Dnp3(Dnp3BronzeFields),
     // Future variants land here as decoders migrate. Expected next:
-    //   Dnp3(Dnp3BronzeFields), Iec104(Iec104BronzeFields),
-    //   S7comm(S7commBronzeFields), OpcUa(OpcUaBronzeFields),
-    //   EthernetIp(EthernetIpBronzeFields), Iec61850(Iec61850BronzeFields),
-    //   HartIp(HartIpBronzeFields), Sparkplug(SparkplugBronzeFields).
+    //   Iec104(Iec104BronzeFields), S7comm(S7commBronzeFields),
+    //   OpcUa(OpcUaBronzeFields), EthernetIp(EthernetIpBronzeFields),
+    //   Iec61850(Iec61850BronzeFields), HartIp(HartIpBronzeFields),
+    //   Sparkplug(SparkplugBronzeFields).
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
