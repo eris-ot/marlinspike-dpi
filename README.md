@@ -19,15 +19,29 @@ Process-historian extraction:
 - **PCCC** (Allen-Bradley legacy) — Protected Typed Logical Read with TNS request/response correlation
 - **IEEE C37.118 synchrophasor** — CFG-2-driven data frame decode emitting per-channel ProcessReadings (phasor magnitude, angle, frequency, dfreq, analogs, digitals)
 
-Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), or an optional **C FFI** surface (feature `ffi`).
+Usable as a **Rust library** (`fm_dpi`), a **Python package** (`pip install -e marlinspike-dpi-py/` — see [`marlinspike-dpi-py/`](./marlinspike-dpi-py/)), a **CLI binary** (`marlinspike-dpi`), a **Docker image** (see [`Dockerfile`](./Dockerfile)), or an optional **C FFI** surface (feature `ffi`).
+
+### Try it in 2 minutes
+
+```bash
+# Docker:
+docker build -t marlinspike-dpi .
+docker run --rm -v "$PWD/cap.pcap:/in.pcap:ro" marlinspike-dpi --input /in.pcap --pretty | head -50
+
+# Or fetch a public Modbus PCAP and run all three formats:
+./scripts/quickstart.sh
+```
 
 **Docs:**
-- [`CHANGELOG.md`](./CHANGELOG.md) — release history (1.0.0 → 1.15.0)
+- [`CHANGELOG.md`](./CHANGELOG.md) — release history (1.0.0 → 1.16.0)
 - [`docs/comparison.md`](./docs/comparison.md) — head-to-head vs. Zeek / Suricata / Wireshark / nDPI / Arkime
+- [`docs/zeek-migration.md`](./docs/zeek-migration.md) — drop-in migration guide for existing OT-Zeek pipelines
+- [`docs/CONTRIBUTING-DECODERS.md`](./docs/CONTRIBUTING-DECODERS.md) — 30-minute "add a new decoder" walkthrough
 - [`docs/protocols.md`](./docs/protocols.md) — per-decoder reference (consolidated file-top docs)
 - [`docs/parse-depth-matrix.md`](./docs/parse-depth-matrix.md) — per-protocol parse-depth matrix (Full / Deep / Shallow / Recognition / Opaque)
 - [`docs/bronze-v2-schema.md`](./docs/bronze-v2-schema.md) — Bronze v2 event schema with sample JSON
 - [`docs/llms.txt`](./docs/llms.txt) — single-file structured summary for LLM ingestion ([llmstxt.org](https://llmstxt.org/))
+- [`marlinspike-dpi-py/`](./marlinspike-dpi-py/) — Python bindings via PyO3 + maturin
 - [`examples/`](./examples/) — runnable examples: `basic`, `ocsf_output`, `extract_readings`, `streaming`
 
 ### What Sets This Apart
@@ -331,10 +345,12 @@ Bronze JSON is canonical. Renderers under `output::` transform it into common do
 
 | Renderer | Purpose | Module |
 |----------|---------|--------|
+| **Bronze v2 JSON** (default) | Canonical typed event envelope | `(direct serde_json)` |
 | **InfluxDB Line Protocol** | Process historian ingest for `ProcessReading` events | `output::influx_line` |
 | **OCSF (Open Cybersecurity Schema Framework) v1.4.0** | SIEM ingest. Maps `ProtocolTransaction` to Network/HTTP/DNS/SMB/SSH/Authentication, `AssetObservation` to Device Inventory Info, `ParseAnomaly` to Detection Finding | `output::ocsf` |
+| **Zeek JSON Streaming Log** | Drop-in replacement for OT-Zeek pipelines — `_path:conn/dns/http/ssl/ssh/modbus/dnp3/smb_files/smb_mapping/kerberos/ldap/dhcp/ntp/snmp/rdp/software/weird` rows native; OT-deep protocols (S7, OPC UA, IEC 61850, HART-IP, Sparkplug, etc.) emit `_path:ics` with typed `ProtocolFields` flattened. See [`docs/zeek-migration.md`](./docs/zeek-migration.md) | `output::zeek` |
 
-`ProcessReading` events have no OCSF mapping (process telemetry is out of scope for OCSF) and `ProtocolTransaction` events have no Influx mapping (use OCSF or Bronze JSON for those).
+`ProcessReading` events have no OCSF mapping (process telemetry is out of scope for OCSF) and `ProtocolTransaction` events have no Influx mapping (use OCSF, Bronze JSON, or Zeek for those).
 
 ## Deduplication
 
@@ -373,10 +389,11 @@ Options:
 - `--capture-id <id>` -- stable identifier stamped into Bronze output (defaults to filename)
 - `--output <path>` -- output path (stdout when omitted)
 - `--pretty` -- pretty-print Bronze JSON (no effect on `ocsf` / `influx`)
-- `--format <bronze|ocsf|influx>` -- output format (default `bronze`)
+- `--format <bronze|ocsf|influx|zeek>` -- output format (default `bronze`)
     - `bronze` -- canonical Bronze envelope JSON
     - `ocsf` -- OCSF v1.4.0 records as NDJSON (one JSON object per line); skips ProcessReading / ExtractedArtifact / TopologyObservation
     - `influx` -- InfluxDB Line Protocol, one line per `ProcessReading`; skips every other family
+    - `zeek` -- Zeek-compatible JSON Streaming Log NDJSON (one row per emitted log type with `_path` discriminator). See [`docs/zeek-migration.md`](./docs/zeek-migration.md) for the migration recipe.
 
 Output envelope:
 

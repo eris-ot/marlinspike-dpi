@@ -8,6 +8,43 @@ breaking changes will bump the major version (planned `v2.0` removes the depreca
 `attributes: BTreeMap<String, String>` escape hatch and the `modbus` sub-field on
 `ProtocolTransaction`).
 
+## [1.16.0] — 2026-05-11
+
+OT OSS community-enablement release. No new protocol decoders or schema changes; everything in this release lowers the eval, deploy, and contribute barrier for the OT defender / OSS analyst audience.
+
+### Added — new output renderer
+
+- **Zeek-compatible JSON Streaming Log** (`--format zeek` / `output::zeek`). 15 native Zeek log types mapped (`conn`, `dns`, `http`, `ssl`, `ssh`, `modbus`, `dnp3`, `smb_files`, `smb_mapping`, `kerberos`, `ldap`, `dhcp`, `ntp`, `snmp`, `rdp`, `software`, `weird`). OT-deep protocols without a Zeek equivalent (S7comm, OPC UA, IEC 61850, IEC 104, EtherNet/IP, HART-IP, Sparkplug B, FINS, PROFINET, BACnet, IEEE C37.118, etc.) emit `_path:"ics"` rows with their typed `ProtocolFields` flattened — the *added value* over native Zeek. Conn-UID generation is deterministic from `session_key` (stable across re-runs). See [`docs/zeek-migration.md`](docs/zeek-migration.md) for the drop-in recipe.
+
+### Added — Python bindings
+
+- **`marlinspike-dpi-py`** — new sub-crate exposing the engine to Python via PyO3 + maturin (abi3-py38 — single wheel for Python ≥ 3.8). Module-level functions `process_capture(path)`, `process_capture_bytes(data)`, `process_capture_streaming(path, on_event=…)` plus a `DpiEngine` class. Events arrive as plain Python dicts with the Bronze v2 shape (event_id, capture_id, schema_version, family, envelope, family-name-hoisted payload). TypedDict stubs in `_types.pyi` + `py.typed` marker for mypy/pyright autocomplete. The root `Cargo.toml` gained a `[workspace]` block; the sub-crate uses Rust 2021 edition (PyO3 0.22 macro compatibility) while the parent stays on 2024.
+
+### Added — deployment surface
+
+- **Multi-stage `Dockerfile`** producing a slim runtime image (debian:bookworm-slim, ~30 MB on top of the base, non-root user, OCI labels). `.dockerignore` keeps build context minimal.
+- **`scripts/quickstart.sh`** — fetches a public Modbus PCAP and runs the CLI in all three output formats. Supports `--docker` mode for users without a Rust toolchain. Two-minute eval flow.
+
+### Added — community on-ramp
+
+- **GitHub Discussions enabled.**
+- **`.github/ISSUE_TEMPLATE/`** with four structured forms: `protocol-misparse.yml` (drop-down for protocol family + observed/expected/reproducer), `protocol-request.yml` (category + requested depth + wire spec + sample capture), `bug.yml`, and `config.yml` (disables blank issues; routes Q&A to Discussions, commercial licensing to email, security to `security@erisforge.com`).
+- **`docs/CONTRIBUTING-DECODERS.md`** — 30-minute walkthrough for adding a new protocol decoder. Reference-decoder lookup table by shape (TCP+pairing, UDP+pending, L2 EtherType, recognition-only, VQT-bearing). Covers every `DecoderInterest` variant, the six Bronze families, typed `ProtocolFields` migration, common gotchas (endianness, TCP stream chunking, sampling for cyclic protocols, encrypted-past-handshake), and `ParseAnomaly` severity calibration.
+- **`docs/awesome-submissions.md`** — copy-paste-ready PR text for Awesome-ICS-Security, Awesome-Rust, Awesome-PCAP-Tools, Awesome-SCADA, Awesome-OPC-UA with per-list voice match.
+- **`docs/conference-abstracts.md`** — submission-ready abstracts for S4, DEF CON ICS Village, Black Hat Arsenal, SANS ICS Summit, and ICS-CSR (academic), with a strategy ranking by leverage.
+
+### Added — SEO / LLM discoverability
+
+- `Cargo.toml` description rewritten as search-intent prose; keywords retuned (dropped `network-forensics` for `modbus` + `scada`); `categories` added (`network-programming`, `parser-implementations`, `command-line-utilities`).
+- README headline now front-loads every supported protocol slug for indexing.
+- **`docs/comparison.md`** — head-to-head vs. Zeek / Suricata / Wireshark / nDPI / Arkime with per-tool "when to pick which" and explicit "what we DON'T do" block.
+- **`docs/llms.txt`** — [llmstxt.org](https://llmstxt.org)-format authoritative summary for LLM ingestion with FAQ-style headings.
+- GitHub repo About blurb + 19 topics (`rust`, `dpi`, `deep-packet-inspection`, `ot`, `ics`, `scada`, `modbus`, `dnp3`, `opc-ua`, `iec-61850`, `s7comm`, `sparkplug`, `pcap`, `pcapng`, `network-monitoring`, `passive-monitoring`, `siem`, `ocsf`, `industrial-control-systems`).
+
+### Tests
+
+- +17 lib tests for the Zeek renderer (850 → 867) + 2 new CLI integration tests + 11 Python pytest tests in `marlinspike-dpi-py/tests/test_basic.py`. Full workspace passes clean: `cargo test --workspace`.
+
 ## [1.15.0] — 2026-05-11
 
 Typed-fields release — eight decoders migrated from the deprecated `attributes: BTreeMap<String, String>` escape hatch to typed `ProtocolFields::*` variants. Both surfaces coexist through the v1.x line (decoders populate the typed surface AND keep `attributes` for backward compatibility); the deprecated `attributes` field and the legacy `modbus: Option<ModbusBronzeFields>` sub-field both get removed in v2.0.
@@ -287,6 +324,7 @@ Initial public release.
 - Pure Rust, zero C dependencies.
 - 247 tests.
 
+[1.16.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.16.0
 [1.15.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.15.0
 [1.14.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.14.0
 [1.13.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.13.0
