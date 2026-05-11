@@ -1,0 +1,13 @@
+target
+.git
+.github
+.claude
+.idea
+.vscode
+*.pcap
+*.pcapng
+*.log
+node_modules
+docs
+examples/*.rs.bk
+*.tmp

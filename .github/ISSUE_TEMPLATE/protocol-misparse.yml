@@ -1,0 +1,79 @@
+name: Protocol mis-parse
+description: A decoder is emitting wrong fields, missing a known protocol path, or returning a ParseAnomaly when the traffic is actually valid.
+title: "[mis-parse] <protocol>: <one-line summary>"
+labels: ["bug", "decoder"]
+body:
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Protocol
+      description: Which decoder is mis-parsing?
+      options:
+        - "OT — Modbus / Modbus-UDP"
+        - "OT — DNP3 / DNP3-SAv5"
+        - "OT — IEC 60870-5-104"
+        - "OT — IEC 61850 MMS / GOOSE / SV"
+        - "OT — S7comm"
+        - "OT — OPC UA / OPC UA PubSub / OPC Classic"
+        - "OT — EtherNet/IP / CIP / CIP Safety / EtherNet/IP Class 1 I/O"
+        - "OT — PROFINET / BACnet / BACnet-SC"
+        - "OT — HART-IP"
+        - "OT — Sparkplug B / MQTT"
+        - "OT — IEEE C37.118 synchrophasor"
+        - "OT — Beckhoff ADS / GE SRTP / MELSEC / FINS / Vnet/IP / TriStation / ROC Plus / UMAS / POWERLINK / SERCOS / PTP / GVCP / FF HSE / AVTP / AB CSP / PCCC / OSIsoft PI"
+        - "IT — SMB2/3 / Kerberos / LDAP / DCE-RPC / NTLMSSP"
+        - "IT — DNS / DHCP / HTTP / TLS / SNMP / SSH / FTP / NTP / SMTP / Syslog / RADIUS / RadSec / TFTP / TACACS+"
+        - "IT — MQTT / MQTT-SN / CoAP / AMQP / SIP / RTP / RTCP"
+        - "IT — RDP / VNC / WinRM / NetBIOS / WireGuard / OpenVPN / IKE / QUIC / NetFlow / Diameter"
+        - "Detection — Stovetop / ICMPeeker / Bilgepump"
+        - "Other / not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behaviour
+      description: What did marlinspike-dpi emit (or fail to emit)? Paste the relevant Bronze event JSON if you have it.
+      placeholder: |
+        Got: { "family": { "parse_anomaly": { "severity": "medium", "reason": "..." } } }
+        Or: ProtocolTransaction emitted with operation="..." but missing field X
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should it have emitted? Field references from the protocol spec, or what Wireshark/Zeek/tshark says, are gold.
+    validations:
+      required: true
+
+  - type: textarea
+    id: pcap
+    attributes:
+      label: Capture
+      description: |
+        A reproducer PCAP / PCAPNG file. **Strip anything sensitive first** — IPs, hostnames, payload bytes. The smaller the better. If the capture is sensitive and can't be shared, describe the wire shape (byte layout, packet count) in enough detail that we can synthesise a fixture.
+      placeholder: Attach with the issue, link to a public sample, or describe the synthetic fixture
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: marlinspike-dpi version
+      description: Output of `marlinspike-dpi --version` or the git SHA you built
+      placeholder: "v1.15.0 or 6b0ec58"
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, how you ran it (CLI / library / FFI / Docker), Rust version if relevant
+      placeholder: |
+        macOS 14 / Linux / Windows
+        CLI: `marlinspike-dpi --input cap.pcap --format bronze`
+        Library: `DpiEngine::new().process_capture(...)`

@@ -1,0 +1,76 @@
+name: New protocol request
+description: Request support for a protocol that isn't in the supported list, or request deeper parsing for one that's currently recognition-only.
+title: "[protocol] <protocol-name>: <one-line scope>"
+labels: ["enhancement", "new-protocol"]
+body:
+  - type: input
+    id: protocol
+    attributes:
+      label: Protocol name
+      description: Common name and any aliases (e.g. "EGD — GE Ethernet Global Data, UDP 18246")
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - "OT — vendor-specific protocol (Siemens, Rockwell, ABB, Emerson, etc.)"
+        - "OT — standard ICS protocol (IEC, IEEE, ODVA, OPC Foundation, etc.)"
+        - "OT — building automation / HVAC"
+        - "OT — power / grid"
+        - "OT — water / wastewater"
+        - "OT — oil & gas / pipeline"
+        - "OT — manufacturing / motion control"
+        - "OT — safety system (SIS)"
+        - "IT — auth / directory"
+        - "IT — file / share / RPC"
+        - "IT — VPN / tunnel"
+        - "IT — remote access"
+        - "IT — telemetry / observability"
+        - "L2 / link-layer"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: depth
+    attributes:
+      label: Requested depth
+      description: See [parse-depth-matrix.md](https://github.com/eris-ot/marlinspike-dpi/blob/main/docs/parse-depth-matrix.md) for what each level means
+      options:
+        - "Recognition — port + magic-byte fingerprint only"
+        - "Shallow — header byte parse, classify into operations"
+        - "Deep — full per-op field extraction with pairing"
+        - "Full — typed ProtocolFields + ProcessReading where applicable"
+    validations:
+      required: true
+
+  - type: textarea
+    id: spec
+    attributes:
+      label: Wire format reference
+      description: |
+        Where can we find the wire format? Public RFC, IEEE/IEC standard, vendor PDF, Wireshark dissector, reverse-engineering paper, etc. The more concrete the better — include offsets if the field layout is small.
+      placeholder: |
+        RFC 1234 / IEC 61234 / Wireshark packet-foo.c / [reverse-engineering writeup URL]
+        Or paste the header byte layout if it's small
+    validations:
+      required: true
+
+  - type: textarea
+    id: pcap
+    attributes:
+      label: Sample capture
+      description: A real PCAP of the protocol on the wire is the single highest-leverage thing for adding a decoder. Strip sensitive data first.
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why this protocol
+      description: What's the deployment context? Which industries / vendors / sites use it? What goes wrong today when our engine sees this traffic?
+      placeholder: |
+        - Used by [vendor X / industry Y]
+        - We see ~N% of traffic on our [water utility / refinery / etc.] is this protocol
+        - Currently emits ParseAnomaly with reason "..."

@@ -1,0 +1,67 @@
+name: Bug report
+description: Something broke that isn't a protocol mis-parse — build failure, panic, wrong output format, library API issue, etc.
+title: "[bug] <one-line summary>"
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - "CLI binary (marlinspike-dpi)"
+        - "Rust library (fm_dpi)"
+        - "C FFI (fm_dpi_*)"
+        - "Build / compile"
+        - "Tests"
+        - "Bronze / OCSF / Influx renderer"
+        - "Stovetop / ICMPeeker / Bilgepump detector"
+        - "Docs / examples"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Smallest possible reproducer. Commands, code snippet, or capture file.
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened
+      description: Output, error, panic backtrace, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "v1.15.0 or git SHA"
+    validations:
+      required: true
+
+  - type: input
+    id: rust
+    attributes:
+      label: Rust toolchain
+      description: Output of `rustc --version`
+      placeholder: "rustc 1.85.0 (...)"
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "macOS 14.5 / Ubuntu 22.04 / Windows 11 / etc."
+    validations:
+      required: true

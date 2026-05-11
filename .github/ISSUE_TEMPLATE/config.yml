@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / discussion
+    url: https://github.com/eris-ot/marlinspike-dpi/discussions
+    about: For open-ended questions, "how do I…", architecture discussions, show-and-tell of dashboards/integrations, or anything that isn't a bug or protocol request, please use Discussions.
+  - name: Commercial licensing
+    url: mailto:dpi@erisforge.com
+    about: For commercial licensing inquiries (proprietary embeds, OEM bundles, vendor integrations, SIEM connectors), email dpi@erisforge.com — see LICENSE-COMMERCIAL.md.
+  - name: Security vulnerability
+    url: mailto:security@erisforge.com
+    about: For potential security issues, email security@erisforge.com — please do not file a public issue.
