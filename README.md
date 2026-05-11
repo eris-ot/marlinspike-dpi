@@ -37,9 +37,9 @@ Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), o
 - **Structured Bronze v2 event model.** Six event families (ProtocolTransaction, AssetObservation, TopologyObservation, ParseAnomaly, ExtractedArtifact, ProcessReading) with full packet context in every envelope. Typed `PointIdentifier` and `RawQuality` enums preserve protocol-native addressing and quality bits without normalization.
 - **Built-in deduplication.** SHA256-based sliding-window dedup for multi-collector deployments. 5-second window, 1-second quantization. Protocol events and anomaly findings dedup independently.
 - **Embeddable.** `DpiEngine::new()` gives you a ready-to-use engine in one line. No configuration files, no runtime dependencies, no daemon. Process a capture, get structured events back.
-- **791 tests.** Unit tests for every dissector and detector. Integration tests for full-pipeline capture processing. Zero ignored, zero flaky.
+- **850 tests.** Unit tests for every dissector and detector. Integration tests for full-pipeline capture processing. Zero ignored, zero flaky.
 - **Self-registering decoders via `inventory`.** Adding a new protocol is one new file with an `inventory::submit!` block — no central registration list to edit. `DpiEngine::new()` collects every registration at startup and instantiates via factory closures.
-- **Typed `ProtocolFields` enum** alongside the legacy `attributes: BTreeMap<String, String>` escape hatch. Decoders migrate to typed emission per protocol; downstream consumers pattern-match instead of guessing string keys.
+- **Typed `ProtocolFields` enum** alongside the legacy `attributes: BTreeMap<String, String>` escape hatch. As of 1.15.0 the 9 most-deployed OT protocols (Modbus, DNP3, IEC 104, S7comm, OPC UA, EtherNet/IP, IEC 61850, HART-IP, Sparkplug B) all emit typed fields; downstream consumers pattern-match instead of guessing string keys. The deprecated `attributes` bag and the legacy `modbus` sub-field will be removed in v2.0.
 
 ---
 

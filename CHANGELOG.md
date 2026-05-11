@@ -8,6 +8,45 @@ breaking changes will bump the major version (planned `v2.0` removes the depreca
 `attributes: BTreeMap<String, String>` escape hatch and the `modbus` sub-field on
 `ProtocolTransaction`).
 
+## [1.15.0] — 2026-05-11
+
+Typed-fields release — eight decoders migrated from the deprecated `attributes: BTreeMap<String, String>` escape hatch to typed `ProtocolFields::*` variants. Both surfaces coexist through the v1.x line (decoders populate the typed surface AND keep `attributes` for backward compatibility); the deprecated `attributes` field and the legacy `modbus: Option<ModbusBronzeFields>` sub-field both get removed in v2.0.
+
+`ProtocolFields` now covers the 9 most-deployed OT protocols: Modbus (1.3.0), DNP3, IEC 104, S7comm, OPC UA (binary), EtherNet/IP, IEC 61850 (MMS+GOOSE+SV), HART-IP, Sparkplug B.
+
+### Added — typed `ProtocolFields` variants
+
+- **`ProtocolFields::Dnp3(Dnp3BronzeFields)`** — DLL src/dest, transport seq + FIR/FIN, application function code + name + seq, IIN flags (response only), object group list, direction.
+- **`ProtocolFields::Iec104(Iec104BronzeFields)`** — APCI type (I/S/U), N(S)/N(R) sequences, U-function name, ASDU type id + name, COT + name, negative-confirm + test bits, originator + common address, sequence flag, object count, direction.
+- **`ProtocolFields::S7comm(S7commBronzeFields)`** — ROSCTR + name, PDU reference, function code + name, error class/code, userdata function group/subcode, item count, memory area (Stop PLC FC 0x29 directly pattern-matchable), direction.
+- **`ProtocolFields::OpcUa(OpcUaBronzeFields)`** — message type (HEL/ACK/OPN/CLO/MSG/ERR/RHE), chunk type, secure_channel_id, request_id, sequence_number, service NodeId + name (ReadRequest=629, WriteRequest=671, BrowseRequest=525), status_code, is_request/is_response, direction.
+- **`ProtocolFields::EthernetIp(EthernetIpBronzeFields)`** — encap command + name, session_handle, encap status/options, CIP service + name, CIP class/instance/attribute IDs, CIP general + extended status, is_request, direction.
+- **`ProtocolFields::Iec61850(Iec61850BronzeFields)`** — sub_protocol discriminator (mms/goose/sv), MMS service + invoke_id + visible string, GOOSE APPID + dataset_ref + stNum + sqNum + test bit, SV APPID + smp_cnt + smp_synch, direction.
+- **`ProtocolFields::HartIp(HartIpBronzeFields)`** — message type + name, message id + name, status byte, sequence number, payload length, pass-through command + name, device status, 5-byte long-frame address, direction.
+- **`ProtocolFields::Sparkplug(SparkplugBronzeFields)`** — message type (NBIRTH/NDEATH/DBIRTH/DDEATH/NDATA/DDATA/NCMD/DCMD/STATE), group_id, edge_node_id, device_id (D* only), bdseq, seq, payload_timestamp, metric_count, alias_resolution_state, is_birth/is_death/is_command convenience flags.
+
+### Changed
+
+- Every `ProtocolTransaction` emitted by the migrated decoders now carries `protocol_fields: Some(ProtocolFields::<Name>(...))` alongside the existing `attributes` map. No removals — pure addition.
+- Bronze v2 schema reference and parse-depth matrix updated to reflect the migration status.
+
+### Deprecated
+
+The following remain deprecated per the v1.3.0 policy and will be removed in v2.0:
+
+- `ProtocolTransaction.attributes: BTreeMap<String, String>` — superseded by `protocol_fields`.
+- `ProtocolTransaction.modbus: Option<ModbusBronzeFields>` — superseded by `ProtocolFields::Modbus(...)`.
+
+Consumers should migrate now: pattern-match on `protocol_fields` for the typed surface, keep `attributes` reads only as a v1.x fallback.
+
+### Tests
+
+- +54 tests (845 lib + 4 CLI + 1 doctest = 850 total). Per-decoder deltas: DNP3 +8, IEC 104 +7, S7comm +7, OPC UA +7, EtherNet/IP +8, IEC 61850 +6, HART-IP +8, Sparkplug +8.
+
+### Migration shape
+
+The 8 protocol decoders were migrated in parallel via 8 isolated worktree agents — same pattern as the 1.14.0 depth release. Each agent designed its own `<Name>BronzeFields` struct from its decoder's wire shape, populated it on every emitted `ProtocolTransaction`, and added unit tests covering the typed surface. Bronze.rs conflicts at merge time were predictable (one struct + one enum variant per agent) and resolved by hand.
+
 ## [1.14.0] — 2026-05-11
 
 Depth release — six protocols promoted from recognition / shallow to full deep parse. The README headline number (50+ dissectors) doesn't change; depth does. Each promotion shipped via an isolated worktree agent and was merged after the full suite passed.
@@ -248,6 +287,7 @@ Initial public release.
 - Pure Rust, zero C dependencies.
 - 247 tests.
 
+[1.15.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.15.0
 [1.14.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.14.0
 [1.13.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.13.0
 [1.12.0]: https://github.com/eris-ot/marlinspike-dpi/releases/tag/v1.12.0

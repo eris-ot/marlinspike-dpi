@@ -1,6 +1,6 @@
 [package]
 name = "marlinspike-dpi"
-version = "1.14.0"
+version = "1.15.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 description = "Shared Marlinspike/Fathom DPI engine (Iron to Bronze)"

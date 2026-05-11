@@ -1,6 +1,6 @@
 # Parse Depth Matrix
 
-Per-protocol parse depth as of **v1.14.0**. Living doc — update when shipping a depth release.
+Per-protocol parse depth as of **v1.15.0**. Living doc — update when shipping a depth release.
 
 ## Legend
 
@@ -19,27 +19,27 @@ Per-protocol parse depth as of **v1.14.0**. Living doc — update when shipping 
 |----------|-------|---------------|---------------------|
 | Modbus/TCP | **Full** | MBAP+PDU, all target FCs, exception codes, register VQT, request/response pairing | — |
 | Modbus/UDP | **Full** | Same as TCP variant; LRU pending table per (src,dst,txn_id) | — |
-| DNP3 | **Deep** | DLL + transport + application, function codes, source/dest, role inference; CRC-16 validation via stovetop | Per-object g/var typed fields not yet on `ProtocolFields` enum |
+| DNP3 | **Deep** | DLL + transport + application, function codes, source/dest, role inference; CRC-16 validation via stovetop. Typed `ProtocolFields::Dnp3` variant landed in 1.15.0 | Per-object g/var typed fields (point-level) still summarised |
 | DNP3-SAv5 | **Deep** | g120 SAv5 object recognition; challenge/reply/aggressive/cert/MAC/update-key naming; g120v7 (Auth Error) high-severity | — |
-| IEC 60870-5-104 | **Deep** | APCI I/S/U, ASDU type ID, cause of transmission, IOA; VQT emission | Typed `ProtocolFields::Iec104` not yet on the enum |
-| IEC 61850 MMS | **Deep** | ISO-on-TCP, COTP, MMS service ID, TSAP, visible strings | Typed enum migration pending |
+| IEC 60870-5-104 | **Deep** | APCI I/S/U, ASDU type ID, cause of transmission, IOA; VQT emission | Typed `ProtocolFields::Iec104` variant landed in 1.15.0 |
+| IEC 61850 MMS | **Deep** | ISO-on-TCP, COTP, MMS service ID, TSAP, visible strings | Typed `ProtocolFields` variant landed in 1.15.0 |
 | IEC 61850 GOOSE | **Deep** | AppID, dataset references | — |
 | IEC 61850 SV | **Deep** | AppID, sample data | — |
-| S7comm | **Deep** | TPKT/COTP/S7 PDU, ROSCTR, FCs, parameter + data blocks | Typed enum migration pending |
+| S7comm | **Deep** | TPKT/COTP/S7 PDU, ROSCTR, FCs, parameter + data blocks | Typed `ProtocolFields` variant landed in 1.15.0 |
 | PROFINET | **Deep** | Frame ID class, DCP service, cyclic IO, alarms | — |
 | BACnet/IP | **Deep** | BVLC + NPDU + APDU, confirmed/unconfirmed, device instance | — |
 | BACnet/SC | **Shallow** | TLS-handshake recognition (normal case); plaintext BVLC-SC parse for testbench | TLS payload **Opaque** in production |
-| EtherNet/IP | **Deep** | Encapsulation commands, session handle, CIP identity | Typed `ProtocolFields::EthernetIp` pending |
+| EtherNet/IP | **Deep** | Encapsulation commands, session handle, CIP identity | Typed `ProtocolFields::EthernetIp` variant landed in 1.15.0 |
 | EtherNet/IP Class 1 I/O | **Deep** | CPF parse, sequence tracking, Run/Idle, sampled (first + every 1000th) | — |
-| OPC UA (binary) | **Deep** | Message type/chunk, secure-channel ID, sequence/request IDs; ReadRequest/Response correlation; Variant decode; DataValue VQT | Typed `ProtocolFields::OpcUa` pending |
+| OPC UA (binary) | **Deep** | Message type/chunk, secure-channel ID, sequence/request IDs; ReadRequest/Response correlation; Variant decode; DataValue VQT | Typed `ProtocolFields::OpcUa` variant landed in 1.15.0 |
 | OPC UA PubSub | **Full** | UADP NetworkMessage + DSM (Variant + DataValue → ProcessReading); FILETIME → Unix-micros | RawData encoding (config not on wire); aggregate Variant types; PublishedDataSet config-resolved NodeIds |
-| HART-IP | **Deep** | Session-initiate, passthrough commands, device identity, VQT | Typed `ProtocolFields::HartIp` pending |
+| HART-IP | **Deep** | Session-initiate, passthrough commands, device identity, VQT | Typed `ProtocolFields::HartIp` variant landed in 1.15.0 |
 | OMRON FINS | **Deep** | FINS header, command codes, memory area R/W | — |
 | EtherCAT | **Deep** | Datagram headers, ADP/ADO addressing, working counters | — |
 | MRP | **Deep** | MRP_Test/Topology/Link TLVs, domain UUID, ring state | — |
 | PRP | **Deep** | Supervision frames, RCT trailer | — |
 | PCCC (AB legacy) | **Deep** | Protected Typed Logical Read with TNS pairing; three-address-field decode; VQT | — |
-| Sparkplug B | **Full** | Protobuf decode, BIRTH alias resolution, bdSeq supersession, gap-epoch detection, TTL+LRU eviction; VQT | Typed `ProtocolFields::Sparkplug` pending |
+| Sparkplug B | **Full** | Protobuf decode, BIRTH alias resolution, bdSeq supersession, gap-epoch detection, TTL+LRU eviction; VQT; typed `ProtocolFields::Sparkplug` on session-management messages | — |
 | IEEE C37.118 synchrophasor | **Full** | CFG-2 per-PMU layout; phasors / freq / dfreq / analogs / digitals → ProcessReading | — |
 | CC-Link IE Field | **Recognition** | Port + multicast classification | **Spec-blocked** (member-restricted) |
 | CODESYS | **Recognition** | Port-based V2 / V3 / Gateway / Runtime distinction | V2 partly documented; deep parse needs reverse-engineering |
@@ -114,10 +114,12 @@ All link-layer protocols listed in the README are at **Deep** depth — frame pa
 
 **Highest leverage (next push candidates):**
 
-1. **ProtocolFields enum migration** — promote DNP3, IEC 104, S7comm, OPC UA, EtherNet/IP, IEC 61850, HART-IP, Sparkplug from the deprecated `attributes: BTreeMap<String,String>` escape hatch to typed enum variants. This is the v2.0 prep and a type-safety win across the most-deployed OT protocols.
-2. **DCE/RPC opnum→method mapping** — per-interface opnum tables for the named interfaces. DRSUAPI opnum 3 = `DRSGetNCChanges` (the DCSync signal); SAMR opnum 36 = `SamrEnumerateDomainsInSamServer`; etc. Bounded; high defender yield.
-3. **OPC Classic endpoint-mapper dynamic-port tracking** — complete the OPC story. Requires DCE/RPC EPM session memory.
-4. **CIP Safety Type 1/2/Extended internals** — SIL-3 safety payload decode. CIP Networks Library Volume 5 is purchasable / partially public.
+1. **DCE/RPC opnum→method mapping** — per-interface opnum tables for the named interfaces. DRSUAPI opnum 3 = `DRSGetNCChanges` (the DCSync signal); SAMR opnum 36 = `SamrEnumerateDomainsInSamServer`; etc. Bounded; high defender yield.
+2. **OPC Classic endpoint-mapper dynamic-port tracking** — complete the OPC story. Requires DCE/RPC EPM session memory.
+3. **CIP Safety Type 1/2/Extended internals** — SIL-3 safety payload decode. CIP Networks Library Volume 5 is purchasable / partially public.
+4. **Continue ProtocolFields enum migration** — protocols still on `attributes`-only: MELSEC, BACnet/IP, PROFINET, OMRON FINS, EtherCAT, OPC UA PubSub, ADS, GE SRTP, TriStation, Diameter, and the IT decoder set (DNS, DHCP, HTTP, MQTT, etc.).
+
+**Shipped in 1.15.0:** typed `ProtocolFields` variants for DNP3, IEC 104, S7comm, OPC UA (binary), EtherNet/IP, IEC 61850, HART-IP, Sparkplug B (joining Modbus from 1.3.0).
 
 **Spec-blocked (would need new sources):** CC-Link IE Field, IO-Link Wireless, OSIsoft PI, Vnet/IP deeper, FF HSE deeper, TriStation deeper.
 

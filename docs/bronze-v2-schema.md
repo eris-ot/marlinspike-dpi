@@ -147,13 +147,23 @@ pub struct ObjectValue { pub object_ref: String, pub value: Option<String> }
 
 #### `ProtocolFields` enum
 
-Externally tagged on `{ "protocol": "...", "fields": { ... } }`. Currently:
+Externally tagged on `{ "protocol": "...", "fields": { ... } }`. As of v1.15.0:
 
 ```rust
 ProtocolFields::Modbus(ModbusBronzeFields)
+ProtocolFields::Dnp3(Dnp3BronzeFields)
+ProtocolFields::Iec104(Iec104BronzeFields)
+ProtocolFields::S7comm(S7commBronzeFields)
+ProtocolFields::OpcUa(OpcUaBronzeFields)
+ProtocolFields::EthernetIp(EthernetIpBronzeFields)
+ProtocolFields::Iec61850(Iec61850BronzeFields)
+ProtocolFields::HartIp(HartIpBronzeFields)
+ProtocolFields::Sparkplug(SparkplugBronzeFields)
 ```
 
-Planned next variants (see `bronze.rs:101`): `Dnp3`, `Iec104`, `S7comm`, `OpcUa`, `EthernetIp`, `Iec61850`, `HartIp`, `Sparkplug`.
+Each variant carries the protocol's typed wire fields (function codes, sequence numbers, IIN flags, ASDU types, ROSCTR, secure-channel/request IDs, encap commands, CIP service codes, MMS service / GOOSE stNum / SV smpCnt, HART command, Sparkplug message-type + bdseq + seq, etc.). See `src/bronze.rs` for the per-variant field definitions.
+
+Future variants land here as decoders migrate. The deprecated `attributes` bag is retained for v1.x backward compatibility and removed in v2.0.
 
 #### `ModbusBronzeFields`
 
