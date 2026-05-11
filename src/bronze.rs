@@ -418,6 +418,56 @@ pub struct HartIpBronzeFields {
     pub direction: String,
 }
 
+/// Sparkplug B session-management fields carried on a [`ProtocolTransaction`].
+///
+/// Emitted for every Sparkplug B session-management message (NBIRTH, NDEATH,
+/// DBIRTH, DDEATH, NDATA, DDATA, NCMD, DCMD, STATE). `ProcessReading` events
+/// are emitted separately for metric-bearing messages and are already typed via
+/// [`PointIdentifier::SparkplugMetric`] + [`RawQuality::SparkplugQuality`];
+/// this struct covers only the session/control envelope.
+///
+/// All fields use primitive types so they serialise cleanly to JSON for the
+/// Silver register profile and the forensic workbench API.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SparkplugBronzeFields {
+    /// Sparkplug B message type: "NBIRTH" / "NDEATH" / "DBIRTH" / "DDEATH" /
+    /// "NDATA" / "DDATA" / "NCMD" / "DCMD" / "STATE".
+    pub message_type: String,
+    /// Sparkplug B group identifier from the topic (e.g. "Plant1").
+    pub group_id: String,
+    /// Edge node identifier from the topic (e.g. "PLC-A").
+    pub edge_node_id: String,
+    /// Device identifier, present only for D* messages (DBIRTH, DDEATH, DDATA,
+    /// DCMD). `None` for node-scoped messages (N*) and STATE.
+    pub device_id: Option<String>,
+    /// Birth/death sequence number from the `bdSeq` metric in BIRTH/DEATH
+    /// messages. Used as the supersession key to order session restarts.
+    /// `None` when absent (e.g. DATA, CMD, STATE messages).
+    pub bdseq: Option<u64>,
+    /// Per-message sequence counter from the payload `seq` field.
+    /// Sparkplug uses this to detect out-of-order or missing messages within
+    /// an alive session lifetime. `None` when absent (e.g. DEATH messages).
+    pub seq: Option<u64>,
+    /// Payload-level timestamp, milliseconds since Unix epoch, when the
+    /// Sparkplug payload carries one. `None` if the payload omits it.
+    pub payload_timestamp: Option<u64>,
+    /// Number of metrics in the payload. `None` for messages that carry no
+    /// metrics (DEATH, NCMD without targets, STATE).
+    pub metric_count: Option<u32>,
+    /// Alias resolution state for DATA messages, indicating whether the
+    /// decoder had a prior BIRTH to resolve metric aliases:
+    /// - `"resolved"` — all aliases mapped from a prior BIRTH
+    /// - `"unresolved_no_birth"` — at least one alias could not be resolved
+    /// - `"n/a"` — not applicable (BIRTH, DEATH, CMD, STATE)
+    pub alias_resolution_state: String,
+    /// True for BIRTH messages (NBIRTH, DBIRTH).
+    pub is_birth: bool,
+    /// True for DEATH messages (NDEATH, DDEATH).
+    pub is_death: bool,
+    /// True for command messages (NCMD, DCMD).
+    pub is_command: bool,
+}
+
 /// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
 /// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
 /// enum that downstream consumers can pattern-match without string lookups.
@@ -437,8 +487,7 @@ pub enum ProtocolFields {
     EthernetIp(EthernetIpBronzeFields),
     Iec61850(Iec61850BronzeFields),
     HartIp(HartIpBronzeFields),
-    // Future variants land here as decoders migrate. Expected next:
-    //   Sparkplug(SparkplugBronzeFields).
+    Sparkplug(SparkplugBronzeFields),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

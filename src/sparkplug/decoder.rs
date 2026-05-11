@@ -3,29 +3,42 @@
 //!
 //! Lifecycle:
 //! - `NBIRTH` / `DBIRTH`: clear the alias table for the session, record
-//!   `bdSeq`, populate alias→name bindings from each metric, emit
-//!   `ProcessReading` for each metric (BIRTH carries initial values).
-//! - `NDATA` / `DDATA`: resolve aliases from session state, emit
-//!   `ProcessReading` for each metric. Metrics with unresolvable aliases are
-//!   still emitted with `metric_name = None, alias = Some(_)` so a downstream
-//!   consumer can backfill or surface the gap.
-//! - `NDEATH` / `DDEATH`: clear aliases for the session. No `ProcessReading`
-//!   emitted (death is signalled out-of-band by absence + the next BIRTH's
-//!   bdSeq increment).
-//! - `NCMD` / `DCMD` / `STATE`: ignored — these are commands or host
-//!   announcements, not telemetry.
+//!   `bdSeq`, populate alias→name bindings from each metric, emit one
+//!   `ProtocolTransaction` (typed via
+//!   [`crate::bronze::ProtocolFields::Sparkplug`]) for the session-management
+//!   envelope, and emit `ProcessReading` for each metric (BIRTH carries
+//!   initial values).
+//! - `NDATA` / `DDATA`: resolve aliases from session state, emit one
+//!   `ProtocolTransaction` for the data envelope, and emit `ProcessReading`
+//!   for each metric. Metrics with unresolvable aliases are still emitted with
+//!   `metric_name = None, alias = Some(_)` so a downstream consumer can
+//!   backfill or surface the gap.
+//! - `NDEATH` / `DDEATH`: clear aliases for the session. Emits one
+//!   `ProtocolTransaction` for the death event; no `ProcessReading`.
+//! - `NCMD` / `DCMD`: command messages directed at an edge node or device.
+//!   Emit one `ProtocolTransaction` so defenders can observe commands.
+//! - `STATE`: host-application state announcement. Emits one
+//!   `ProtocolTransaction`.
+//!
+//! The `ProtocolTransaction` for each message carries `protocol_fields:
+//! Some(ProtocolFields::Sparkplug(SparkplugBronzeFields {...}))` as the typed
+//! surface; the legacy `attributes` map is also populated for backward
+//! compatibility through the v1.x line.
 //!
 //! State eviction is decoupled from pcap-segment boundaries; sessions persist
 //! across segment rotations because a Sparkplug session typically outlives
 //! a single capture window. (TTL-based and memory-pressure eviction are
 //! deliberate future work — not needed for v1.)
 
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use prost::Message;
 
 use crate::bronze::{
     BronzeEvent, BronzeEventFamily, EventEnvelope, ParseAnomaly, PointIdentifier, ProcessReading,
-    TransportProtocol, BRONZE_SCHEMA_VERSION,
+    ProtocolFields, ProtocolTransaction, SparkplugBronzeFields, TransportProtocol,
+    BRONZE_SCHEMA_VERSION,
 };
 use crate::mqtt_payload::{MqttPayloadDecoder, MqttPublishContext};
 use crate::sparkplug::proto::{payload::Metric as PbMetric, Payload as PbPayload};
@@ -134,6 +147,10 @@ impl SparkplugBDecoder {
                 session.bind(alias, name.to_string());
             }
         }
+        // Emit one ProtocolTransaction for the session-management envelope.
+        let metric_count = payload.metrics.len() as u32;
+        let fields = build_sparkplug_fields(topic, payload, bd_seq, Some(metric_count), "n/a");
+        out.push(self.session_tx_event(ctx, topic, fields, metric_count));
         // BIRTH carries initial values — emit them.
         emit_metrics(self, ctx, topic, payload, out);
     }
@@ -166,14 +183,121 @@ impl SparkplugBDecoder {
                 out.push(self.gap_anomaly_event(ctx, topic));
             }
         }
+        let alias_state = if any_unresolvable {
+            "unresolved_no_birth"
+        } else {
+            "resolved"
+        };
+        let metric_count = payload.metrics.len() as u32;
+        let fields = build_sparkplug_fields(
+            topic,
+            payload,
+            None,
+            Some(metric_count),
+            alias_state,
+        );
+        out.push(self.session_tx_event(ctx, topic, fields, metric_count));
         emit_metrics(self, ctx, topic, payload, out);
     }
 
-    fn handle_death(&mut self, ctx: &MqttPublishContext<'_>, topic: &SparkplugTopic<'_>) {
+    fn handle_death(
+        &mut self,
+        ctx: &MqttPublishContext<'_>,
+        topic: &SparkplugTopic<'_>,
+        payload: &PbPayload,
+        out: &mut Vec<BronzeEvent>,
+    ) {
         let key = self.session_key(ctx, topic);
         self.sessions
             .entry_mut(key, ctx.packet_ts_us)
             .record_death();
+        let bd_seq = extract_bd_seq(payload);
+        let fields = build_sparkplug_fields(topic, payload, bd_seq, None, "n/a");
+        out.push(self.session_tx_event(ctx, topic, fields, 0));
+    }
+
+    fn handle_cmd(
+        &mut self,
+        ctx: &MqttPublishContext<'_>,
+        topic: &SparkplugTopic<'_>,
+        payload: &PbPayload,
+        out: &mut Vec<BronzeEvent>,
+    ) {
+        let metric_count = payload.metrics.len() as u32;
+        let fields = build_sparkplug_fields(
+            topic,
+            payload,
+            None,
+            Some(metric_count),
+            "n/a",
+        );
+        out.push(self.session_tx_event(ctx, topic, fields, metric_count));
+    }
+
+    fn handle_state(
+        &mut self,
+        ctx: &MqttPublishContext<'_>,
+        topic: &SparkplugTopic<'_>,
+        payload: &PbPayload,
+        out: &mut Vec<BronzeEvent>,
+    ) {
+        let fields = build_sparkplug_fields(topic, payload, None, None, "n/a");
+        out.push(self.session_tx_event(ctx, topic, fields, 0));
+    }
+
+    /// Build a `ProtocolTransaction` event for a Sparkplug session-management
+    /// message. Populates both the typed `protocol_fields` surface and the
+    /// legacy `attributes` map for backward compatibility.
+    fn session_tx_event(
+        &mut self,
+        ctx: &MqttPublishContext<'_>,
+        topic: &SparkplugTopic<'_>,
+        fields: SparkplugBronzeFields,
+        metric_count: u32,
+    ) -> BronzeEvent {
+        let envelope = self.build_envelope(ctx, "");
+        let operation = fields.message_type.clone();
+
+        // Legacy attributes — mirror key fields for consumers not yet on the
+        // typed surface. Retained through v1.x; will be removed in v2.0.
+        let mut attributes = BTreeMap::new();
+        attributes.insert("message_type".to_string(), fields.message_type.clone());
+        attributes.insert("group_id".to_string(), fields.group_id.clone());
+        attributes.insert("edge_node_id".to_string(), fields.edge_node_id.clone());
+        if let Some(did) = &fields.device_id {
+            attributes.insert("device_id".to_string(), did.clone());
+        }
+        if let Some(bdseq) = fields.bdseq {
+            attributes.insert("bdseq".to_string(), bdseq.to_string());
+        }
+        if let Some(seq) = fields.seq {
+            attributes.insert("seq".to_string(), seq.to_string());
+        }
+        if let Some(ts) = fields.payload_timestamp {
+            attributes.insert("payload_timestamp".to_string(), ts.to_string());
+        }
+        attributes.insert("metric_count".to_string(), metric_count.to_string());
+        attributes.insert(
+            "alias_resolution_state".to_string(),
+            fields.alias_resolution_state.clone(),
+        );
+
+        let object_refs = build_object_refs(topic);
+
+        self.make_event(
+            envelope,
+            BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
+                operation,
+                status: "ok".to_string(),
+                request_summary: Some(sparkplug_summary(topic, metric_count)),
+                response_summary: None,
+                object_refs,
+                values: vec![],
+                attributes,
+                modbus: None,
+                protocol_fields: Some(ProtocolFields::Sparkplug(fields)),
+            }),
+        )
     }
 
     fn gap_anomaly_event(
@@ -339,10 +463,13 @@ impl MqttPayloadDecoder for SparkplugBDecoder {
                 self.handle_data(ctx, &topic, &payload, &mut out);
             }
             MessageType::NDeath | MessageType::DDeath => {
-                self.handle_death(ctx, &topic);
+                self.handle_death(ctx, &topic, &payload, &mut out);
             }
-            MessageType::NCmd | MessageType::DCmd | MessageType::State => {
-                // Commands and host state aren't telemetry — skip.
+            MessageType::NCmd | MessageType::DCmd => {
+                self.handle_cmd(ctx, &topic, &payload, &mut out);
+            }
+            MessageType::State => {
+                self.handle_state(ctx, &topic, &payload, &mut out);
             }
         }
         out
@@ -351,6 +478,86 @@ impl MqttPayloadDecoder for SparkplugBDecoder {
 
 fn is_ascii_clean(s: &str) -> bool {
     s.bytes().all(|b| (0x20..=0x7E).contains(&b) || b == b'\t')
+}
+
+/// Construct [`SparkplugBronzeFields`] from topic + payload metadata.
+///
+/// `bd_seq` is passed in separately because it has already been extracted (or
+/// will be `None` for message types that don't carry it).
+/// `metric_count` is `None` for DEATH, STATE, and other non-metric messages.
+/// `alias_resolution_state` is computed by the caller.
+fn build_sparkplug_fields(
+    topic: &SparkplugTopic<'_>,
+    payload: &PbPayload,
+    bd_seq: Option<u64>,
+    metric_count: Option<u32>,
+    alias_resolution_state: &str,
+) -> SparkplugBronzeFields {
+    let mt = topic.message_type;
+    let message_type = match mt {
+        MessageType::NBirth => "NBIRTH",
+        MessageType::NDeath => "NDEATH",
+        MessageType::NData  => "NDATA",
+        MessageType::NCmd   => "NCMD",
+        MessageType::DBirth => "DBIRTH",
+        MessageType::DDeath => "DDEATH",
+        MessageType::DData  => "DDATA",
+        MessageType::DCmd   => "DCMD",
+        MessageType::State  => "STATE",
+    };
+    SparkplugBronzeFields {
+        message_type: message_type.to_string(),
+        group_id: topic.group_id.to_string(),
+        edge_node_id: topic.edge_node_id.to_string(),
+        device_id: topic.device_id.map(str::to_string),
+        bdseq: bd_seq,
+        seq: payload.seq,
+        payload_timestamp: payload.timestamp,
+        metric_count,
+        alias_resolution_state: alias_resolution_state.to_string(),
+        is_birth: mt.is_birth(),
+        is_death: mt.is_death(),
+        is_command: matches!(mt, MessageType::NCmd | MessageType::DCmd),
+    }
+}
+
+/// Build the object_refs list for a Sparkplug session-management transaction.
+/// Always contains the fully-qualified node path; device path added when present.
+fn build_object_refs(topic: &SparkplugTopic<'_>) -> Vec<String> {
+    let node_ref = format!("sparkplug/{}/{}", topic.group_id, topic.edge_node_id);
+    match topic.device_id {
+        Some(d) => vec![
+            node_ref.clone(),
+            format!("{node_ref}/{d}"),
+        ],
+        None => vec![node_ref],
+    }
+}
+
+/// One-line summary for a Sparkplug session-management transaction.
+fn sparkplug_summary(topic: &SparkplugTopic<'_>, metric_count: u32) -> String {
+    let mt = topic.message_type;
+    let type_str = match mt {
+        MessageType::NBirth => "NBIRTH",
+        MessageType::NDeath => "NDEATH",
+        MessageType::NData  => "NDATA",
+        MessageType::NCmd   => "NCMD",
+        MessageType::DBirth => "DBIRTH",
+        MessageType::DDeath => "DDEATH",
+        MessageType::DData  => "DDATA",
+        MessageType::DCmd   => "DCMD",
+        MessageType::State  => "STATE",
+    };
+    match topic.device_id {
+        Some(d) => format!(
+            "{type_str} {}/{}/{} metrics={}",
+            topic.group_id, topic.edge_node_id, d, metric_count
+        ),
+        None => format!(
+            "{type_str} {}/{} metrics={}",
+            topic.group_id, topic.edge_node_id, metric_count
+        ),
+    }
 }
 
 fn timestamp_us_to_chrono(us: u64) -> DateTime<Utc> {
@@ -489,12 +696,14 @@ mod tests {
             ..Default::default()
         });
         let events = d.try_decode(&ctx("spBv1.0/Plant1/NBIRTH/PLC-A", &bytes));
-        // 3 metrics → 3 ProcessReading events.
-        assert_eq!(events.len(), 3);
-        for ev in &events {
+        // 1 ProtocolTransaction + 3 ProcessReadings.
+        assert_eq!(events.len(), 4);
+        assert!(matches!(events[0].family, BronzeEventFamily::ProtocolTransaction(_)));
+        for ev in &events[1..] {
             assert_eq!(ev.family_name(), "process_reading");
         }
-        let r = extract_reading(&events[1]);
+        // events[1] is the first ProcessReading (bdSeq metric), events[2] is Tank1.Level.
+        let r = extract_reading(&events[2]);
         assert_eq!(r.source_protocol, "sparkplug_b");
         match &r.point_id {
             PointIdentifier::SparkplugMetric {
@@ -538,8 +747,14 @@ mod tests {
             ..Default::default()
         });
         let events = d.try_decode(&ctx("spBv1.0/Plant1/NDATA/PLC-A", &data));
-        assert_eq!(events.len(), 1);
-        let r = extract_reading(&events[0]);
+        // 1 ProtocolTransaction + 1 ProcessReading.
+        assert_eq!(events.len(), 2);
+        let r = extract_reading(
+            events
+                .iter()
+                .find(|ev| matches!(ev.family, BronzeEventFamily::ProcessReading(_)))
+                .unwrap(),
+        );
         match &r.point_id {
             PointIdentifier::SparkplugMetric {
                 metric_name, alias, ..
@@ -560,13 +775,17 @@ mod tests {
             ..Default::default()
         });
         let events = d.try_decode(&ctx("spBv1.0/G/NDATA/E", &data));
-        // 1 anomaly + 2 readings (in that order, anomaly emitted first).
-        assert_eq!(events.len(), 3);
+        // 1 anomaly + 1 ProtocolTransaction + 2 ProcessReadings.
+        assert_eq!(events.len(), 4);
         assert!(matches!(
             events[0].family,
             BronzeEventFamily::ParseAnomaly(_)
         ));
-        for ev in &events[1..] {
+        assert!(matches!(
+            events[1].family,
+            BronzeEventFamily::ProtocolTransaction(_)
+        ));
+        for ev in &events[2..] {
             let r = extract_reading(ev);
             match &r.point_id {
                 PointIdentifier::SparkplugMetric { metric_name, alias, .. } => {
@@ -579,8 +798,13 @@ mod tests {
 
         // A second DATA with still-no-BIRTH should NOT re-fire the anomaly.
         let events2 = d.try_decode(&ctx("spBv1.0/G/NDATA/E", &data));
-        assert_eq!(events2.len(), 2);
-        assert!(events2
+        // 1 ProtocolTransaction + 2 ProcessReadings — no anomaly on second DATA.
+        assert_eq!(events2.len(), 3);
+        assert!(matches!(
+            events2[0].family,
+            BronzeEventFamily::ProtocolTransaction(_)
+        ));
+        assert!(events2[1..]
             .iter()
             .all(|ev| matches!(ev.family, BronzeEventFamily::ProcessReading(_))));
     }
@@ -630,8 +854,14 @@ mod tests {
             ..Default::default()
         });
         let events = d.try_decode(&ctx("spBv1.0/G/NDATA/E", &data));
-        assert_eq!(events.len(), 1);
-        let r = extract_reading(&events[0]);
+        // 1 ProtocolTransaction + 1 ProcessReading.
+        assert_eq!(events.len(), 2);
+        let r = extract_reading(
+            events
+                .iter()
+                .find(|ev| matches!(ev.family, BronzeEventFamily::ProcessReading(_)))
+                .unwrap(),
+        );
         match &r.point_id {
             PointIdentifier::SparkplugMetric { metric_name, .. } => {
                 assert_eq!(metric_name.as_deref(), Some("NewTag"));
@@ -654,7 +884,9 @@ mod tests {
             ..Default::default()
         });
         let events = d.try_decode(&ctx("spBv1.0/G/NDEATH/E", &death));
-        assert!(events.is_empty(), "DEATH does not emit ProcessReadings");
+        // DEATH emits one ProtocolTransaction but no ProcessReadings.
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0].family, BronzeEventFamily::ProtocolTransaction(_)));
         // DATA after DEATH should now fail to resolve alias 7.
         let data = payload_bytes(PbPayload {
             metrics: vec![metric_aliased(7, 99.0)],
@@ -693,7 +925,12 @@ mod tests {
             ..Default::default()
         });
         let events = d.try_decode(&ctx("spBv1.0/Plant1/DDATA/PLC-A/Drive-17", &ddata));
-        let r = extract_reading(&events[0]);
+        let r = extract_reading(
+            events
+                .iter()
+                .find(|ev| matches!(ev.family, BronzeEventFamily::ProcessReading(_)))
+                .unwrap(),
+        );
         match &r.point_id {
             PointIdentifier::SparkplugMetric {
                 metric_name,
@@ -785,7 +1022,8 @@ mod tests {
             ..Default::default()
         });
         let events = d.try_decode(&ctx("spBv1.0/G/NBIRTH/E", &bytes));
-        let q = &extract_reading(&events[1]).quality;
+        // events[0] = ProtocolTransaction, events[1] = bdSeq reading, events[2] = T reading.
+        let q = &extract_reading(&events[2]).quality;
         assert_eq!(
             q,
             &RawQuality::SparkplugQuality {
@@ -795,6 +1033,230 @@ mod tests {
                 is_null: false,
             }
         );
+    }
+
+    // ── Typed ProtocolFields::Sparkplug surface tests ────────────────────────
+
+    fn extract_sparkplug_fields(ev: &BronzeEvent) -> &crate::bronze::SparkplugBronzeFields {
+        match &ev.family {
+            BronzeEventFamily::ProtocolTransaction(tx) => match &tx.protocol_fields {
+                Some(ProtocolFields::Sparkplug(f)) => f,
+                other => panic!("expected ProtocolFields::Sparkplug, got {other:?}"),
+            },
+            other => panic!("expected ProtocolTransaction, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nbirth_protocol_transaction_typed_fields() {
+        let mut d = SparkplugBDecoder::new();
+        let bytes = payload_bytes(PbPayload {
+            timestamp: Some(1_700_000_000_000),
+            seq: Some(0),
+            metrics: vec![
+                bd_seq_metric(5),
+                metric_named("Pressure", 10, 101.3),
+                metric_named("FlowRate", 11, 25.0),
+                metric_named("Temp", 12, 72.0),
+            ],
+            ..Default::default()
+        });
+        let events = d.try_decode(&ctx("spBv1.0/SiteName/NBIRTH/PLC-B", &bytes));
+        // First event must be the ProtocolTransaction.
+        let f = extract_sparkplug_fields(&events[0]);
+        assert_eq!(f.message_type, "NBIRTH");
+        assert_eq!(f.group_id, "SiteName");
+        assert_eq!(f.edge_node_id, "PLC-B");
+        assert!(f.device_id.is_none());
+        assert_eq!(f.bdseq, Some(5));
+        assert_eq!(f.seq, Some(0));
+        assert_eq!(f.payload_timestamp, Some(1_700_000_000_000));
+        assert_eq!(f.metric_count, Some(4));
+        assert_eq!(f.alias_resolution_state, "n/a");
+        assert!(f.is_birth);
+        assert!(!f.is_death);
+        assert!(!f.is_command);
+        // Legacy attributes backward-compat check.
+        match &events[0].family {
+            BronzeEventFamily::ProtocolTransaction(tx) => {
+                assert_eq!(tx.attributes.get("message_type").map(String::as_str), Some("NBIRTH"));
+                assert_eq!(tx.attributes.get("group_id").map(String::as_str), Some("SiteName"));
+                assert_eq!(tx.attributes.get("bdseq").map(String::as_str), Some("5"));
+                assert_eq!(tx.attributes.get("metric_count").map(String::as_str), Some("4"));
+            }
+            _ => panic!(),
+        }
+        // ProcessReadings still emitted (4 metrics).
+        let readings: Vec<_> = events
+            .iter()
+            .filter(|ev| matches!(ev.family, BronzeEventFamily::ProcessReading(_)))
+            .collect();
+        assert_eq!(readings.len(), 4);
+    }
+
+    #[test]
+    fn dbirth_with_device_id_typed_fields() {
+        let mut d = SparkplugBDecoder::new();
+        let bytes = payload_bytes(PbPayload {
+            seq: Some(0),
+            metrics: vec![
+                bd_seq_metric(2),
+                metric_named("DriveSpeed", 1, 1500.0),
+                metric_named("DriveTemp", 2, 45.0),
+            ],
+            ..Default::default()
+        });
+        let events = d.try_decode(&ctx("spBv1.0/Factory/DBIRTH/Edge-1/Drive-7", &bytes));
+        let f = extract_sparkplug_fields(&events[0]);
+        assert_eq!(f.message_type, "DBIRTH");
+        assert_eq!(f.group_id, "Factory");
+        assert_eq!(f.edge_node_id, "Edge-1");
+        assert_eq!(f.device_id.as_deref(), Some("Drive-7"));
+        assert_eq!(f.bdseq, Some(2));
+        assert_eq!(f.metric_count, Some(3));
+        assert!(f.is_birth);
+        assert!(!f.is_death);
+        assert!(!f.is_command);
+    }
+
+    #[test]
+    fn ndata_with_seq_typed_fields_resolved() {
+        let mut d = SparkplugBDecoder::new();
+        // Establish alias binding via BIRTH.
+        let birth = payload_bytes(PbPayload {
+            seq: Some(0),
+            metrics: vec![bd_seq_metric(1), metric_named("Pressure", 7, 100.0)],
+            ..Default::default()
+        });
+        let _ = d.try_decode(&ctx("spBv1.0/G/NBIRTH/E", &birth));
+        // DATA message.
+        let data = payload_bytes(PbPayload {
+            seq: Some(3),
+            timestamp: Some(1_700_000_001_000),
+            metrics: vec![metric_aliased(7, 101.5)],
+            ..Default::default()
+        });
+        let events = d.try_decode(&ctx("spBv1.0/G/NDATA/E", &data));
+        let f = extract_sparkplug_fields(&events[0]);
+        assert_eq!(f.message_type, "NDATA");
+        assert_eq!(f.seq, Some(3));
+        assert_eq!(f.payload_timestamp, Some(1_700_000_001_000));
+        assert_eq!(f.metric_count, Some(1));
+        assert_eq!(f.alias_resolution_state, "resolved");
+        assert!(!f.is_birth);
+        assert!(!f.is_death);
+        assert!(!f.is_command);
+    }
+
+    #[test]
+    fn ndeath_with_bdseq_typed_fields() {
+        let mut d = SparkplugBDecoder::new();
+        let birth = payload_bytes(PbPayload {
+            metrics: vec![bd_seq_metric(3), metric_named("X", 1, 1.0)],
+            ..Default::default()
+        });
+        let _ = d.try_decode(&ctx("spBv1.0/G/NBIRTH/E", &birth));
+        let death = payload_bytes(PbPayload {
+            metrics: vec![bd_seq_metric(3)],
+            ..Default::default()
+        });
+        let events = d.try_decode(&ctx("spBv1.0/G/NDEATH/E", &death));
+        assert_eq!(events.len(), 1);
+        let f = extract_sparkplug_fields(&events[0]);
+        assert_eq!(f.message_type, "NDEATH");
+        assert_eq!(f.bdseq, Some(3));
+        assert!(f.metric_count.is_none());
+        assert!(!f.is_birth);
+        assert!(f.is_death);
+        assert!(!f.is_command);
+    }
+
+    #[test]
+    fn ncmd_emits_command_transaction() {
+        let mut d = SparkplugBDecoder::new();
+        let cmd = payload_bytes(PbPayload {
+            metrics: vec![metric_named("Node Control/Rebirth", 1, 1.0)],
+            ..Default::default()
+        });
+        let events = d.try_decode(&ctx("spBv1.0/Plant1/NCMD/PLC-A", &cmd));
+        assert_eq!(events.len(), 1);
+        let f = extract_sparkplug_fields(&events[0]);
+        assert_eq!(f.message_type, "NCMD");
+        assert_eq!(f.group_id, "Plant1");
+        assert_eq!(f.edge_node_id, "PLC-A");
+        assert!(f.device_id.is_none());
+        assert!(f.is_command);
+        assert!(!f.is_birth);
+        assert!(!f.is_death);
+        assert_eq!(f.metric_count, Some(1));
+    }
+
+    #[test]
+    fn dcmd_emits_command_transaction_with_device_id() {
+        let mut d = SparkplugBDecoder::new();
+        let cmd = payload_bytes(PbPayload {
+            metrics: vec![metric_named("Output/Setpoint", 2, 50.0)],
+            ..Default::default()
+        });
+        let events = d.try_decode(&ctx("spBv1.0/Plant1/DCMD/PLC-A/Pump-3", &cmd));
+        assert_eq!(events.len(), 1);
+        let f = extract_sparkplug_fields(&events[0]);
+        assert_eq!(f.message_type, "DCMD");
+        assert_eq!(f.device_id.as_deref(), Some("Pump-3"));
+        assert!(f.is_command);
+        assert_eq!(f.metric_count, Some(1));
+        // operation field on the transaction should equal the message type.
+        match &events[0].family {
+            BronzeEventFamily::ProtocolTransaction(tx) => {
+                assert_eq!(tx.operation, "DCMD");
+                assert_eq!(tx.status, "ok");
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn ndata_unresolved_alias_resolution_state() {
+        let mut d = SparkplugBDecoder::new();
+        // Send DATA without any preceding BIRTH — alias cannot resolve.
+        let data = payload_bytes(PbPayload {
+            seq: Some(1),
+            metrics: vec![metric_aliased(42, 9.9)],
+            ..Default::default()
+        });
+        let events = d.try_decode(&ctx("spBv1.0/G/NDATA/E", &data));
+        // anomaly + tx + 1 reading
+        let tx_event = events
+            .iter()
+            .find(|ev| matches!(ev.family, BronzeEventFamily::ProtocolTransaction(_)))
+            .expect("must have ProtocolTransaction");
+        let f = extract_sparkplug_fields(tx_event);
+        assert_eq!(f.alias_resolution_state, "unresolved_no_birth");
+    }
+
+    #[test]
+    fn protocol_fields_sparkplug_roundtrip_serde() {
+        use crate::bronze::{ProtocolFields, SparkplugBronzeFields};
+        let fields = SparkplugBronzeFields {
+            message_type: "NBIRTH".into(),
+            group_id: "G1".into(),
+            edge_node_id: "E1".into(),
+            device_id: None,
+            bdseq: Some(7),
+            seq: Some(0),
+            payload_timestamp: Some(1_700_000_000_000),
+            metric_count: Some(3),
+            alias_resolution_state: "n/a".into(),
+            is_birth: true,
+            is_death: false,
+            is_command: false,
+        };
+        let wrapped = ProtocolFields::Sparkplug(fields.clone());
+        let json = serde_json::to_string(&wrapped).expect("serialize");
+        assert!(json.contains("\"protocol\":\"sparkplug\""));
+        assert!(json.contains("\"message_type\":\"NBIRTH\""));
+        let back: ProtocolFields = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, wrapped);
     }
 }
 
