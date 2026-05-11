@@ -2,7 +2,8 @@
 //! emit a `ProtocolTransaction` for traffic classification. No deep PDU
 //! parsing.
 //!
-//! Members: SMB, Kerberos, LDAP/LDAPS, CC-Link IE, CODESYS, IO-Link Wireless.
+//! Members: SMB, LDAP/LDAPS, CC-Link IE, CODESYS, IO-Link Wireless.
+//! Kerberos has been promoted to a full ASN.1 decoder in `kerberos.rs`.
 //! IGMP has been promoted to a full deep decoder in `igmp.rs`.
 
 use std::collections::BTreeMap;
@@ -84,53 +85,6 @@ impl SessionDecoder for SmbRecognizer {
     }
 }
 
-pub(crate) struct KerberosRecognizer;
-
-impl SessionDecoder for KerberosRecognizer {
-    fn name(&self) -> &'static str {
-        "kerberos"
-    }
-
-    fn interest(&self) -> &'static [DecoderInterest] {
-        &[
-            DecoderInterest::TcpPort(88),
-            DecoderInterest::UdpPort(88),
-            DecoderInterest::TcpPort(464),
-            DecoderInterest::UdpPort(464),
-        ]
-    }
-
-    fn on_stream_chunk(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
-        if looks_like_kerberos(chunk.payload) {
-            emit_recognition(chunk, out, "kerberos", "kerberos_message", "Kerberos traffic");
-        }
-    }
-
-    fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
-        if looks_like_kerberos(chunk.payload) {
-            emit_recognition(chunk, out, "kerberos", "kerberos_message", "Kerberos traffic");
-        }
-    }
-}
-
-/// Light Kerberos signature: ASN.1 BER application-tagged messages. KRB
-/// messages start with application-tag bytes 0x6A (AS-REQ), 0x6B (AS-REP),
-/// 0x6C (TGS-REQ), 0x6D (TGS-REP), 0x6E (AP-REQ), 0x6F (AP-REP), 0x7E
-/// (KRB-ERROR). For TCP, a 4-byte length precedes the ASN.1.
-fn looks_like_kerberos(p: &[u8]) -> bool {
-    if p.is_empty() {
-        return false;
-    }
-    let candidates = [0usize, 4];
-    for &off in &candidates {
-        if let Some(b) = p.get(off) {
-            if matches!(*b, 0x6A..=0x6F | 0x7E) {
-                return true;
-            }
-        }
-    }
-    false
-}
 
 pub(crate) struct LdapRecognizer;
 
@@ -234,10 +188,6 @@ impl SessionDecoder for IoLinkRecognizer {
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "smb",
     factory: || Box::new(SmbRecognizer),
-});
-inventory::submit!(crate::engine::decoders::DecoderRegistration {
-    name: "kerberos",
-    factory: || Box::new(KerberosRecognizer),
 });
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "ldap",

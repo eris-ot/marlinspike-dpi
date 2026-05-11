@@ -28,6 +28,7 @@ pub(crate) mod igmp;
 pub(crate) mod ike;
 pub(crate) mod it_app;
 pub(crate) mod it_basic;
+pub(crate) mod kerberos;
 pub(crate) mod link_layer;
 pub(crate) mod mqtt_sn;
 pub(crate) mod netbios;
