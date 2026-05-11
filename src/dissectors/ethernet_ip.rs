@@ -55,8 +55,9 @@ impl ProtocolDissector for EthernetIpDissector {
         let command = u16::from_le_bytes([data[0], data[1]]);
         let encap_length = u16::from_le_bytes([data[2], data[3]]) as usize;
         let session_handle = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-        let _status = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
-        // sender_context: data[12..20], options: data[20..24]
+        let encap_status = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+        // sender_context: data[12..20]
+        let encap_options = u32::from_le_bytes([data[20], data[21], data[22], data[23]]);
 
         // --- CIP Data ---
         // CIP payload follows the encapsulation header for SendRRData / SendUnitData.
@@ -76,6 +77,8 @@ impl ProtocolDissector for EthernetIpDissector {
         Some(ProtocolData::EthernetIp(EthernetIpFields {
             command,
             session_handle,
+            encap_status,
+            encap_options,
             cip_data,
         }))
     }
@@ -85,6 +88,10 @@ impl ProtocolDissector for EthernetIpDissector {
 pub struct EthernetIpFields {
     pub command: u16,
     pub session_handle: u32,
+    /// Encapsulation status from the response header (0 = success).
+    pub encap_status: u32,
+    /// Encapsulation options field.
+    pub encap_options: u32,
     pub cip_data: Vec<u8>,
 }
 

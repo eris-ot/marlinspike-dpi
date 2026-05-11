@@ -268,6 +268,54 @@ pub struct OpcUaBronzeFields {
     pub direction: String,
 }
 
+/// EtherNet/IP (explicit messaging, TCP/44818) fields carried on a
+/// [`ProtocolTransaction`]. Covers the encapsulation header and the CIP
+/// request/response layer for the EIP explicit message channel.
+///
+/// All optional fields are `None` when the corresponding layer is absent
+/// (e.g. `cip_service` is `None` for a bare `RegisterSession` whose payload
+/// carries no CIP PDU).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EthernetIpBronzeFields {
+    /// EIP encapsulation command code (e.g. 0x65 = RegisterSession,
+    /// 0x6F = SendRRData, 0x63 = ListIdentity).
+    pub encap_command: u16,
+    /// Human-readable name for the encapsulation command.
+    pub encap_command_name: String,
+    /// Session handle assigned by the target after RegisterSession.
+    /// `None` before a session is established (i.e. the RegisterSession
+    /// request itself carries 0).
+    pub session_handle: Option<u32>,
+    /// Encapsulation status from the response header (0 = success).
+    pub encap_status: Option<u32>,
+    /// Encapsulation options field.
+    pub encap_options: Option<u32>,
+    /// CIP service code with the reply bit (0x80) stripped.
+    /// `None` when the encapsulation payload carries no CIP PDU.
+    pub cip_service: Option<u8>,
+    /// Human-readable name for the CIP service (e.g. "read_tag",
+    /// "forward_open"). `None` when `cip_service` is `None`.
+    pub cip_service_name: Option<String>,
+    /// CIP class ID from the logical path segment (e.g. 0x01 = Identity,
+    /// 0x06 = Connection Manager, 0x6B = Symbol).
+    pub cip_class_id: Option<u32>,
+    /// CIP instance ID from the logical path segment.
+    pub cip_instance_id: Option<u32>,
+    /// CIP attribute ID from the logical path segment.
+    pub cip_attribute_id: Option<u32>,
+    /// CIP general status byte from the response (0x00 = Success).
+    /// `None` for requests and encapsulation-only exchanges.
+    pub cip_general_status: Option<u8>,
+    /// CIP extended status word, present when `cip_general_status` carries
+    /// a code that includes extended status (e.g. 0x1F).
+    pub cip_extended_status: Option<u16>,
+    /// `true` when this is a CIP request, `false` for a reply. Derived from
+    /// the service byte high bit (0 = request, 1 = reply).
+    pub is_request: bool,
+    /// `"request"`, `"response"`, or `"paired"` (encoder merges req+resp).
+    pub direction: String,
+}
+
 /// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
 /// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
 /// enum that downstream consumers can pattern-match without string lookups.
@@ -284,9 +332,10 @@ pub enum ProtocolFields {
     Iec104(Iec104BronzeFields),
     S7comm(S7commBronzeFields),
     OpcUa(OpcUaBronzeFields),
+    EthernetIp(EthernetIpBronzeFields),
     // Future variants land here as decoders migrate. Expected next:
-    //   EthernetIp(EthernetIpBronzeFields), Iec61850(Iec61850BronzeFields),
-    //   HartIp(HartIpBronzeFields), Sparkplug(SparkplugBronzeFields).
+    //   Iec61850(Iec61850BronzeFields), HartIp(HartIpBronzeFields),
+    //   Sparkplug(SparkplugBronzeFields).
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
