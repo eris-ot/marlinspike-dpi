@@ -1,0 +1,20 @@
+[package]
+name = "marlinspike-dpi-py"
+version = "1.15.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Python bindings for marlinspike-dpi via PyO3"
+publish = false
+
+[lib]
+name = "marlinspike_dpi"
+# maturin injects cdylib at build time; plain `cargo build` uses rlib only
+crate-type = ["rlib"]
+
+[dependencies]
+marlinspike-dpi = { path = ".." }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py38"] }
+serde_json = "1"
+
+[build-dependencies]
+pyo3-build-config = "0.22"

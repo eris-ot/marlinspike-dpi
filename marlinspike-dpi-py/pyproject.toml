@@ -1,0 +1,26 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "marlinspike-dpi"
+version = "1.15.0"
+description = "Python bindings for marlinspike-dpi — passive DPI for OT/ICS and IT"
+license = { text = "AGPL-3.0-or-later" }
+requires-python = ">=3.8"
+keywords = ["dpi", "modbus", "scada", "ot", "pcap", "ics"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: System :: Networking :: Monitoring",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "mypy>=1"]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "marlinspike_dpi._marlinspike_dpi"
+python-source = "python"

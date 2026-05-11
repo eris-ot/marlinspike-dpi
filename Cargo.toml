@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "marlinspike-dpi-py"]
+resolver = "2"
+
 [package]
 name = "marlinspike-dpi"
 version = "1.15.0"
