@@ -548,3 +548,19 @@ This crate keeps DPI separate from the analyst workbench:
 - Other consumers can use JSON or FFI without reimplementing protocol parsing
 
 `marlinspike-dpi` is the reusable packet-analysis core; MarlinSpike is the responder-facing workbench built on top of it.
+
+## License
+
+`marlinspike-dpi` is **dual-licensed**:
+
+- **[AGPL-3.0-or-later](LICENSE)** — for open-source use, internal use within a single organisation, hosted services that offer the source to their users, and any deployment compatible with AGPL's terms.
+- **[Commercial licence](LICENSE-COMMERCIAL.md)** — for embedding into proprietary products, vendor integrations, OEM bundles, and SIEM connectors where AGPL's source-disclosure obligations don't fit.
+
+If AGPL works for you, you don't need to do anything — use it freely. For commercial licensing, contact `dpi@erisforge.com`.
+
+Contributions are accepted under [CONTRIBUTING.md](CONTRIBUTING.md)'s dual-licence terms.
+
+Used by:
+
+- [`eris-ot/marlinspike`](https://github.com/eris-ot/marlinspike) — the multi-user OT/ICS analyst workbench (AGPL).
+- [`eris-ot/glassmarlin`](https://github.com/eris-ot/glassmarlin) — the single-file desktop edition (AGPL).
