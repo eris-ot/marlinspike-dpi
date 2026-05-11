@@ -3635,8 +3635,11 @@ mod tests {
     }
 
     #[test]
-    fn ldap_recognizer_detects_sequence() {
-        // ASN.1 SEQUENCE 0x30 + short length.
+    fn ldap_decoder_malformed_ber_emits_anomaly() {
+        // A complete BER SEQUENCE (0x30, len=64) with 64 null-bytes — parses as
+        // a full SEQUENCE but fails inner LDAPMessage structure. The full BER
+        // parser in ldap.rs buffers the payload, recognises the complete frame
+        // (1+1+64 = 66 bytes), and emits a ParseAnomaly for the malformed content.
         let mut payload = vec![0x30, 0x40];
         payload.extend(std::iter::repeat(0u8).take(64));
         let frame = ethernet_ipv4_tcp(
@@ -3656,12 +3659,13 @@ mod tests {
             .unwrap();
         assert!(output.events.iter().any(|ev| matches!(
             &ev.family,
-            BronzeEventFamily::ProtocolTransaction(tx) if tx.operation == "ldap_message"
+            BronzeEventFamily::ParseAnomaly(a) if a.decoder == "ldap"
         )));
     }
 
     #[test]
-    fn ldap_recognizer_emits_ldaps_for_port_636() {
+    fn ldap_decoder_emits_tls_session_for_port_636() {
+        // LDAPS: TLS ClientHello on port 636 → ldap_tls_session ProtocolTransaction.
         let payload = vec![0x16, 0x03, 0x01, 0x00, 0x40, 0x01, 0x00, 0x00, 0x3C];
         let frame = ethernet_ipv4_tcp(
             [0x02, 0, 0, 0, 0, 0x01],
@@ -3680,7 +3684,7 @@ mod tests {
             .unwrap();
         assert!(output.events.iter().any(|ev| matches!(
             &ev.family,
-            BronzeEventFamily::ProtocolTransaction(tx) if tx.operation == "ldaps_traffic"
+            BronzeEventFamily::ProtocolTransaction(tx) if tx.operation == "ldap_tls_session"
         )));
     }
 

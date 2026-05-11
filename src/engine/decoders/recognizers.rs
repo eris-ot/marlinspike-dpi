@@ -2,8 +2,9 @@
 //! emit a `ProtocolTransaction` for traffic classification. No deep PDU
 //! parsing.
 //!
-//! Members: SMB, LDAP/LDAPS, CC-Link IE, CODESYS, IO-Link Wireless.
+//! Members: SMB, CC-Link IE, CODESYS, IO-Link Wireless.
 //! Kerberos has been promoted to a full ASN.1 decoder in `kerberos.rs`.
+//! LDAP has been promoted to a full BER operation parser in `ldap.rs`.
 //! IGMP has been promoted to a full deep decoder in `igmp.rs`.
 
 use std::collections::BTreeMap;
@@ -86,41 +87,6 @@ impl SessionDecoder for SmbRecognizer {
 }
 
 
-pub(crate) struct LdapRecognizer;
-
-impl SessionDecoder for LdapRecognizer {
-    fn name(&self) -> &'static str {
-        "ldap"
-    }
-
-    fn interest(&self) -> &'static [DecoderInterest] {
-        &[DecoderInterest::TcpPort(389), DecoderInterest::TcpPort(636)]
-    }
-
-    fn on_stream_chunk(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
-        if chunk.context.dst_port == 636 || chunk.context.src_port == 636 {
-            // LDAPS is TLS-encrypted; recognition only by port.
-            emit_recognition(chunk, out, "ldap", "ldaps_traffic", "LDAPS traffic");
-            return;
-        }
-        if looks_like_ldap(chunk.payload) {
-            emit_recognition(chunk, out, "ldap", "ldap_message", "LDAP traffic");
-        }
-    }
-}
-
-/// LDAP messages are ASN.1 BER SEQUENCEs starting with 0x30, followed by
-/// a length encoding. Reject obviously-too-short payloads.
-fn looks_like_ldap(p: &[u8]) -> bool {
-    if p.len() < 2 {
-        return false;
-    }
-    if p[0] != 0x30 {
-        return false;
-    }
-    matches!(p[1], 0x00..=0x7F | 0x81..=0x84)
-}
-
 // CC-Link IE Field — UDP 61450, often multicast (239.192.0.0/16).
 pub(crate) struct CcLinkRecognizer;
 
@@ -188,10 +154,6 @@ impl SessionDecoder for IoLinkRecognizer {
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "smb",
     factory: || Box::new(SmbRecognizer),
-});
-inventory::submit!(crate::engine::decoders::DecoderRegistration {
-    name: "ldap",
-    factory: || Box::new(LdapRecognizer),
 });
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "cclink",
