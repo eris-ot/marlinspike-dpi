@@ -371,6 +371,53 @@ pub struct Iec61850BronzeFields {
     pub direction: String,
 }
 
+/// HART-IP–specific fields carried on every `ProtocolTransaction` emitted by
+/// the HART-IP decoder. Present when `protocol_fields` is
+/// `Some(ProtocolFields::HartIp(...))`.
+///
+/// Numeric wire values are preserved alongside their human-readable names so
+/// consumers can pattern-match on integers or display strings without a second
+/// lookup table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HartIpBronzeFields {
+    /// Wire message-type byte (0=Request, 1=Response, 2=Publish/Notify,
+    /// 3=Error, 15=NAK).
+    pub message_type: u8,
+    /// Human-readable name derived from `message_type`.
+    pub message_type_name: String,
+    /// Wire message-id byte (0=Session-Initiate, 1=Session-Close,
+    /// 2=Keep-Alive, 3=Pass-Through).
+    pub message_id: u8,
+    /// Human-readable name derived from `message_id`.
+    pub message_id_name: String,
+    /// Status/error byte from the HART-IP header.
+    pub status_byte: u8,
+    /// Sequence number from the HART-IP header (called `transaction_id` on
+    /// the wire).
+    pub sequence_number: u16,
+    /// Total message length as encoded in the HART-IP header.
+    pub payload_length: u16,
+    /// HART Universal/Common/Device-Specific command number carried inside a
+    /// Pass-Through frame. `None` for session-management messages.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub passthrough_command: Option<u8>,
+    /// Human-readable name for `passthrough_command`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub passthrough_command_name: Option<String>,
+    /// HART field-device-status byte from the response payload of a
+    /// Pass-Through frame. `None` when not present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_status: Option<u8>,
+    /// 5-byte long-frame (unique) address when the Pass-Through frame uses
+    /// unique addressing. `None` for polling-address or non-Pass-Through
+    /// frames.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_device_address: Option<Vec<u8>>,
+    /// `"request"`, `"response"`, `"publish"`, `"error"`, `"nak"`, or
+    /// `"observed"`.
+    pub direction: String,
+}
+
 /// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
 /// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
 /// enum that downstream consumers can pattern-match without string lookups.
@@ -389,8 +436,9 @@ pub enum ProtocolFields {
     OpcUa(OpcUaBronzeFields),
     EthernetIp(EthernetIpBronzeFields),
     Iec61850(Iec61850BronzeFields),
+    HartIp(HartIpBronzeFields),
     // Future variants land here as decoders migrate. Expected next:
-    //   HartIp(HartIpBronzeFields), Sparkplug(SparkplugBronzeFields).
+    //   Sparkplug(SparkplugBronzeFields).
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
