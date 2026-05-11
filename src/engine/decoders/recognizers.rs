@@ -2,8 +2,8 @@
 //! emit a `ProtocolTransaction` for traffic classification. No deep PDU
 //! parsing.
 //!
-//! Members: SMB, Kerberos, LDAP/LDAPS, CC-Link IE, CODESYS, IO-Link Wireless,
-//! IGMP. Each is registered in `DpiEngine::new()`.
+//! Members: SMB, Kerberos, LDAP/LDAPS, CC-Link IE, CODESYS, IO-Link Wireless.
+//! IGMP has been promoted to a full deep decoder in `igmp.rs`.
 
 use std::collections::BTreeMap;
 
@@ -230,36 +230,6 @@ impl SessionDecoder for IoLinkRecognizer {
     }
 }
 
-// IGMP — IP protocol 2. Light parse to extract type byte for Membership Query
-// vs Report distinction; full v3 group records left for future work.
-pub(crate) struct IgmpRecognizer;
-
-impl SessionDecoder for IgmpRecognizer {
-    fn name(&self) -> &'static str {
-        "igmp"
-    }
-
-    fn interest(&self) -> &'static [DecoderInterest] {
-        &[DecoderInterest::IpProto(2)]
-    }
-
-    fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
-        if chunk.payload.is_empty() {
-            return;
-        }
-        let igmp_type = chunk.payload[0];
-        let (operation, summary) = match igmp_type {
-            0x11 => ("igmp_membership_query", "IGMP Membership Query"),
-            0x12 => ("igmp_v1_membership_report", "IGMPv1 Membership Report"),
-            0x16 => ("igmp_v2_membership_report", "IGMPv2 Membership Report"),
-            0x17 => ("igmp_leave_group", "IGMPv2 Leave Group"),
-            0x22 => ("igmp_v3_membership_report", "IGMPv3 Membership Report"),
-            _ => ("igmp_message", "IGMP traffic"),
-        };
-        emit_recognition(chunk, out, "igmp", operation, summary);
-    }
-}
-
 // ── Inventory registration ──────────────────────────────────────
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "smb",
@@ -284,8 +254,4 @@ inventory::submit!(crate::engine::decoders::DecoderRegistration {
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "iolink",
     factory: || Box::new(IoLinkRecognizer),
-});
-inventory::submit!(crate::engine::decoders::DecoderRegistration {
-    name: "igmp",
-    factory: || Box::new(IgmpRecognizer),
 });

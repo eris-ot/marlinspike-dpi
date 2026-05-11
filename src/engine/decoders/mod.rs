@@ -24,6 +24,7 @@ pub(crate) mod coap;
 pub(crate) mod dcerpc;
 pub(crate) mod diameter;
 pub(crate) mod discovery;
+pub(crate) mod igmp;
 pub(crate) mod ike;
 pub(crate) mod it_app;
 pub(crate) mod it_basic;
