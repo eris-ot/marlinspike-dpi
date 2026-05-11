@@ -79,7 +79,7 @@ impl SessionDecoder for SmbRecognizer {
                 return;
             }
             if sig == [0xFE, b'S', b'M', b'B'] {
-                emit_recognition(chunk, out, "smb", "smb2_message", "SMB2 traffic");
+                // SMB2 is now owned by the `smb2` deep decoder — skip silently.
                 return;
             }
         }

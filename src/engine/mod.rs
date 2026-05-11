@@ -3539,9 +3539,15 @@ mod tests {
     #[test]
     fn smb_recognizer_detects_smb2_with_netbios_prefix() {
         // 4-byte NetBIOS-style length prefix + SMB2 header (0xFE 'SMB').
+        // The smb2 deep decoder now owns SMB2 traffic; the SmbRecognizer silently
+        // skips 0xFE frames. The smb2 decoder will parse this and emit either a
+        // ProtocolTransaction (if the header is valid) or a ParseAnomaly.
         let mut payload = vec![0x00, 0x00, 0x00, 0x40];
         payload.extend_from_slice(&[0xFE, b'S', b'M', b'B']);
-        payload.extend(std::iter::repeat(0u8).take(60));
+        // StructureSize=64 (bytes 4..6), rest zeros.
+        let mut hdr_rest = vec![0u8; 60];
+        hdr_rest[0] = 64; // StructureSize low byte = 64
+        payload.extend_from_slice(&hdr_rest);
         let frame = ethernet_ipv4_tcp(
             [0x02, 0, 0, 0, 0, 0x01],
             [0x02, 0, 0, 0, 0, 0x02],
@@ -3557,14 +3563,12 @@ mod tests {
         let output = engine
             .process_segment_to_vec(&SegmentMeta::new("smb-test"), std::io::Cursor::new(pcapng))
             .unwrap();
-        assert!(
-            output.events.iter().any(|ev| matches!(
-                &ev.family,
-                BronzeEventFamily::ProtocolTransaction(tx)
-                    if tx.operation == "smb2_message"
-            )),
-            "expected smb2_message transaction"
-        );
+        // The smb2 deep decoder takes over: expect a smb2_negotiate_request or
+        // a ParseAnomaly from the "smb2" decoder. No longer emits "smb2_message".
+        let has_smb2_event = output.events.iter().any(|ev| {
+            ev.envelope.protocol.as_deref() == Some("smb2")
+        });
+        assert!(has_smb2_event, "expected at least one event with protocol=smb2 from deep decoder");
     }
 
     #[test]

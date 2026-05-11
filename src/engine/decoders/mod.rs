@@ -42,6 +42,7 @@ pub(crate) mod radsec;
 pub(crate) mod rdp;
 pub(crate) mod recognizers;
 pub(crate) mod sip_rtp;
+pub(crate) mod smb2;
 pub(crate) mod smtp;
 pub(crate) mod synchrophasor;
 pub(crate) mod tacacs;
