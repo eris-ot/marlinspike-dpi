@@ -1,10 +1,12 @@
 # marlinspike-dpi
 
-Pure-Rust deep packet inspection engine for OT/ICS and IT network monitoring.
+**Pure-Rust passive deep packet inspection for OT/ICS and IT network monitoring.** PCAP / PCAPNG in → structured Bronze v2 events out (also OCSF v1.4.0 records for SIEM ingest and InfluxDB Line Protocol for historian feed). No libpcap, no C dependencies, no daemon.
 
-Consumes passive packet captures (PCAP / PCAPNG) and emits structured Bronze v2 events: protocol transactions, asset observations, topology observations, parse anomalies, extracted artifacts, and process readings (Value/Quality/Timestamp). No libpcap, no C dependencies.
+> Protocols parsed at application layer: Modbus / Modbus-UDP / DNP3 / DNP3-SAv5 / IEC 60870-5-104 / IEC 61850 (MMS + GOOSE + SV) / S7comm / PROFINET / BACnet / BACnet/SC / EtherNet/IP / EtherNet/IP Class 1 I/O / OPC UA / OPC UA PubSub / OPC Classic / HART-IP / OMRON FINS / EtherCAT / MRP / PRP / PCCC / Sparkplug B / IEEE C37.118 synchrophasor / Beckhoff ADS / GE SRTP / Triconex TriStation / MELSEC SLMP / Yokogawa Vnet/IP / OSIsoft PI / GVCP / CIP Safety / Allen-Bradley CSP / Modicon UMAS / POWERLINK / SERCOS III / PTPv2 / Foundation Fieldbus HSE / AVTP / Emerson ROC Plus / Diameter — plus IT: DNS / DHCP / HTTP / TLS / SNMP / SSH / FTP / NTP / MQTT / MQTT-SN / Syslog / RADIUS / RadSec / ICMP / IGMP / SMB2/3 / Kerberos / LDAP / RDP / mDNS / WS-Discovery / DCE-RPC / TFTP / IKE / VNC / WinRM / NetBIOS / TACACS+ / WireGuard / NetFlow + IPFIX / QUIC / SMTP / OpenVPN / SIP / RTP / RTCP / CoAP / AMQP 1.0 / NTLMSSP.
 
-**50+ protocol dissectors (deepened for SMB2/3, Kerberos, LDAP, IGMP, NetFlow templates, OPC UA PubSub DSM). 21 anomaly detection signatures. VQT extraction for historian feed. Zero C dependencies.**
+**50+ protocol dissectors with deep parsing (not just port classification). 21 anomaly detection signatures. VQT (Value/Quality/Timestamp) extraction for process historians. 9 OT protocols with typed `ProtocolFields` enum variants. Zero C dependencies. 850 tests.**
+
+See [docs/comparison.md](./docs/comparison.md) for how this differs from Zeek, Suricata, Wireshark, nDPI, and Arkime.
 
 Three detection subsystems beyond protocol parsing:
 - **Stovetop** -- frame-level integrity: padding covert channels, runt/oversized frames, CRC validation
@@ -20,10 +22,12 @@ Process-historian extraction:
 Usable as a **Rust library** (`fm_dpi`), a **CLI binary** (`marlinspike-dpi`), or an optional **C FFI** surface (feature `ffi`).
 
 **Docs:**
-- [`CHANGELOG.md`](./CHANGELOG.md) — release history (1.0.0 → 1.13.0)
+- [`CHANGELOG.md`](./CHANGELOG.md) — release history (1.0.0 → 1.15.0)
+- [`docs/comparison.md`](./docs/comparison.md) — head-to-head vs. Zeek / Suricata / Wireshark / nDPI / Arkime
 - [`docs/protocols.md`](./docs/protocols.md) — per-decoder reference (consolidated file-top docs)
 - [`docs/parse-depth-matrix.md`](./docs/parse-depth-matrix.md) — per-protocol parse-depth matrix (Full / Deep / Shallow / Recognition / Opaque)
 - [`docs/bronze-v2-schema.md`](./docs/bronze-v2-schema.md) — Bronze v2 event schema with sample JSON
+- [`docs/llms.txt`](./docs/llms.txt) — single-file structured summary for LLM ingestion ([llmstxt.org](https://llmstxt.org/))
 - [`examples/`](./examples/) — runnable examples: `basic`, `ocsf_output`, `extract_readings`, `streaming`
 
 ### What Sets This Apart

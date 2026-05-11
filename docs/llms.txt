@@ -1,0 +1,123 @@
+# marlinspike-dpi
+
+> Pure-Rust passive deep packet inspection (DPI) engine for OT/ICS and IT network monitoring. Consumes PCAP / PCAPNG captures and emits structured Bronze v2 events (also OCSF v1.4.0 and InfluxDB Line Protocol). Zero C dependencies. Embeddable as Rust library, CLI binary, or C FFI.
+
+## What it is
+
+`marlinspike-dpi` is a Rust crate that parses network packet captures and produces typed events at the application protocol layer. It is not a packet sniffer (it does not capture from the wire) and not an IDS (it does not match signature rules). It is a structured-event protocol parser.
+
+- **Input**: PCAP or PCAPNG byte streams. Ethernet linktype only.
+- **Output**: Bronze v2 events (JSON), OCSF v1.4.0 records (NDJSON), or InfluxDB Line Protocol — pick via `--format` CLI flag or library API.
+- **Coverage**: 50+ protocol dissectors. ~40 industrial control / OT protocols at deep parse. The remaining are common IT protocols (DNS, HTTP, TLS handshake, SMB2/3, Kerberos, LDAP, etc.).
+- **Detection subsystems**: Stovetop (frame-level integrity — CRC, padding entropy, runt/oversized), ICMPeeker (ICMP threat detection — redirects, tunnels), Bilgepump (stateful L2 — ARP spoofing, VLAN hopping, STP root hijacking, rogue DHCP, identity conflicts).
+- **VQT extraction**: Process variable Value/Quality/Timestamp readings emitted as typed `ProcessReading` events for Sparkplug B, OPC UA, OPC UA PubSub, PCCC, Modbus, DNP3, IEC 104, IEC 61850 MMS, HART-IP, IEEE C37.118 synchrophasor.
+
+## What it is not
+
+- **Not a live capture tool.** It does not bind sockets or read from interfaces. Use `tcpdump`, `dumpcap`, AF_PACKET, or another capture source to produce the PCAP it ingests.
+- **Not an IDS.** No Snort/Suricata-style rule engine. No signature matching. No alerting policy. Anomaly emission is structural (frame integrity, L2 state, ICMP threats) — interpretation is the embedder's job.
+- **Not a decryption layer.** TLS, SSH, IPsec ESP, WireGuard transport, SMB3 Transform PDUs, QUIC AEAD, OpenVPN encrypted payload, RDP CredSSP, VNC post-Security, WinRM 5986, RadSec, CoAPS, AMQPS, SMTPS — encrypted payloads stop at the handshake / record layer. Session keys are not accepted.
+- **Not a GUI.** CLI + library + FFI. Use Wireshark for human packet inspection.
+
+## How it compares
+
+| You want | Use |
+|---|---|
+| Behavioural NIDS with scripting on live traffic | Zeek |
+| Signature-based IDS on live traffic | Suricata or Snort |
+| Interactive per-packet inspection (GUI) | Wireshark / tshark |
+| Full-packet capture retention with search UI | Arkime |
+| Fast protocol-of-flow classification, C library | nDPI |
+| Deep OT/ICS protocol parsing, Rust library, structured events out | marlinspike-dpi |
+
+Full head-to-head: [docs/comparison.md](./comparison.md).
+
+## Supported protocols
+
+**OT / ICS** (deep parse unless noted): Modbus/TCP, Modbus/UDP, DNP3, DNP3-SAv5, IEC 60870-5-104, IEC 61850 (MMS + GOOSE + SV), S7comm, PROFINET, BACnet/IP, BACnet/SC (TLS-recognition), EtherNet/IP (TCP/44818), EtherNet/IP Class 1 I/O (UDP/2222), OPC UA (binary), OPC UA PubSub (UADP + DSM decode), OPC Classic (shallow — DCE/RPC BIND detection), HART-IP, OMRON FINS, EtherCAT, MRP, PRP, PCCC (Allen-Bradley legacy), Sparkplug B (over MQTT), IEEE C37.118 synchrophasor, Beckhoff ADS / TwinCAT, GE SRTP, Triconex TriStation, Mitsubishi MELSEC SLMP, Yokogawa Vnet/IP (best-effort), OSIsoft PI (recognition), GVCP (GigE Vision), CIP Safety (shallow — segment detection), Allen-Bradley CSP, Modicon UMAS, Ethernet POWERLINK, SERCOS III, PTPv2 / gPTP, Foundation Fieldbus HSE (recognition), AVTP / IEEE 1722, Emerson ROC Plus, Diameter, CC-Link IE Field (recognition), CODESYS (recognition), IO-Link Wireless (recognition).
+
+**IT / Infrastructure**: DNS, DHCP, HTTP/1.1 (request line + headers), TLS (handshake + SNI), SNMP, SSH (banner), FTP, NTP, MQTT, MQTT-SN, Syslog, RADIUS, RadSec (TLS-recognition), ICMP, IGMP, SMB1 (recognition), SMB2/3 (deep), Kerberos, LDAP, LDAPS (TLS-recognition), RDP (handshake), mDNS, WS-Discovery, DCE/RPC, TFTP, IPsec IKEv1/v2, VNC (handshake), WinRM, NetBIOS / NBT, TACACS+, WireGuard, NetFlow v5/v9 + IPFIX (with cross-packet template tracking), QUIC (long-header), SMTP / SMTPS, OpenVPN, SIP, RTP, RTCP, CoAP, AMQP 1.0, NTLMSSP.
+
+**Link layer**: ARP, LLDP, CDP, STP/RSTP, MSTP, PVST+, LACP, VTP, PRP, MRP.
+
+Per-protocol depth: [docs/parse-depth-matrix.md](./parse-depth-matrix.md).
+
+## Bronze v2 event model
+
+Every emitted event is one of six families:
+
+| Family | Purpose |
+|---|---|
+| `ProtocolTransaction` | Request/response pair, single op, or session marker — `operation`, `status`, attributes, typed `protocol_fields` |
+| `AssetObservation` | Device / service identity — asset key, role, vendor, model, firmware, protocols |
+| `TopologyObservation` | Network relationships — ARP neighbour, LLDP peer, LACP bond, STP root, MRP ring |
+| `ParseAnomaly` | Malformed packet or structural anomaly — decoder, severity, reason, hex excerpt |
+| `ExtractedArtifact` | Binary payload extraction with SHA-256 |
+| `ProcessReading` | VQT process variable — typed `PointIdentifier`, typed `PointValue`, protocol-native `RawQuality`, source + observed timestamps |
+
+Typed `ProtocolFields` enum variants for `Modbus`, `Dnp3`, `Iec104`, `S7comm`, `OpcUa`, `EthernetIp`, `Iec61850`, `HartIp`, `Sparkplug` (as of v1.15.0). The deprecated `attributes: BTreeMap<String, String>` bag is retained for backward compatibility through the v1.x line and removed in v2.0.
+
+Full schema: [docs/bronze-v2-schema.md](./bronze-v2-schema.md).
+
+## Usage
+
+### Rust library
+
+```rust
+use fm_dpi::DpiEngine;
+
+let bytes = std::fs::read("capture.pcap")?;
+let mut engine = DpiEngine::new();
+let events = engine.process_capture("capture-1", std::io::Cursor::new(bytes))?;
+```
+
+Streaming-first via `BronzeSink` trait — see [`examples/streaming.rs`](../examples/streaming.rs).
+
+### CLI
+
+```bash
+marlinspike-dpi --input capture.pcap --format bronze --pretty
+marlinspike-dpi --input capture.pcap --format ocsf > events.ndjson
+marlinspike-dpi --input capture.pcap --format influx > readings.lp
+```
+
+### C FFI
+
+Enable feature `ffi`, build `cdylib`/`staticlib`. Exported: `fm_dpi_process_pcapng_json` (legacy-named for ABI stability — accepts both PCAP and PCAPNG), `fm_dpi_string_free`, `fm_dpi_version`.
+
+## Frequently asked
+
+**Q: Does marlinspike-dpi do live packet capture?**
+A: No. It is a parser. Feed it PCAP / PCAPNG bytes. Use `tcpdump` / `dumpcap` / AF_PACKET / similar for capture.
+
+**Q: Does marlinspike-dpi decrypt TLS / SSH / SMB3 / QUIC?**
+A: No. Encrypted payloads are observed at the handshake / record layer and then treated as opaque. Session keys are not accepted as input.
+
+**Q: How do I add a new protocol decoder?**
+A: One new file in `src/engine/decoders/` (or `src/engine/decoders/ot/` for industrial protocols) with an `inventory::submit!` registration block. The engine collects every registration at startup — no central wiring to edit. See an existing decoder like `src/engine/decoders/diameter.rs` for the pattern.
+
+**Q: How does it compare to Zeek?**
+A: Different model — Zeek is a daemon with a scripting DSL for live behavioural detection. marlinspike-dpi is a library you embed in your Rust application. We have substantially deeper OT/ICS coverage (40+ industrial protocols vs. Zeek's ~4 mainstream ones) and built-in VQT extraction for process historians. Zeek is better for live IT-side behavioural detection with a Zeek-script-savvy team.
+
+**Q: How does it compare to Suricata?**
+A: Different category — Suricata is a rule-based IDS. We're a structured-event parser. They can coexist; our events plus Suricata's alerts are complementary.
+
+**Q: Can I use it to feed an OPC historian (PI, Influx, Aveva)?**
+A: Yes. `--format influx` emits InfluxDB Line Protocol with one line per `ProcessReading`. Sparkplug B, OPC UA, IEEE C37.118, Modbus, DNP3, IEC 104, IEC 61850, HART-IP, and PCCC all emit ProcessReadings.
+
+**Q: Can I use it to feed a SIEM?**
+A: Yes. `--format ocsf` emits OCSF v1.4.0 NDJSON. ProtocolTransactions map to Network Activity / HTTP / DNS / SMB / SSH / Authentication classes; AssetObservations to Device Inventory Info; ParseAnomalies to Detection Finding.
+
+**Q: What's the licensing model?**
+A: Dual-licensed: AGPL-3.0-or-later for open-source / internal use, and a commercial licence for proprietary embeds. See [LICENSE-COMMERCIAL.md](../LICENSE-COMMERCIAL.md).
+
+## Repository
+
+- Source: https://github.com/eris-ot/marlinspike-dpi
+- Latest release: https://github.com/eris-ot/marlinspike-dpi/releases/latest
+- Changelog: [CHANGELOG.md](../CHANGELOG.md)
+- Per-protocol reference: [docs/protocols.md](./protocols.md)
+- Bronze v2 schema: [docs/bronze-v2-schema.md](./bronze-v2-schema.md)
+- Parse-depth matrix: [docs/parse-depth-matrix.md](./parse-depth-matrix.md)
+- Comparison to Zeek/Suricata/Wireshark/nDPI/Arkime: [docs/comparison.md](./comparison.md)
+- Runnable examples: [examples/](../examples/)

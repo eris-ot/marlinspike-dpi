@@ -3,10 +3,11 @@ name = "marlinspike-dpi"
 version = "1.15.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
-description = "Shared Marlinspike/Fathom DPI engine (Iron to Bronze)"
+description = "Pure-Rust passive deep packet inspection for OT/ICS and IT — Modbus, DNP3, S7comm, OPC UA, IEC 61850, SMB2, Kerberos, LDAP. PCAP/PCAPNG → Bronze v2 / OCSF / InfluxDB."
 readme = "README.md"
 publish = false
-keywords = ["dpi", "ics", "ot", "pcap", "network-forensics"]
+keywords = ["dpi", "modbus", "scada", "ot", "pcap"]
+categories = ["network-programming", "parser-implementations", "command-line-utilities"]
 
 [features]
 default = []
