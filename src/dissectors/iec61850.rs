@@ -41,6 +41,18 @@ pub struct Iec61850Fields {
     pub object_references: Vec<String>,
     pub visible_strings: Vec<String>,
     pub payload: Vec<u8>,
+    /// GOOSE stNum — state number, incremented on each state change event.
+    pub goose_st_num: Option<u32>,
+    /// GOOSE sqNum — sequence number, incremented for each retransmission.
+    pub goose_sq_num: Option<u32>,
+    /// GOOSE test bit — true when the PDU is a test/simulation message.
+    pub goose_test: bool,
+    /// MMS invoke-ID extracted from confirmed-request/response PDU header.
+    pub mms_invoke_id: Option<u32>,
+    /// SV smpCnt — sample count from the first ASDU.
+    pub sv_smp_cnt: Option<u16>,
+    /// SV smpSynch — sample synchronisation flag.
+    pub sv_smp_synch: Option<u8>,
 }
 
 #[derive(Debug, Default)]
@@ -122,6 +134,12 @@ fn parse_mms_iso_on_tcp(data: &[u8]) -> Option<Iec61850Fields> {
             object_references: Vec::new(),
             visible_strings: Vec::new(),
             payload: Vec::new(),
+            goose_st_num: None,
+            goose_sq_num: None,
+            goose_test: false,
+            mms_invoke_id: None,
+            sv_smp_cnt: None,
+            sv_smp_synch: None,
         });
     }
 
@@ -133,6 +151,7 @@ fn parse_mms_iso_on_tcp(data: &[u8]) -> Option<Iec61850Fields> {
     let visible_strings = extract_visible_strings(&payload);
     let references = extract_object_references(&visible_strings);
     let identity = derive_identity(&visible_strings, &references);
+    let mms_invoke_id = extract_mms_invoke_id(&payload);
 
     Some(Iec61850Fields {
         profile: Iec61850Profile::MmsIsoOnTcp,
@@ -151,6 +170,12 @@ fn parse_mms_iso_on_tcp(data: &[u8]) -> Option<Iec61850Fields> {
         object_references: references,
         visible_strings,
         payload,
+        goose_st_num: None,
+        goose_sq_num: None,
+        goose_test: false,
+        mms_invoke_id,
+        sv_smp_cnt: None,
+        sv_smp_synch: None,
     })
 }
 
@@ -270,6 +295,19 @@ fn parse_goose_or_sv(data: &[u8], profile: Iec61850Profile) -> Option<Iec61850Fi
         Some("sampled_values_pdu".to_string())
     };
 
+    let (goose_st_num, goose_sq_num, goose_test) = if profile == Iec61850Profile::Goose {
+        let nums = extract_goose_sequence_numbers(&payload);
+        (nums.0, nums.1, nums.2)
+    } else {
+        (None, None, false)
+    };
+
+    let (sv_smp_cnt, sv_smp_synch) = if profile == Iec61850Profile::SampledValues {
+        extract_sv_sample_fields(&payload)
+    } else {
+        (None, None)
+    };
+
     Some(Iec61850Fields {
         profile,
         transport,
@@ -287,6 +325,12 @@ fn parse_goose_or_sv(data: &[u8], profile: Iec61850Profile) -> Option<Iec61850Fi
         object_references: references,
         visible_strings,
         payload,
+        goose_st_num,
+        goose_sq_num,
+        goose_test,
+        mms_invoke_id: None,
+        sv_smp_cnt,
+        sv_smp_synch,
     })
 }
 
@@ -453,6 +497,145 @@ fn push_visible_run(strings: &mut Vec<String>, run: &mut Vec<u8>) {
 
 fn is_visible_ascii(byte: u8) -> bool {
     matches!(byte, 0x20..=0x7E)
+}
+
+/// Extract the MMS invoke-ID from a confirmed-request or confirmed-response PDU.
+///
+/// Confirmed-request PDU (tag 0xA0) layout after the outer TLV:
+///   [invokeID tag=0x02] [len] [invoke-id bytes up to 4]
+/// We scan for the first INTEGER (0x02) after the outer tag/length to tolerate
+/// variable-length BER encoding of the outer sequence length.
+fn extract_mms_invoke_id(payload: &[u8]) -> Option<u32> {
+    // Only apply to confirmed-request (0xA0) and confirmed-response (0xA1).
+    let outer_tag = *payload.first()?;
+    if !matches!(outer_tag, 0xA0 | 0xA1) {
+        return None;
+    }
+    // Skip outer tag + BER length (1 or 3 bytes for short/long form).
+    let skip = if payload.len() > 2 && payload[1] == 0x82 {
+        4 // 0x82 means 2 length bytes follow
+    } else {
+        2
+    };
+    let inner = payload.get(skip..)?;
+    // Scan for first INTEGER (0x02) within the first 16 bytes.
+    for i in 0..inner.len().min(16) {
+        if inner[i] == 0x02 {
+            let len = *inner.get(i + 1)? as usize;
+            if len == 0 || len > 4 {
+                continue;
+            }
+            let value_bytes = inner.get(i + 2..i + 2 + len)?;
+            let mut val: u32 = 0;
+            for &b in value_bytes {
+                val = val << 8 | b as u32;
+            }
+            return Some(val);
+        }
+    }
+    None
+}
+
+/// Scan the GOOSE payload for stNum, sqNum, and the test bit using a sliding
+/// byte scanner. This tolerates payloads that mix visible-ASCII strings (for
+/// dataset refs) with the BER-encoded GOOSE PDU body, as commonly seen in the
+/// IEC 61850-8-1 wire format.
+///
+/// GOOSE PDU context-primitive tags (IEC 61850-8-1 clause 8.6.3):
+///   0x86  [6] IMPLICIT BOOLEAN  — test flag
+///   0x89  [9] IMPLICIT INTEGER  — stNum (state number, u32)
+///   0x8A  [10] IMPLICIT INTEGER — sqNum (sequence number, u32)
+fn extract_goose_sequence_numbers(payload: &[u8]) -> (Option<u32>, Option<u32>, bool) {
+    let mut st_num = None;
+    let mut sq_num = None;
+    let mut test = false;
+
+    // Sliding scan: look for known context-primitive tags anywhere in the payload.
+    // For each candidate tag we validate that length + value fit within remaining bytes.
+    let mut i = 0;
+    while i + 1 < payload.len() {
+        let tag = payload[i];
+        let len = payload[i + 1] as usize;
+        // Sanity: value must fit, and length must be plausible for these fields.
+        if len == 0 || i + 2 + len > payload.len() {
+            i += 1;
+            continue;
+        }
+        let value = &payload[i + 2..i + 2 + len];
+        match tag {
+            0x86 if len == 1 => {
+                test = value[0] != 0x00;
+                i += 2 + len;
+            }
+            0x89 if len >= 1 && len <= 4 => {
+                let mut v: u32 = 0;
+                for &b in value {
+                    v = v << 8 | b as u32;
+                }
+                st_num = Some(v);
+                i += 2 + len;
+            }
+            0x8A if len >= 1 && len <= 4 => {
+                let mut v: u32 = 0;
+                for &b in value {
+                    v = v << 8 | b as u32;
+                }
+                sq_num = Some(v);
+                i += 2 + len;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+        // Stop once we have all three fields.
+        if st_num.is_some() && sq_num.is_some() {
+            break;
+        }
+    }
+
+    (st_num, sq_num, test)
+}
+
+/// Extract smpCnt and smpSynch from an SV PDU using a sliding scanner.
+///
+/// Scans the payload for the well-known context-primitive SV ASDU tags:
+///   0x82  [2] IMPLICIT INTEGER — smpCnt (2 bytes, unsigned)
+///   0x85  [5] IMPLICIT INTEGER — smpSynch (1 byte, 0=none/1=local/2=global)
+///
+/// A sliding scan is used so the function tolerates mixed payloads where
+/// visible-ASCII dataset references precede the BER-encoded SV PDU body.
+fn extract_sv_sample_fields(payload: &[u8]) -> (Option<u16>, Option<u8>) {
+    let mut smp_cnt = None;
+    let mut smp_synch = None;
+
+    let mut i = 0;
+    while i + 1 < payload.len() {
+        let tag = payload[i];
+        let len = payload[i + 1] as usize;
+        if len == 0 || i + 2 + len > payload.len() {
+            i += 1;
+            continue;
+        }
+        let value = &payload[i + 2..i + 2 + len];
+        match tag {
+            0x82 if len == 2 => {
+                smp_cnt = Some(u16::from_be_bytes([value[0], value[1]]));
+                i += 2 + len;
+            }
+            0x85 if len == 1 => {
+                smp_synch = Some(value[0]);
+                i += 2 + len;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+        if smp_cnt.is_some() && smp_synch.is_some() {
+            break;
+        }
+    }
+
+    (smp_cnt, smp_synch)
 }
 
 fn extract_object_references(strings: &[String]) -> Vec<String> {

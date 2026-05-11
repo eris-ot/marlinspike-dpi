@@ -316,6 +316,61 @@ pub struct EthernetIpBronzeFields {
     pub direction: String,
 }
 
+/// IEC 61850-family typed fields covering MMS (TCP/102), GOOSE (0x88B8), and
+/// Sampled Values (0x88BA). Sub-protocol is indicated by `sub_protocol`; fields
+/// that do not apply to the active sub-protocol are `None` / default.
+///
+/// All integer types are chosen to match the wire width defined by the standard:
+/// APPID is 16-bit, stNum/sqNum are 32-bit, smp_cnt is 16-bit, smp_synch is 8-bit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Iec61850BronzeFields {
+    /// Active sub-protocol: `"mms"`, `"goose"`, or `"sv"`.
+    pub sub_protocol: String,
+
+    // --- MMS (ISO-on-TCP) fields ---
+    /// MMS service name, e.g. `"initiate_request"`, `"confirmed_request_pdu"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mms_service: Option<String>,
+    /// MMS invoke-ID from the confirmed-request/response PDU header.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mms_invoke_id: Option<u32>,
+    /// First VisibleString found in the MMS payload; carries device-identification
+    /// strings such as the IED name or a dataset reference.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mms_visible_string: Option<String>,
+
+    // --- GOOSE fields ---
+    /// GOOSE APPID from the Ethernet payload header.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goose_appid: Option<u16>,
+    /// Dataset reference / gocbRef string extracted from the GOOSE PDU.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goose_dataset_ref: Option<String>,
+    /// stNum (state number) — increments on every state change event.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goose_state_number: Option<u32>,
+    /// sqNum (sequence number) — increments for every retransmission within a state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goose_sequence_number: Option<u32>,
+    /// Test bit — when `true` the GOOSE message is a test/simulation signal.
+    /// Defenders can use this to detect unexpected test-mode traffic.
+    pub goose_test: bool,
+
+    // --- Sampled Values fields ---
+    /// SV APPID from the Ethernet payload header.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sv_appid: Option<u16>,
+    /// SmpCnt — sample count from the first ASDU in the SV PDU.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sv_smp_cnt: Option<u16>,
+    /// SmpSynch — sample synchronisation flag (0 = none, 1 = local, 2 = global).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sv_smp_synch: Option<u8>,
+
+    /// Traffic direction: `"request"`, `"response"`, `"publish"`, or `"observed"`.
+    pub direction: String,
+}
+
 /// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
 /// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
 /// enum that downstream consumers can pattern-match without string lookups.
@@ -333,9 +388,9 @@ pub enum ProtocolFields {
     S7comm(S7commBronzeFields),
     OpcUa(OpcUaBronzeFields),
     EthernetIp(EthernetIpBronzeFields),
+    Iec61850(Iec61850BronzeFields),
     // Future variants land here as decoders migrate. Expected next:
-    //   Iec61850(Iec61850BronzeFields), HartIp(HartIpBronzeFields),
-    //   Sparkplug(SparkplugBronzeFields).
+    //   HartIp(HartIpBronzeFields), Sparkplug(SparkplugBronzeFields).
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
