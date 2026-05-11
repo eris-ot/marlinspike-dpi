@@ -15,8 +15,10 @@ pub(crate) mod bacnet_sc;
 pub(crate) mod cip_safety;
 pub(crate) mod dnp3;
 pub(crate) mod dnp3_sav5;
+pub(crate) mod eip_io;
 pub(crate) mod ethercat;
 pub(crate) mod ethernet_ip;
+pub(crate) mod ff_hse;
 pub(crate) mod ge_srtp;
 pub(crate) mod gvcp;
 pub(crate) mod hart_ip;
@@ -29,9 +31,13 @@ pub(crate) mod opc_ua;
 pub(crate) mod opc_ua_pubsub;
 pub(crate) mod omron_fins;
 pub(crate) mod osi_pi;
+pub(crate) mod powerlink;
 pub(crate) mod profinet;
+pub(crate) mod ptp;
 pub(crate) mod s7comm;
+pub(crate) mod sercos;
 pub(crate) mod tristation;
+pub(crate) mod umas;
 pub(crate) mod vnet_ip;
 
 /// Normalise an operation label to `snake_case`, falling back to `fallback`

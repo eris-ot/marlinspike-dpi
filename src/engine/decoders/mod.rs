@@ -30,6 +30,7 @@ pub(crate) mod link_layer;
 pub(crate) mod mqtt_sn;
 pub(crate) mod netbios;
 pub(crate) mod netflow;
+pub(crate) mod ntlmssp;
 pub(crate) mod openvpn;
 pub(crate) mod ot;
 pub(crate) mod quic;
