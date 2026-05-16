@@ -41,8 +41,9 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, OpcUaNodeId, PointIdentifier, ProcessReading,
-    ProtocolTransaction, RawQuality, TopologyObservation, TransportProtocol,
+    AssetObservation, BronzeEvent, BronzeEventFamily, OpcUaNodeId, OpcUaPubsubBronzeFields,
+    PointIdentifier, ProcessReading, ProtocolFields, ProtocolTransaction, RawQuality,
+    TopologyObservation, TransportProtocol,
 };
 use crate::engine::{
     DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
@@ -553,6 +554,18 @@ impl SessionDecoder for OpcUaPubSubDecoder {
             );
         }
 
+        let pf = OpcUaPubsubBronzeFields {
+            ua_version: hdr.ua_version,
+            publisher_id: hdr.publisher_id.clone(),
+            publisher_id_type: hdr.publisher_id_type.map(str::to_string),
+            writer_group_id: hdr.writer_group_id,
+            group_version: hdr.group_version,
+            network_message_number: hdr.network_message_number,
+            sequence_number: hdr.sequence_number,
+            dataset_class_id: hdr.dataset_class_id.clone(),
+            dataset_writer_count: hdr.dataset_writer_ids.len() as u32,
+            dataset_writer_ids: hdr.dataset_writer_ids.clone(),
+        };
         out.push(new_event(
             chunk.capture_id.to_string(),
             envelope.clone(),
@@ -569,7 +582,7 @@ impl SessionDecoder for OpcUaPubSubDecoder {
                 values: vec![],
                 attributes,
                 modbus: None,
-                protocol_fields: None,
+                protocol_fields: Some(ProtocolFields::OpcUaPubsub(pf)),
             }),
         ));
 

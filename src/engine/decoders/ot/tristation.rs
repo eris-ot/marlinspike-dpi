@@ -34,7 +34,8 @@
 use std::collections::BTreeMap;
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
+    AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolFields, ProtocolTransaction,
+    TransportProtocol, TriStationBronzeFields,
 };
 use crate::engine::{
     DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
@@ -194,7 +195,12 @@ impl SessionDecoder for TriStationDecoder {
                 values: vec![],
                 attributes,
                 modbus: None,
-                protocol_fields: None,
+                protocol_fields: Some(ProtocolFields::TriStation(TriStationBronzeFields {
+                    command_type: command_type_raw,
+                    command_type_name: fc.operation_name(),
+                    command_subtype,
+                    payload_length,
+                })),
             }),
         ));
 

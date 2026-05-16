@@ -10,7 +10,8 @@ use std::collections::{BTreeMap, HashMap};
 use chrono::{DateTime, Utc};
 
 use crate::bronze::{
-    BronzeEvent, BronzeEventFamily, EventEnvelope, ProtocolTransaction, TransportProtocol,
+    BronzeEvent, BronzeEventFamily, EventEnvelope, GeSrtpBronzeFields, ProtocolFields,
+    ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
     DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
@@ -109,6 +110,18 @@ fn srtp_attributes(frame: &SrtpFrame) -> BTreeMap<String, String> {
     m
 }
 
+fn srtp_bronze_fields(req: &SrtpFrame, resp: &SrtpFrame, direction: &str) -> GeSrtpBronzeFields {
+    GeSrtpBronzeFields {
+        msg_type: req.msg_type,
+        sequence_number: req.seq_num,
+        service_code: req.service_code,
+        service_code_name: service_code_name(req.service_code),
+        status_code: resp.status_code,
+        minor_status: resp.minor_status,
+        direction: direction.to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pending request state (request half awaiting its response)
 // ---------------------------------------------------------------------------
@@ -142,6 +155,7 @@ impl GeSrtpDecoder {
         response_summary: Option<String>,
         service_code: u8,
         attributes: BTreeMap<String, String>,
+        pf: GeSrtpBronzeFields,
         out: &mut Vec<BronzeEvent>,
     ) {
         out.push(new_event(
@@ -156,7 +170,7 @@ impl GeSrtpDecoder {
                 values: Vec::new(),
                 attributes,
                 modbus: None,
-                protocol_fields: None,
+                protocol_fields: Some(ProtocolFields::GeSrtp(pf)),
             }),
         ));
     }
@@ -261,7 +275,6 @@ impl SessionDecoder for GeSrtpDecoder {
                         )
                     };
                     let mut attrs = srtp_attributes(&req.frame);
-                    // Response status overrides the request's zero placeholders.
                     attrs.insert(
                         "status_code".to_string(),
                         format!("0x{:02x}", frame.status_code),
@@ -273,6 +286,7 @@ impl SessionDecoder for GeSrtpDecoder {
                     let mut merged = req.envelope.clone();
                     merged.bytes_count += envelope.bytes_count;
                     merged.packet_count += 1;
+                    let pf = srtp_bronze_fields(&req.frame, &frame, &status);
                     Self::emit_transaction(
                         req.capture_id,
                         merged,
@@ -288,15 +302,17 @@ impl SessionDecoder for GeSrtpDecoder {
                         )),
                         req.frame.service_code,
                         attrs,
+                        pf,
                         out,
                     );
                 } else {
-                    // Response without a matching request.
+                    let status = "response_only".to_string();
+                    let pf = srtp_bronze_fields(&frame, &frame, &status);
                     Self::emit_transaction(
                         chunk.capture_id.to_string(),
                         envelope,
                         service_code_name(frame.service_code),
-                        "response_only".to_string(),
+                        status,
                         None,
                         Some(format!(
                             "status=0x{:02x} minor=0x{:02x}",
@@ -304,18 +320,20 @@ impl SessionDecoder for GeSrtpDecoder {
                         )),
                         frame.service_code,
                         srtp_attributes(&frame),
+                        pf,
                         out,
                     );
                 }
             }
 
-            // Opaque message type — emit as standalone, no pairing attempt.
             _ => {
+                let status = "request_only".to_string();
+                let pf = srtp_bronze_fields(&frame, &frame, &status);
                 Self::emit_transaction(
                     chunk.capture_id.to_string(),
                     envelope,
                     service_code_name(frame.service_code),
-                    "request_only".to_string(),
+                    status,
                     Some(format!(
                         "seq={} svc=0x{:02x} type=0x{:02x}",
                         frame.seq_num, frame.service_code, frame.msg_type
@@ -323,6 +341,7 @@ impl SessionDecoder for GeSrtpDecoder {
                     None,
                     frame.service_code,
                     srtp_attributes(&frame),
+                    pf,
                     out,
                 );
             }
@@ -332,15 +351,18 @@ impl SessionDecoder for GeSrtpDecoder {
     fn on_idle_flush(&mut self, _timestamp: DateTime<Utc>, out: &mut Vec<BronzeEvent>) {
         for (_key, req) in self.pending.drain() {
             let svc = req.frame.service_code;
+            let status = "request_only".to_string();
+            let pf = srtp_bronze_fields(&req.frame, &req.frame, &status);
             Self::emit_transaction(
                 req.capture_id,
                 req.envelope,
                 service_code_name(svc),
-                "request_only".to_string(),
+                status,
                 Some(format!("seq={} svc=0x{svc:02x}", req.frame.seq_num)),
                 None,
                 svc,
                 srtp_attributes(&req.frame),
+                pf,
                 out,
             );
         }

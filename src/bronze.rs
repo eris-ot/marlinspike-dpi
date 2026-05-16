@@ -468,6 +468,176 @@ pub struct SparkplugBronzeFields {
     pub is_command: bool,
 }
 
+/// MELSEC SLMP (Seamless Message Protocol) typed fields carried on a [`ProtocolTransaction`].
+///
+/// Covers the 4E binary frame header (serial number, network/PC addressing, command +
+/// subcommand) and the end-code present in paired responses. All integer types match
+/// the wire width (little-endian throughout SLMP).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MelsecBronzeFields {
+    /// SLMP 4E serial number used to pair requests and responses.
+    pub serial_number: u16,
+    /// Network number (0x00 = local network).
+    pub network_number: u8,
+    /// PC number (0xFF = self).
+    pub pc_number: u8,
+    /// Raw 2-byte command code (e.g. 0x0401 = Batch Read).
+    pub command: u16,
+    /// Raw 2-byte subcommand code (0x0001 = word units, 0x0003 = bit units).
+    pub subcommand: u16,
+    /// End code from the response header (0x0000 = success). `None` for unpaired requests.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_code: Option<u16>,
+    /// `"request"`, `"ok"`, `"request_only"`, `"response_only"`, or `"slmp_error_0x<hhhh>"`.
+    pub direction: String,
+}
+
+/// OPC UA PubSub (UADP over UDP/4840) typed fields carried on a [`ProtocolTransaction`].
+///
+/// Covers the UADP NetworkMessage header fields (Part 14 §7.2): version, optional
+/// publisher identity, writer-group addressing, and the list of DataSetWriter IDs
+/// present in the message. DataValue/Variant payloads are emitted as separate
+/// `ProcessReading` events and are not duplicated here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpcUaPubsubBronzeFields {
+    /// UADP version from the low 4 bits of the first flags byte (expected: 1).
+    pub ua_version: u8,
+    /// Publisher ID string. `None` when the PublisherId flag is not set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher_id: Option<String>,
+    /// Publisher ID type name (e.g. `"uint16"`, `"string"`). `None` when publisher_id is absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher_id_type: Option<String>,
+    /// WriterGroup ID. `None` when the GroupHeader flag is not set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writer_group_id: Option<u16>,
+    /// WriterGroup version. `None` when not present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_version: Option<u32>,
+    /// Network message number within the WriterGroup. `None` when not present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_message_number: Option<u16>,
+    /// Sequence number for the NetworkMessage. `None` when not present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sequence_number: Option<u16>,
+    /// DataSet class GUID. `None` when the DataSetClassId flag is not set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_class_id: Option<String>,
+    /// Count of DataSetMessages (DataSetWriters) present in this NetworkMessage.
+    pub dataset_writer_count: u32,
+    /// DataSetWriter IDs for each DataSetMessage in the payload.
+    pub dataset_writer_ids: Vec<u16>,
+}
+
+/// Beckhoff ADS/AMS typed fields carried on a [`ProtocolTransaction`].
+///
+/// Covers the AMS/TCP framing and the AMS packet header. Direction is derived from
+/// the state-flags response bit. Paired request/answer transactions emit the
+/// request-side fields since the response carries no additional AMS-level data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdsBronzeFields {
+    /// AMS NetID of the target (destination) runtime (e.g. `"192.168.1.1.1.1"`).
+    pub target_netid: String,
+    /// AMS port of the target (e.g. 851 = PLC Runtime 1).
+    pub target_port: u16,
+    /// AMS NetID of the source runtime.
+    pub source_netid: String,
+    /// AMS port of the source.
+    pub source_port: u16,
+    /// ADS command ID (1–9: ReadDeviceInfo/Read/Write/ReadState/WriteControl/
+    /// AddNotification/DeleteNotification/DeviceNotification/ReadWrite).
+    pub cmd_id: u16,
+    /// Raw AMS state-flags word. Bit 0 set = response; bit 2 set = ADS command.
+    pub state_flags: u16,
+    /// ADS error code from the AMS packet header (0 = success).
+    pub error_code: u32,
+    /// Invoke ID used to correlate request/response pairs.
+    pub invoke_id: u32,
+    /// `"request"`, `"ok"`, `"request_only"`, `"response_only"`, or `"ads_error_0x<hhhhhhhh>"`.
+    pub direction: String,
+}
+
+/// GE SRTP (Service Request Transport Protocol) typed fields.
+///
+/// Covers the 56-byte fixed header on port 18245/TCP. Request/response pairs are
+/// correlated by sequence number; unpaired halves set direction accordingly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeSrtpBronzeFields {
+    /// Raw SRTP message type byte (0x02 = Request, 0x03 = Response).
+    pub msg_type: u8,
+    /// Sequence number used to pair requests and responses (LE u16 at offset 9).
+    pub sequence_number: u16,
+    /// SRTP service request code byte (e.g. 0x03 = Read System Memory).
+    pub service_code: u8,
+    /// Human-readable name for `service_code`.
+    pub service_code_name: String,
+    /// Major status byte from the response header (0x00 = success).
+    pub status_code: u8,
+    /// Minor status byte from the response header.
+    pub minor_status: u8,
+    /// `"request"`, `"ok"`, `"request_only"`, `"response_only"`, or `"srtp_status_0x<hh>_minor_0x<hh>"`.
+    pub direction: String,
+}
+
+/// TriStation (Triconex Safety SIS) typed fields.
+///
+/// Covers the 4-byte header only — payload bytes are not decoded to avoid false
+/// positives from protocol ambiguity (proprietary, no public spec). The
+/// `SetControlProgram` (0x70) command is associated with TRITON/TRISIS malware.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TriStationBronzeFields {
+    /// Raw command type byte (function code), e.g. 0x70 = Set Control Program.
+    pub command_type: u8,
+    /// Human-readable name for `command_type` (e.g. `"tristation_set_control_program"`).
+    pub command_type_name: String,
+    /// Command subtype byte (semantics vary per command_type; not publicly documented).
+    pub command_subtype: u8,
+    /// Declared payload length from bytes 2–3 (LE u16).
+    pub payload_length: u16,
+}
+
+/// Diameter (RFC 6733) typed fields carried on a [`ProtocolTransaction`].
+///
+/// Covers the 20-byte fixed header and the subset of AVPs extracted by the
+/// decoder: User-Name (1), Session-Id (263), Origin-Host (264), Origin-Realm
+/// (296), Result-Code (268). All integer types are wire width.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiameterBronzeFields {
+    /// Diameter command code (e.g. 257 = Capabilities-Exchange, 280 = Device-Watchdog).
+    pub command_code: u32,
+    /// Human-readable command operation string (e.g. `"diameter_capabilities_exchange_request"`).
+    pub command_code_name: String,
+    /// Diameter Application-ID (0 = Base, 1 = NASREQ, 3 = Accounting, etc.).
+    pub application_id: u32,
+    /// Hop-by-Hop Identifier — used to pair request/answer within a session.
+    pub hop_by_hop_id: u32,
+    /// End-to-End Identifier — globally unique per message origin.
+    pub end_to_end_id: u32,
+    /// Raw command flags byte (R=b7, P=b6, E=b5, T=b4).
+    pub command_flags: u8,
+    /// True when the R (Request) flag is set.
+    pub is_request: bool,
+    /// True when the E (Error) flag is set.
+    pub is_error: bool,
+    /// AVP 1 — User-Name string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avp_user_name: Option<String>,
+    /// AVP 263 — Session-Id string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avp_session_id: Option<String>,
+    /// AVP 264 — Origin-Host string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avp_origin_host: Option<String>,
+    /// AVP 296 — Origin-Realm string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avp_origin_realm: Option<String>,
+    /// AVP 268 — Result-Code (2xxx = success, 3xxx = redirect, 4xxx/5xxx = error).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avp_result_code: Option<u32>,
+    /// `"request"`, `"ok"`, `"request_only"`, `"response_only"`, or `"error"`.
+    pub direction: String,
+}
+
 /// PROFINET typed fields carried on a [`ProtocolTransaction`].
 ///
 /// Covers the PROFINET frame identifier class and the DCP service-type string
@@ -638,6 +808,12 @@ pub enum ProtocolFields {
     Bacnet(BacnetBronzeFields),
     Ethercat(EthercatBronzeFields),
     OmronFins(OmronFinsBronzeFields),
+    Melsec(MelsecBronzeFields),
+    OpcUaPubsub(OpcUaPubsubBronzeFields),
+    Ads(AdsBronzeFields),
+    GeSrtp(GeSrtpBronzeFields),
+    TriStation(TriStationBronzeFields),
+    Diameter(DiameterBronzeFields),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

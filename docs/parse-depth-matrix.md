@@ -118,9 +118,9 @@ All link-layer protocols listed in the README are at **Deep** depth — frame pa
 1. **DCE/RPC opnum→method mapping** — per-interface opnum tables for the named interfaces. DRSUAPI opnum 3 = `DRSGetNCChanges` (the DCSync signal); SAMR opnum 36 = `SamrEnumerateDomainsInSamServer`; etc. Bounded; high defender yield.
 2. **OPC Classic endpoint-mapper dynamic-port tracking** — complete the OPC story. Requires DCE/RPC EPM session memory.
 3. **CIP Safety Type 1/2/Extended internals** — SIL-3 safety payload decode. CIP Networks Library Volume 5 is purchasable / partially public.
-4. **Continue ProtocolFields enum migration** — OT protocols remaining: MELSEC, OPC UA PubSub, ADS, GE SRTP, TriStation, Diameter. IT decoder set (DNS, DHCP, HTTP, MQTT, etc.) not yet started.
+4. **Continue ProtocolFields enum migration** — all OT/telecom protocols now migrated. IT decoder set (DNS, DHCP, HTTP, MQTT, NTLMSSP, Kerberos, SMB2, etc.) not yet started.
 
-**Shipped in 1.16.0:** typed `ProtocolFields` variants for BACnet/IP, PROFINET, EtherCAT, OMRON FINS.
+**Shipped in 1.16.0:** typed `ProtocolFields` variants for all remaining OT/telecom protocols: BACnet/IP, PROFINET, EtherCAT, OMRON FINS, MELSEC SLMP, OPC UA PubSub, ADS, GE SRTP, TriStation, Diameter. All OT decoders now emit typed fields.
 **Shipped in 1.15.0:** typed `ProtocolFields` variants for DNP3, IEC 104, S7comm, OPC UA (binary), EtherNet/IP, IEC 61850, HART-IP, Sparkplug B (joining Modbus from 1.3.0).
 
 **Spec-blocked (would need new sources):** CC-Link IE Field, IO-Link Wireless, OSIsoft PI, Vnet/IP deeper, FF HSE deeper, TriStation deeper.

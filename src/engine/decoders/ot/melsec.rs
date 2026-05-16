@@ -12,8 +12,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use chrono::{DateTime, Utc};
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, EventEnvelope, ProtocolTransaction,
-    TransportProtocol,
+    AssetObservation, BronzeEvent, BronzeEventFamily, EventEnvelope, MelsecBronzeFields,
+    ProtocolFields, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
     DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
@@ -102,7 +102,15 @@ impl SessionDecoder for MelsecDecoder {
                             req.pc_number,
                         ),
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Melsec(MelsecBronzeFields {
+                            serial_number: req.serial_number,
+                            network_number: req.network_number,
+                            pc_number: req.pc_number,
+                            command: req.command,
+                            subcommand: req.subcommand,
+                            end_code: None,
+                            direction: "request_only".to_string(),
+                        })),
                     }),
                 ));
             }
@@ -260,6 +268,7 @@ impl MelsecDecoder {
             envelope.bytes_count += make_envelope(chunk).bytes_count;
             envelope.packet_count += 1;
 
+            let melsec_direction = status.clone();
             out.push(new_event(
                 req.capture_id.clone(),
                 envelope.clone(),
@@ -272,7 +281,15 @@ impl MelsecDecoder {
                     values: Vec::new(),
                     attributes: attrs,
                     modbus: None,
-                    protocol_fields: None,
+                    protocol_fields: Some(ProtocolFields::Melsec(MelsecBronzeFields {
+                        serial_number: req.serial_number,
+                        network_number: req.network_number,
+                        pc_number: req.pc_number,
+                        command: req.command,
+                        subcommand: req.subcommand,
+                        end_code: Some(end_code),
+                        direction: melsec_direction,
+                    })),
                 }),
             ));
 
@@ -311,7 +328,15 @@ impl MelsecDecoder {
                     values: Vec::new(),
                     attributes: attrs,
                     modbus: None,
-                    protocol_fields: None,
+                    protocol_fields: Some(ProtocolFields::Melsec(MelsecBronzeFields {
+                        serial_number,
+                        network_number,
+                        pc_number,
+                        command: 0,
+                        subcommand: 0,
+                        end_code: Some(end_code),
+                        direction: "response_only".to_string(),
+                    })),
                 }),
             ));
         }

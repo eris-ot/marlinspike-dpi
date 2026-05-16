@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use chrono::{DateTime, Utc};
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
+    AdsBronzeFields, AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolFields,
+    ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
     DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
@@ -22,6 +23,7 @@ struct Pending {
     envelope: crate::bronze::EventEnvelope,
     operation: String,
     attributes: BTreeMap<String, String>,
+    bronze_fields: AdsBronzeFields,
 }
 
 #[derive(Default)]
@@ -47,12 +49,15 @@ impl SessionDecoder for AdsDecoder {
 
     fn on_idle_flush(&mut self, _timestamp: DateTime<Utc>, out: &mut Vec<BronzeEvent>) {
         for (_, p) in self.pending.drain() {
+            let mut bf = p.bronze_fields;
+            bf.direction = "request_only".to_string();
             out.push(unpaired_tx(
                 p.capture_id,
                 p.envelope,
                 p.operation,
                 p.attributes,
                 "request_only",
+                bf,
             ));
         }
     }
@@ -165,6 +170,18 @@ impl AdsDecoder {
         attrs.insert("error_code".into(), error_code.to_string());
         attrs.insert("state_flags_hex".into(), format!("{state_flags:#06x}"));
 
+        let base_bf = AdsBronzeFields {
+            target_netid: tgt_netid.clone(),
+            target_port: tgt_port,
+            source_netid: src_netid.clone(),
+            source_port: src_port,
+            cmd_id,
+            state_flags,
+            error_code,
+            invoke_id,
+            direction: String::new(), // filled in at emit time
+        };
+
         if self.seen_netids.insert(src_netid.clone()) {
             let mut ids = BTreeMap::new();
             ids.insert("ams_netid".into(), src_netid.clone());
@@ -186,38 +203,43 @@ impl AdsDecoder {
 
         if state_flags & FLAG_RESPONSE != 0 {
             let status = if error_code == 0 {
-                "ok".into()
+                "ok".to_string()
             } else {
                 format!("ads_error_0x{error_code:08x}")
             };
-            // Response target_netid is the original requester's source NetID.
             let req_key = format!("{}|{}|{}", chunk.session_key, tgt_netid, invoke_id);
             if let Some(p) = self.pending.remove(&req_key) {
+                let mut bf = p.bronze_fields;
+                bf.direction = status.clone();
                 out.push(unpaired_tx(
                     p.capture_id,
                     p.envelope,
                     p.operation,
                     p.attributes,
                     &status,
+                    bf,
                 ));
             } else {
+                let mut bf = base_bf;
+                bf.direction = "response_only".to_string();
                 out.push(unpaired_tx(
                     chunk.capture_id.to_string(),
                     env,
                     operation,
                     attrs,
                     "response_only",
+                    bf,
                 ));
             }
         } else {
-            // Key on the requester's source NetID so the response lookup can find it.
             let key = format!("{}|{}|{}", chunk.session_key, src_netid, invoke_id);
             if self.pending.len() >= ADS_PENDING_CAP {
-                // Evict oldest to bound memory on captures with no responses.
                 if let Some(k) = self.pending.keys().next().cloned() {
                     self.pending.remove(&k);
                 }
             }
+            let mut bf = base_bf;
+            bf.direction = "request".to_string();
             self.pending.insert(
                 key,
                 Pending {
@@ -225,6 +247,7 @@ impl AdsDecoder {
                     envelope: env,
                     operation,
                     attributes: attrs,
+                    bronze_fields: bf,
                 },
             );
         }
@@ -257,6 +280,7 @@ fn unpaired_tx(
     operation: String,
     attributes: BTreeMap<String, String>,
     status: &str,
+    pf: AdsBronzeFields,
 ) -> BronzeEvent {
     new_event(
         capture_id,
@@ -270,7 +294,7 @@ fn unpaired_tx(
             values: Vec::new(),
             attributes,
             modbus: None,
-            protocol_fields: None,
+            protocol_fields: Some(ProtocolFields::Ads(pf)),
         }),
     )
 }

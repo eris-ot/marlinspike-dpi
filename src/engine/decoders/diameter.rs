@@ -12,7 +12,8 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
+    AssetObservation, BronzeEvent, BronzeEventFamily, DiameterBronzeFields, ProtocolFields,
+    ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
     DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
@@ -439,6 +440,22 @@ impl DiameterDecoder {
             attributes.insert("avp_result_code".to_string(), rc.to_string());
         }
 
+        let pf = DiameterBronzeFields {
+            command_code: msg.command_code,
+            command_code_name: operation.clone(),
+            application_id: msg.application_id,
+            hop_by_hop_id: msg.hop_by_hop_id,
+            end_to_end_id: msg.end_to_end_id,
+            command_flags: msg.command_flags,
+            is_request: msg.is_request(),
+            is_error: msg.is_error(),
+            avp_user_name: msg.avp_user_name.clone(),
+            avp_session_id: msg.avp_session_id.clone(),
+            avp_origin_host: msg.avp_origin_host.clone(),
+            avp_origin_realm: msg.avp_origin_realm.clone(),
+            avp_result_code: msg.avp_result_code,
+            direction: status.clone(),
+        };
         out.push(new_event(
             chunk.capture_id.to_string(),
             envelope.clone(),
@@ -454,7 +471,7 @@ impl DiameterDecoder {
                 values: vec![],
                 attributes,
                 modbus: None,
-                protocol_fields: None,
+                protocol_fields: Some(ProtocolFields::Diameter(pf)),
             }),
         ));
 
