@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TopologyObservation,
+    AssetObservation, BronzeEvent, BronzeEventFamily, EthercatBronzeFields,
+    EthercatDatagramBronzeFields, ProtocolFields, ProtocolTransaction, TopologyObservation,
     TransportProtocol,
 };
 use crate::dissectors::ethercat::EthercatDissector;
@@ -73,7 +74,9 @@ impl SessionDecoder for EthercatDecoderWrapper {
                         values: Vec::new(),
                         attributes,
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Ethercat(ethercat_bronze_fields(
+                            &fields,
+                        ))),
                     }),
                 ));
 
@@ -224,6 +227,27 @@ fn ethercat_object_refs(fields: &crate::dissectors::ethercat::EthercatFields) ->
         refs.push(format!("ado:{:#06x}", datagram.ado));
     }
     refs
+}
+
+fn ethercat_bronze_fields(
+    fields: &crate::dissectors::ethercat::EthercatFields,
+) -> EthercatBronzeFields {
+    EthercatBronzeFields {
+        datagram_count: fields.datagrams.len() as u32,
+        datagrams: fields
+            .datagrams
+            .iter()
+            .map(|d| EthercatDatagramBronzeFields {
+                command: d.command.clone(),
+                command_code: d.command_code,
+                address_mode: d.address_mode.clone(),
+                adp: d.adp,
+                ado: d.ado,
+                data_length: d.data_length,
+                working_counter: d.working_counter,
+            })
+            .collect(),
+    }
 }
 
 fn ethercat_slave_asset_key(adp: u16, alias_address: Option<u16>) -> Option<String> {

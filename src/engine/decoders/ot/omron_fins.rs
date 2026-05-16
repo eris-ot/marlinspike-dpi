@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TopologyObservation,
-    TransportProtocol,
+    AssetObservation, BronzeEvent, BronzeEventFamily, OmronFinsBronzeFields, ProtocolFields,
+    ProtocolTransaction, TopologyObservation, TransportProtocol,
 };
 use crate::dissectors::fins::OmronFinsDissector;
 use crate::engine::{
@@ -185,13 +185,36 @@ impl OmronFinsDecoder {
             attributes.insert("source_unit".to_string(), source_unit.to_string());
         }
 
+        let direction = omron_fins_status(&chunk.context);
         let operation = omron_fins_operation_name(command_name.as_deref(), command_code);
+        let pf = OmronFinsBronzeFields {
+            frame_variant: frame_variant.clone(),
+            tcp_command,
+            tcp_error_code,
+            icf,
+            rsv,
+            gateway_count,
+            destination_network,
+            destination_node,
+            destination_unit,
+            source_network,
+            source_node,
+            source_unit,
+            service_id,
+            command_code,
+            command_name: command_name.clone(),
+            memory_area,
+            memory_word,
+            memory_bit,
+            item_count,
+            direction: direction.to_string(),
+        };
         out.push(new_event(
             chunk.capture_id.to_string(),
             envelope.clone(),
             BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                 operation,
-                status: omron_fins_status(&chunk.context).to_string(),
+                status: direction.to_string(),
                 request_summary: Some(omron_fins_summary(
                     command_name.as_deref(),
                     source_node,
@@ -207,7 +230,7 @@ impl OmronFinsDecoder {
                 values: Vec::new(),
                 attributes,
                 modbus: None,
-                protocol_fields: None,
+                protocol_fields: Some(ProtocolFields::OmronFins(pf)),
             }),
         ));
 

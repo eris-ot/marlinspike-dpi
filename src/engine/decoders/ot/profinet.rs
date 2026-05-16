@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use crate::bronze::{BronzeEvent, BronzeEventFamily, ProtocolTransaction};
+use crate::bronze::{
+    BronzeEvent, BronzeEventFamily, ProfinetBronzeFields, ProtocolFields, ProtocolTransaction,
+};
 use crate::dissectors::profinet::ProfinetDissector;
 use crate::engine::{
     DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
@@ -19,6 +21,26 @@ impl Default for ProfinetDecoderWrapper {
         Self {
             dissector: ProfinetDissector,
         }
+    }
+}
+
+fn profinet_direction(service_type: &str, dst_port: u16) -> &'static str {
+    if service_type.contains("Response") || service_type.contains("_con") {
+        "response"
+    } else if service_type.contains("Request") || service_type.contains("_req") || dst_port == 34964
+    {
+        "request"
+    } else {
+        "observed"
+    }
+}
+
+fn profinet_bronze_fields(fields: &ProfinetFields, direction: &str) -> ProfinetBronzeFields {
+    ProfinetBronzeFields {
+        frame_id: fields.frame_id,
+        service_type: fields.service_type.clone(),
+        payload_length: fields.payload.len() as u32,
+        direction: direction.to_string(),
     }
 }
 
@@ -44,16 +66,16 @@ impl SessionDecoder for ProfinetDecoderWrapper {
         }
 
         match self.dissector.parse(chunk.payload, &chunk.context) {
-            Some(ProtocolData::Profinet(ProfinetFields {
-                frame_id,
-                service_type,
-                payload,
-            })) => {
+            Some(ProtocolData::Profinet(fields)) => {
                 let transport = chunk.transport;
+                let direction = profinet_direction(&fields.service_type, chunk.context.dst_port);
                 let mut attributes = BTreeMap::new();
-                attributes.insert("frame_id".to_string(), format!("{frame_id:#06x}"));
-                attributes.insert("service_type".to_string(), service_type.clone());
-                attributes.insert("payload_length".to_string(), payload.len().to_string());
+                attributes.insert("frame_id".to_string(), format!("{:#06x}", fields.frame_id));
+                attributes.insert("service_type".to_string(), fields.service_type.clone());
+                attributes.insert(
+                    "payload_length".to_string(),
+                    fields.payload.len().to_string(),
+                );
 
                 let envelope = build_envelope(
                     &chunk.context,
@@ -71,35 +93,32 @@ impl SessionDecoder for ProfinetDecoderWrapper {
                     chunk.capture_id.to_string(),
                     envelope.clone(),
                     BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
-                        operation: profinet_operation_name(&service_type),
-                        status: if service_type.contains("Response") {
-                            "response".to_string()
-                        } else if service_type.contains("Request")
-                            || chunk.context.dst_port == 34964
-                        {
-                            "request".to_string()
-                        } else {
-                            "observed".to_string()
-                        },
-                        request_summary: Some(format!("{service_type} frame={frame_id:#06x}")),
+                        operation: profinet_operation_name(&fields.service_type),
+                        status: direction.to_string(),
+                        request_summary: Some(format!(
+                            "{} frame={:#06x}",
+                            fields.service_type, fields.frame_id
+                        )),
                         response_summary: None,
-                        object_refs: vec![format!("profinet_frame:{frame_id:#06x}")],
+                        object_refs: vec![format!("profinet_frame:{:#06x}", fields.frame_id)],
                         values: Vec::new(),
                         attributes,
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Profinet(profinet_bronze_fields(
+                            &fields, direction,
+                        ))),
                     }),
                 ));
 
-                if !payload.is_empty() {
+                if !fields.payload.is_empty() {
                     out.push(artifact_event(
                         chunk.capture_id.to_string(),
                         envelope,
                         "profinet_payload",
-                        &format!("{frame_id:#06x}:{}", chunk.frame_index),
+                        &format!("{:#06x}:{}", fields.frame_id, chunk.frame_index),
                         Some("application/octet-stream"),
                         Some("PROFINET payload"),
-                        &payload,
+                        &fields.payload,
                     ));
                 }
             }

@@ -468,6 +468,152 @@ pub struct SparkplugBronzeFields {
     pub is_command: bool,
 }
 
+/// PROFINET typed fields carried on a [`ProtocolTransaction`].
+///
+/// Covers the PROFINET frame identifier class and the DCP service-type string
+/// produced by the dissector. All integer types match the wire width.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfinetBronzeFields {
+    /// Raw 16-bit PROFINET Frame ID (e.g. 0xFEFE = DCP-Identify, 0x8000–0xBFFF = cyclic RT).
+    pub frame_id: u16,
+    /// Human-readable service type from the dissector (e.g. `"dcp_identify_request"`).
+    pub service_type: String,
+    /// Payload byte count from the dissected frame.
+    pub payload_length: u32,
+    /// `"request"`, `"response"`, or `"observed"`.
+    pub direction: String,
+}
+
+/// BACnet/IP and BACnet/MSTP typed fields carried on a [`ProtocolTransaction`].
+///
+/// Covers the BVLC/LLC link layer, NPDU control byte, APDU type, and the
+/// service name decoded from the APDU. Device-instance and vendor-id appear
+/// only in I-Am / Who-Is exchanges.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BacnetBronzeFields {
+    /// Link variant: `"bvlp"` (UDP/IP) or `"mstp"` (LLC/802.2).
+    pub link_variant: String,
+    /// BVLC function name when present (e.g. `"original_unicast_npdu"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bvlc_function: Option<String>,
+    /// Raw NPDU control byte (network-layer flags).
+    pub npdu_control: u8,
+    /// APDU type: `"confirmed_request"`, `"unconfirmed_request"`, `"simple_ack"`,
+    /// `"complex_ack"`, `"error"`, `"reject"`, or `"abort"`.
+    pub apdu_type: String,
+    /// BACnet service name (e.g. `"read_property"`, `"who_is"`, `"i_am"`).
+    pub service: String,
+    /// Invoke ID from confirmed-service exchanges; `None` for unconfirmed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invoke_id: Option<u8>,
+    /// BACnet device instance number from I-Am / Read-Property responses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_instance: Option<u32>,
+    /// BACnet vendor ID from I-Am responses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vendor_id: Option<u16>,
+    /// `"request"`, `"response"`, `"error"`, or `"observed"`.
+    pub direction: String,
+}
+
+/// Per-datagram fields from an EtherCAT frame.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EthercatDatagramBronzeFields {
+    /// EtherCAT command mnemonic (e.g. `"LRW"`, `"BRD"`, `"APRD"`).
+    pub command: String,
+    /// Raw command code byte.
+    pub command_code: u8,
+    /// Address mode: `"logical"`, `"configured_station"`, or `"auto_increment"`.
+    pub address_mode: String,
+    /// ADP — address/position field (slave station address or logical address high word).
+    pub adp: u16,
+    /// ADO — address offset within the slave memory map.
+    pub ado: u16,
+    /// Length of the datagram data section in bytes.
+    pub data_length: u16,
+    /// Working counter incremented by each slave that processes the command.
+    pub working_counter: u16,
+}
+
+/// EtherCAT (EtherType 0x88A4) typed fields carried on a [`ProtocolTransaction`].
+///
+/// An EtherCAT frame carries one or more datagrams; this struct exposes
+/// per-datagram addressing so consumers can identify which slaves were targeted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EthercatBronzeFields {
+    /// Total number of datagrams in the EtherCAT frame.
+    pub datagram_count: u32,
+    /// Per-datagram fields for every datagram in the frame.
+    pub datagrams: Vec<EthercatDatagramBronzeFields>,
+}
+
+/// OMRON FINS typed fields carried on a [`ProtocolTransaction`].
+///
+/// Covers the FINS/TCP command header, network addressing (network/node/unit),
+/// and the command-code with its human-readable name. Memory-area fields
+/// appear only for memory read/write commands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OmronFinsBronzeFields {
+    /// Frame variant: `"fins_udp"`, `"fins_tcp"`, etc.
+    pub frame_variant: String,
+    /// FINS/TCP command code (present for TCP sessions only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tcp_command: Option<u32>,
+    /// FINS/TCP error code from the TCP header (non-zero on error).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tcp_error_code: Option<u32>,
+    /// ICF (Information Control Field) byte from the FINS header.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icf: Option<u8>,
+    /// RSV reserved byte (should be 0x00).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rsv: Option<u8>,
+    /// Gateway count — number of gateways the frame passed through.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_count: Option<u8>,
+    /// Destination network number (0x00 = local).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_network: Option<u8>,
+    /// Destination node number.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_node: Option<u8>,
+    /// Destination unit address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_unit: Option<u8>,
+    /// Source network number.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_network: Option<u8>,
+    /// Source node number.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_node: Option<u8>,
+    /// Source unit address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_unit: Option<u8>,
+    /// Service ID used to match request/response pairs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_id: Option<u8>,
+    /// 2-byte FINS command code (high byte = main code, low byte = sub code).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_code: Option<u16>,
+    /// Human-readable command name (e.g. `"memory_area_read"`, `"cpu_unit_status_read"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_name: Option<String>,
+    /// Memory area code for memory read/write commands.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_area: Option<u8>,
+    /// Starting word address within the memory area.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_word: Option<u16>,
+    /// Starting bit address within the word.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_bit: Option<u8>,
+    /// Number of items to read or write.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_count: Option<u16>,
+    /// `"request"`, `"response"`, or `"observed"`.
+    pub direction: String,
+}
+
 /// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
 /// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
 /// enum that downstream consumers can pattern-match without string lookups.
@@ -488,6 +634,10 @@ pub enum ProtocolFields {
     Iec61850(Iec61850BronzeFields),
     HartIp(HartIpBronzeFields),
     Sparkplug(SparkplugBronzeFields),
+    Profinet(ProfinetBronzeFields),
+    Bacnet(BacnetBronzeFields),
+    Ethercat(EthercatBronzeFields),
+    OmronFins(OmronFinsBronzeFields),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

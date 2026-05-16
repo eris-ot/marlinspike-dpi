@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TopologyObservation,
-    TransportProtocol,
+    AssetObservation, BacnetBronzeFields, BronzeEvent, BronzeEventFamily, ProtocolFields,
+    ProtocolTransaction, TopologyObservation, TransportProtocol,
 };
 use crate::dissectors::bacnet::BacnetDissector;
 use crate::engine::{
@@ -36,17 +36,7 @@ impl SessionDecoder for BacnetDecoder {
 
     fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
         match self.dissector.parse(chunk.payload, &chunk.context) {
-            Some(ProtocolData::Bacnet(BacnetFields {
-                link_variant,
-                bvlc_function,
-                npdu_control,
-                apdu_type,
-                service,
-                invoke_id,
-                device_instance,
-                vendor_id,
-                payload,
-            })) => {
+            Some(ProtocolData::Bacnet(fields)) => {
                 let transport = if chunk.transport == TransportProtocol::Udp {
                     TransportProtocol::Udp
                 } else {
@@ -64,19 +54,22 @@ impl SessionDecoder for BacnetDecoder {
                     chunk.session_key.clone(),
                 );
                 let mut attributes = BTreeMap::new();
-                attributes.insert("link_variant".to_string(), link_variant.clone());
-                attributes.insert("npdu_control".to_string(), format!("{npdu_control:#04x}"));
-                attributes.insert("apdu_type".to_string(), apdu_type.clone());
-                if let Some(function) = &bvlc_function {
+                attributes.insert("link_variant".to_string(), fields.link_variant.clone());
+                attributes.insert(
+                    "npdu_control".to_string(),
+                    format!("{:#04x}", fields.npdu_control),
+                );
+                attributes.insert("apdu_type".to_string(), fields.apdu_type.clone());
+                if let Some(ref function) = fields.bvlc_function {
                     attributes.insert("bvlc_function".to_string(), function.clone());
                 }
-                if let Some(invoke_id) = invoke_id {
+                if let Some(invoke_id) = fields.invoke_id {
                     attributes.insert("invoke_id".to_string(), invoke_id.to_string());
                 }
-                if let Some(vendor_id) = vendor_id {
+                if let Some(vendor_id) = fields.vendor_id {
                     attributes.insert("vendor_id".to_string(), vendor_id.to_string());
                 }
-                if let Some(device_instance) = device_instance {
+                if let Some(device_instance) = fields.device_instance {
                     attributes.insert("device_instance".to_string(), device_instance.to_string());
                 }
 
@@ -84,19 +77,24 @@ impl SessionDecoder for BacnetDecoder {
                     chunk.capture_id.to_string(),
                     envelope.clone(),
                     BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
-                        operation: normalize_operation_name(&service, "bacnet_message"),
-                        status: bacnet_status(&apdu_type).to_string(),
-                        request_summary: Some(format!("{apdu_type} {service}")),
+                        operation: normalize_operation_name(&fields.service, "bacnet_message"),
+                        status: bacnet_status(&fields.apdu_type).to_string(),
+                        request_summary: Some(format!(
+                            "{} {}",
+                            fields.apdu_type, fields.service
+                        )),
                         response_summary: None,
-                        object_refs: bacnet_object_refs(device_instance, invoke_id),
+                        object_refs: bacnet_object_refs(fields.device_instance, fields.invoke_id),
                         values: Vec::new(),
                         attributes,
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Bacnet(bacnet_bronze_fields(
+                            &fields,
+                        ))),
                     }),
                 ));
 
-                if let Some(device_instance) = device_instance {
+                if let Some(device_instance) = fields.device_instance {
                     let mut identifiers = BTreeMap::from([
                         ("ip".to_string(), chunk.context.src_ip.to_string()),
                         (
@@ -104,7 +102,7 @@ impl SessionDecoder for BacnetDecoder {
                             device_instance.to_string(),
                         ),
                     ]);
-                    if let Some(vendor_id) = vendor_id {
+                    if let Some(vendor_id) = fields.vendor_id {
                         identifiers.insert("bacnet_vendor_id".to_string(), vendor_id.to_string());
                     }
                     out.push(new_event(
@@ -130,24 +128,24 @@ impl SessionDecoder for BacnetDecoder {
                         observation_type: "bacnet_transaction".to_string(),
                         local_id: chunk.context.src_ip.to_string(),
                         remote_id: Some(chunk.context.dst_ip.to_string()),
-                        description: Some(service.clone()),
+                        description: Some(fields.service.clone()),
                         capabilities: Vec::new(),
                         metadata: BTreeMap::from([
-                            ("link_variant".to_string(), link_variant),
-                            ("apdu_type".to_string(), apdu_type.clone()),
+                            ("link_variant".to_string(), fields.link_variant.clone()),
+                            ("apdu_type".to_string(), fields.apdu_type.clone()),
                         ]),
                     }),
                 ));
 
-                if !payload.is_empty() {
+                if !fields.payload.is_empty() {
                     out.push(artifact_event(
                         chunk.capture_id.to_string(),
                         envelope,
                         "bacnet_apdu",
-                        &format!("{}:{}", service, chunk.frame_index),
+                        &format!("{}:{}", fields.service, chunk.frame_index),
                         Some("application/octet-stream"),
                         Some("BACnet APDU payload"),
-                        &payload,
+                        &fields.payload,
                     ));
                 }
             }
@@ -170,6 +168,20 @@ impl SessionDecoder for BacnetDecoder {
                 chunk.payload,
             )),
         }
+    }
+}
+
+fn bacnet_bronze_fields(fields: &BacnetFields) -> BacnetBronzeFields {
+    BacnetBronzeFields {
+        link_variant: fields.link_variant.clone(),
+        bvlc_function: fields.bvlc_function.clone(),
+        npdu_control: fields.npdu_control,
+        apdu_type: fields.apdu_type.clone(),
+        service: fields.service.clone(),
+        invoke_id: fields.invoke_id,
+        device_instance: fields.device_instance,
+        vendor_id: fields.vendor_id,
+        direction: bacnet_status(&fields.apdu_type).to_string(),
     }
 }
 
