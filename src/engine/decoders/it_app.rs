@@ -8,8 +8,9 @@ use std::collections::BTreeMap;
 use std::net::IpAddr;
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, ObjectValue, ProtocolTransaction,
-    TopologyObservation, TransportProtocol,
+    AssetObservation, BronzeEvent, BronzeEventFamily, DhcpBronzeFields, DnsBronzeFields,
+    HttpBronzeFields, MqttBronzeFields, ObjectValue, ProtocolFields, ProtocolTransaction,
+    SnmpBronzeFields, TlsBronzeFields, TopologyObservation, TransportProtocol,
 };
 use crate::dissectors::dhcp::DhcpDissector;
 use crate::dissectors::dns::DnsDissector;
@@ -66,6 +67,13 @@ impl SessionDecoder for DnsDecoder {
                     chunk.captured_len,
                     chunk.session_key.clone(),
                 );
+                let dns_pf = DnsBronzeFields {
+                    transaction_id,
+                    is_response,
+                    queries: queries.clone(),
+                    answers: answers.clone(),
+                    direction: if is_response { "response" } else { "request" }.to_string(),
+                };
                 out.push(new_event(
                     chunk.capture_id.to_string(),
                     envelope.clone(),
@@ -92,7 +100,7 @@ impl SessionDecoder for DnsDecoder {
                             .collect(),
                         attributes,
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Dns(dns_pf)),
                     }),
                 ));
                 if is_response {
@@ -448,12 +456,28 @@ impl SessionDecoder for DhcpDecoder {
                 if let Some(vendor_class) = vendor_class.clone() {
                     attributes.insert("vendor_class".to_string(), vendor_class);
                 }
+                let dhcp_direction = dhcp_status(&chunk.context);
+                let dhcp_pf = DhcpBronzeFields {
+                    op,
+                    xid,
+                    message_type,
+                    message_type_name: operation.to_string(),
+                    client_mac: format_mac(&client_mac),
+                    requested_ip: requested_ip.clone(),
+                    your_ip: yiaddr.clone(),
+                    server_id: server_id.clone(),
+                    relay_ip: giaddr.clone(),
+                    hostname: hostname.clone(),
+                    client_id: client_id.clone(),
+                    vendor_class: vendor_class.clone(),
+                    direction: dhcp_direction.to_string(),
+                };
                 out.push(new_event(
                     chunk.capture_id.to_string(),
                     envelope.clone(),
                     BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                         operation: operation.to_string(),
-                        status: dhcp_status(&chunk.context).to_string(),
+                        status: dhcp_direction.to_string(),
                         request_summary: hostname.as_ref().map(|name| format!("{name} via DHCP")),
                         response_summary: yiaddr.clone(),
                         object_refs: requested_ip
@@ -464,7 +488,7 @@ impl SessionDecoder for DhcpDecoder {
                         values: Vec::new(),
                         attributes,
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Dhcp(dhcp_pf)),
                     }),
                 ));
 
@@ -601,12 +625,21 @@ impl SessionDecoder for SnmpDecoder {
                 if let Some(engine_id) = engine_id.clone() {
                     attributes.insert("engine_id".to_string(), engine_id);
                 }
+                let snmp_direction = snmp_status(&pdu_type);
+                let snmp_pf = SnmpBronzeFields {
+                    version: version.clone(),
+                    pdu_type: pdu_type.clone(),
+                    request_id,
+                    engine_id: engine_id.clone(),
+                    oids: var_binds.iter().map(|vb| vb.oid.clone()).collect(),
+                    direction: snmp_direction.clone(),
+                };
                 out.push(new_event(
                     chunk.capture_id.to_string(),
                     envelope.clone(),
                     BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                         operation: normalize_operation_name(&pdu_type, "snmp_message"),
-                        status: snmp_status(&pdu_type),
+                        status: snmp_direction,
                         request_summary: (!var_binds.is_empty()).then(|| {
                             var_binds
                                 .iter()
@@ -625,7 +658,7 @@ impl SessionDecoder for SnmpDecoder {
                             .collect(),
                         attributes,
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Snmp(snmp_pf)),
                     }),
                 ));
 
@@ -715,13 +748,27 @@ impl SessionDecoder for HttpDecoder {
             content_length,
         })) = self.dissector.parse(chunk.payload, &chunk.context)
         {
+            let is_request = !method.is_empty();
+            let http_pf = HttpBronzeFields {
+                method: method.clone(),
+                host: host.clone(),
+                uri: uri.clone(),
+                status_code,
+                content_type: content_type.clone(),
+                content_length,
+                is_request,
+                direction: if is_request {
+                    "request".to_string()
+                } else {
+                    status_code.to_string()
+                },
+            };
             let mut attributes = BTreeMap::new();
             attributes.insert("content_type".to_string(), content_type);
             attributes.insert("content_length".to_string(), content_length.to_string());
             if !host.is_empty() {
                 attributes.insert("host".to_string(), host);
             }
-            let is_request = !method.is_empty();
             let operation = if is_request {
                 method.clone()
             } else {
@@ -753,7 +800,7 @@ impl SessionDecoder for HttpDecoder {
                     values: Vec::new(),
                     attributes,
                     modbus: None,
-                    protocol_fields: None,
+                    protocol_fields: Some(ProtocolFields::Http(http_pf)),
                 }),
             ));
         }
@@ -794,6 +841,11 @@ impl SessionDecoder for TlsDecoder {
             chunk.captured_len,
             chunk.session_key.clone(),
         );
+        let tls_pf = TlsBronzeFields {
+            version: tls.version.clone(),
+            cipher_suite: tls.cipher_suite.clone(),
+            sni: tls.sni.clone(),
+        };
         out.push(new_event(
             chunk.capture_id.to_string(),
             envelope.clone(),
@@ -806,7 +858,7 @@ impl SessionDecoder for TlsDecoder {
                 values: Vec::new(),
                 attributes,
                 modbus: None,
-                protocol_fields: None,
+                protocol_fields: Some(ProtocolFields::Tls(tls_pf)),
             }),
         ));
         if let Some(sni) = tls.sni {
@@ -1056,6 +1108,17 @@ impl SessionDecoder for MqttDecoder {
 
                 let object_refs = topic.clone().into_iter().collect();
 
+                let mqtt_pf = MqttBronzeFields {
+                    packet_type,
+                    packet_type_name: packet_type_name.clone(),
+                    protocol_name: protocol_name.clone(),
+                    protocol_version,
+                    client_id: client_id.clone(),
+                    username: username.clone(),
+                    topic: topic.clone(),
+                    qos,
+                    retain,
+                };
                 out.push(new_event(
                     chunk.capture_id.to_string(),
                     envelope.clone(),
@@ -1068,7 +1131,7 @@ impl SessionDecoder for MqttDecoder {
                         values: vec![],
                         attributes,
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Mqtt(mqtt_pf)),
                     }),
                 ));
 

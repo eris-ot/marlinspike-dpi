@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
+    AssetObservation, BronzeEvent, BronzeEventFamily, FtpBronzeFields, IcmpBronzeFields,
+    NtpBronzeFields, ProtocolFields, ProtocolTransaction, RadiusBronzeFields, SshBronzeFields,
+    SyslogBronzeFields, TransportProtocol,
 };
 use crate::dissectors::ftp::FtpDissector;
 use crate::dissectors::icmp::IcmpDissector;
@@ -63,19 +65,27 @@ impl SessionDecoder for NtpDecoder {
                 attributes.insert("stratum".to_string(), stratum.to_string());
                 attributes.insert("reference_id".to_string(), reference_id.clone());
 
+                let direction = if mode == 4 { "response" } else { "request" };
                 out.push(new_event(
                     chunk.capture_id.to_string(),
                     envelope.clone(),
                     BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                         operation: mode_name.clone(),
-                        status: if mode == 4 { "response" } else { "request" }.to_string(),
+                        status: direction.to_string(),
                         request_summary: Some(format!("NTPv{version} {mode_name}")),
                         response_summary: None,
                         object_refs: vec![],
                         values: vec![],
                         attributes,
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Ntp(NtpBronzeFields {
+                            version,
+                            mode,
+                            mode_name: mode_name.clone(),
+                            stratum,
+                            reference_id: reference_id.clone(),
+                            direction: direction.to_string(),
+                        })),
                     }),
                 ));
 
@@ -141,7 +151,7 @@ impl SessionDecoder for SyslogDecoder {
     fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
         match self.dissector.parse(chunk.payload, &chunk.context) {
             Some(ProtocolData::Syslog(SyslogFields {
-                facility: _,
+                facility,
                 facility_name,
                 severity,
                 severity_name,
@@ -168,6 +178,14 @@ impl SessionDecoder for SyslogDecoder {
                     attributes.insert("app_name".to_string(), app.clone());
                 }
 
+                let syslog_pf = SyslogBronzeFields {
+                    facility,
+                    facility_name: facility_name.clone(),
+                    severity,
+                    severity_name: severity_name.clone(),
+                    hostname: hostname.clone(),
+                    app_name: app_name.clone(),
+                };
                 out.push(new_event(
                     chunk.capture_id.to_string(),
                     envelope.clone(),
@@ -180,7 +198,7 @@ impl SessionDecoder for SyslogDecoder {
                         values: vec![],
                         attributes,
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Syslog(syslog_pf)),
                     }),
                 ));
 
@@ -296,6 +314,14 @@ impl SessionDecoder for FtpDecoder {
                     attributes.insert("argument".to_string(), arg.clone());
                 }
 
+                let ftp_pf = FtpBronzeFields {
+                    is_response,
+                    command: command.clone(),
+                    argument: argument.clone(),
+                    reply_code,
+                    reply_text: reply_text.clone(),
+                    direction: if is_response { "response" } else { "request" }.to_string(),
+                };
                 out.push(new_event(
                     chunk.capture_id.to_string(),
                     envelope.clone(),
@@ -308,7 +334,7 @@ impl SessionDecoder for FtpDecoder {
                         values: vec![],
                         attributes,
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Ftp(ftp_pf)),
                     }),
                 ));
 
@@ -402,6 +428,11 @@ impl SessionDecoder for SshDecoder {
                 attributes.insert("comments".to_string(), c.clone());
             }
 
+            let ssh_pf = SshBronzeFields {
+                protocol_version: protocol_version.clone(),
+                software_version: software_version.clone(),
+                comments: comments.clone(),
+            };
             out.push(new_event(
                 chunk.capture_id.to_string(),
                 envelope.clone(),
@@ -414,7 +445,7 @@ impl SessionDecoder for SshDecoder {
                     values: vec![],
                     attributes,
                     modbus: None,
-                    protocol_fields: None,
+                    protocol_fields: Some(ProtocolFields::Ssh(ssh_pf)),
                 }),
             ));
 
@@ -534,6 +565,20 @@ impl SessionDecoder for RadiusDecoder {
                     _ => "request",
                 };
 
+                let radius_pf = RadiusBronzeFields {
+                    code,
+                    code_name: code_name.clone(),
+                    identifier,
+                    username: username.clone(),
+                    nas_ip_address: nas_ip_address.clone(),
+                    nas_identifier: nas_identifier.clone(),
+                    calling_station_id: calling_station_id.clone(),
+                    called_station_id: called_station_id.clone(),
+                    nas_port_type,
+                    framed_ip_address: framed_ip_address.clone(),
+                    service_type,
+                    direction: status.to_string(),
+                };
                 out.push(new_event(
                     chunk.capture_id.to_string(),
                     envelope.clone(),
@@ -552,7 +597,7 @@ impl SessionDecoder for RadiusDecoder {
                         values: vec![],
                         attributes,
                         modbus: None,
-                        protocol_fields: None,
+                        protocol_fields: Some(ProtocolFields::Radius(radius_pf)),
                     }),
                 ));
 
@@ -668,6 +713,16 @@ impl SessionDecoder for IcmpDecoder {
             "ok".to_string()
         };
 
+        let icmp_pf = IcmpBronzeFields {
+            icmp_type: fields.icmp_type,
+            icmp_code: fields.icmp_code,
+            type_name: fields.type_name.clone(),
+            code_name: fields.code_name.clone(),
+            identifier: fields.identifier,
+            sequence: fields.sequence,
+            gateway_ip: fields.gateway_ip.clone(),
+            payload_len: fields.payload_len as u32,
+        };
         out.push(new_event(
             chunk.capture_id.to_string(),
             envelope,
@@ -683,7 +738,7 @@ impl SessionDecoder for IcmpDecoder {
                 values: Vec::new(),
                 attributes: attrs,
                 modbus: None,
-                protocol_fields: None,
+                protocol_fields: Some(ProtocolFields::Icmp(icmp_pf)),
             }),
         ));
     }

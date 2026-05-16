@@ -784,6 +784,264 @@ pub struct OmronFinsBronzeFields {
     pub direction: String,
 }
 
+/// NTP (UDP/123) typed fields carried on a [`ProtocolTransaction`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NtpBronzeFields {
+    /// NTP version (1–4).
+    pub version: u8,
+    /// Raw mode byte (3 = client, 4 = server, 5 = broadcast, 6 = control).
+    pub mode: u8,
+    /// Human-readable mode name from the dissector.
+    pub mode_name: String,
+    /// Stratum (0 = unspecified, 1 = primary reference, 2–15 = secondary).
+    pub stratum: u8,
+    /// Reference ID string (4-char refclock code or upstream server IP).
+    pub reference_id: String,
+    /// `"request"` (mode != 4) or `"response"` (mode == 4).
+    pub direction: String,
+}
+
+/// Syslog (UDP/514) typed fields carried on a [`ProtocolTransaction`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyslogBronzeFields {
+    /// Numeric facility (0–23).
+    pub facility: u8,
+    /// Facility name (e.g. `"auth"`, `"local0"`).
+    pub facility_name: String,
+    /// Numeric severity (0 = emerg … 7 = debug).
+    pub severity: u8,
+    /// Severity name (e.g. `"error"`, `"info"`).
+    pub severity_name: String,
+    /// Hostname field from the syslog header. `None` when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    /// App-name / tag from the syslog header. `None` when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_name: Option<String>,
+}
+
+/// FTP control-channel (TCP/21) typed fields carried on a [`ProtocolTransaction`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FtpBronzeFields {
+    /// True when this PDU is a server reply; false for a client command.
+    pub is_response: bool,
+    /// Client command verb (e.g. `"USER"`, `"RETR"`). `None` for replies.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// Command argument. `None` when absent or for replies.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub argument: Option<String>,
+    /// Reply code (e.g. 220, 530). `None` for client commands.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_code: Option<u16>,
+    /// Reply text. `None` for client commands.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_text: Option<String>,
+    /// `"request"` or `"response"`.
+    pub direction: String,
+}
+
+/// SSH banner (TCP/22) typed fields carried on a [`ProtocolTransaction`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SshBronzeFields {
+    /// Protocol version string (e.g. `"2.0"`).
+    pub protocol_version: String,
+    /// Software version string (e.g. `"OpenSSH_9.6"`).
+    pub software_version: String,
+    /// Optional trailing comments (often an OS/distro hint).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comments: Option<String>,
+}
+
+/// RADIUS (UDP/1812-1813) typed fields carried on a [`ProtocolTransaction`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RadiusBronzeFields {
+    /// RADIUS code byte (1 = Access-Request, 2 = Access-Accept, etc.).
+    pub code: u8,
+    /// Human-readable code name.
+    pub code_name: String,
+    /// Packet identifier used to match request/response.
+    pub identifier: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nas_ip_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nas_identifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calling_station_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub called_station_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nas_port_type: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framed_ip_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_type: Option<u32>,
+    /// `"accept"`, `"reject"`, or `"request"`.
+    pub direction: String,
+}
+
+/// ICMP typed fields carried on a [`ProtocolTransaction`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IcmpBronzeFields {
+    /// ICMP type byte (0 = echo reply, 3 = dest unreachable, 8 = echo request).
+    pub icmp_type: u8,
+    /// ICMP code byte (sub-type within `icmp_type`).
+    pub icmp_code: u8,
+    /// Human-readable type name.
+    pub type_name: String,
+    /// Human-readable code name (may be empty).
+    pub code_name: String,
+    /// Echo identifier (echo request/reply only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<u16>,
+    /// Echo sequence number (echo request/reply only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sequence: Option<u16>,
+    /// Redirect gateway IP (type 5 only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_ip: Option<String>,
+    /// Length of the ICMP payload in bytes.
+    pub payload_len: u32,
+}
+
+/// DNS / mDNS typed fields carried on a [`ProtocolTransaction`].
+///
+/// Structured `records` (mDNS TXT/SRV/A) are surfaced through AssetObservation
+/// events; this struct carries the flat query/answer view scoped to the transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DnsBronzeFields {
+    /// DNS transaction identifier.
+    pub transaction_id: u16,
+    /// True for responses, false for queries.
+    pub is_response: bool,
+    /// Query strings (name + type).
+    pub queries: Vec<String>,
+    /// Answer strings (flat rendering).
+    pub answers: Vec<String>,
+    /// `"request"` or `"response"`.
+    pub direction: String,
+}
+
+/// DHCP / BOOTP (UDP/67-68) typed fields carried on a [`ProtocolTransaction`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DhcpBronzeFields {
+    /// BOOTP op (1 = BOOTREQUEST, 2 = BOOTREPLY).
+    pub op: u8,
+    /// Transaction ID (xid).
+    pub xid: u32,
+    /// DHCP message type byte (1 = Discover … 8 = Inform). `None` for plain BOOTP.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_type: Option<u8>,
+    /// Human-readable message type name.
+    pub message_type_name: String,
+    /// Client hardware address (formatted MAC).
+    pub client_mac: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub your_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relay_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vendor_class: Option<String>,
+    /// `"request"`, `"response"`, or `"observed"`.
+    pub direction: String,
+}
+
+/// SNMP (UDP/161-162) typed fields carried on a [`ProtocolTransaction`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnmpBronzeFields {
+    /// SNMP version string (`"1"`, `"2c"`, `"3"`).
+    pub version: String,
+    /// PDU type name (e.g. `"get_request"`, `"trap"`).
+    pub pdu_type: String,
+    /// Request ID. `None` for SNMPv1 traps.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<i32>,
+    /// SNMPv3 engine ID (hex string). `None` for v1/v2c.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_id: Option<String>,
+    /// OIDs referenced in the var-bind list.
+    pub oids: Vec<String>,
+    /// `"request"`, `"response"`, or `"observed"`.
+    pub direction: String,
+}
+
+/// HTTP (TCP/80,8080) typed fields carried on a [`ProtocolTransaction`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HttpBronzeFields {
+    /// Request method (e.g. `"GET"`). Empty for responses.
+    pub method: String,
+    /// Host header value. Empty when absent.
+    pub host: String,
+    /// Request URI. Empty for responses.
+    pub uri: String,
+    /// Response status code (0 for requests).
+    pub status_code: u16,
+    /// Content-Type header value.
+    pub content_type: String,
+    /// Content-Length header value.
+    pub content_length: u64,
+    /// True when this PDU is a request (non-empty method).
+    pub is_request: bool,
+    /// `"request"` or the numeric status code as a string.
+    pub direction: String,
+}
+
+/// TLS Client Hello (TCP/443,4840) typed fields carried on a [`ProtocolTransaction`].
+///
+/// Passive sensor depth limit: only the unencrypted Client Hello is parsed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TlsBronzeFields {
+    /// Record-layer version string (e.g. `"TLS 0303"`).
+    pub version: String,
+    /// First cipher suite from the offered list (hex). `None` when not parseable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cipher_suite: Option<String>,
+    /// SNI host name from the Client Hello extension. `None` when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sni: Option<String>,
+}
+
+/// MQTT (TCP/1883,8883) typed fields carried on a [`ProtocolTransaction`].
+///
+/// PUBLISH payloads fan out to MqttPayloadDecoders (Sparkplug B, etc.) and are
+/// emitted as separate typed events; this struct covers the MQTT envelope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MqttBronzeFields {
+    /// MQTT control packet type (1 = CONNECT, 3 = PUBLISH, 8 = SUBSCRIBE, …).
+    pub packet_type: u8,
+    /// Human-readable packet type name.
+    pub packet_type_name: String,
+    /// Protocol name (`"MQTT"` / `"MQIsdp"`). CONNECT only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_name: Option<String>,
+    /// Protocol level (3 = 3.1, 4 = 3.1.1, 5 = 5.0). CONNECT only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_version: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    /// Topic (PUBLISH / SUBSCRIBE).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    /// Quality of Service level (0–2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qos: Option<u8>,
+    /// Retain flag (PUBLISH).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retain: Option<bool>,
+}
+
 /// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
 /// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
 /// enum that downstream consumers can pattern-match without string lookups.
@@ -814,6 +1072,18 @@ pub enum ProtocolFields {
     GeSrtp(GeSrtpBronzeFields),
     TriStation(TriStationBronzeFields),
     Diameter(DiameterBronzeFields),
+    Ntp(NtpBronzeFields),
+    Syslog(SyslogBronzeFields),
+    Ftp(FtpBronzeFields),
+    Ssh(SshBronzeFields),
+    Radius(RadiusBronzeFields),
+    Icmp(IcmpBronzeFields),
+    Dns(DnsBronzeFields),
+    Dhcp(DhcpBronzeFields),
+    Snmp(SnmpBronzeFields),
+    Http(HttpBronzeFields),
+    Tls(TlsBronzeFields),
+    Mqtt(MqttBronzeFields),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
