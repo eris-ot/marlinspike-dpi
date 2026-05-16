@@ -15,22 +15,22 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── Opcode constants ─────────────────────────────────────────────────────────
 
 const P_CONTROL_HARD_RESET_CLIENT_V1: u8 = 1;
 const P_CONTROL_HARD_RESET_SERVER_V1: u8 = 2;
-const P_CONTROL_SOFT_RESET_V1:        u8 = 3;
-const P_CONTROL_V1:                   u8 = 4;
-const P_ACK_V1:                       u8 = 5;
-const P_DATA_V1:                      u8 = 6;
+const P_CONTROL_SOFT_RESET_V1: u8 = 3;
+const P_CONTROL_V1: u8 = 4;
+const P_ACK_V1: u8 = 5;
+const P_DATA_V1: u8 = 6;
 const P_CONTROL_HARD_RESET_CLIENT_V2: u8 = 7;
 const P_CONTROL_HARD_RESET_SERVER_V2: u8 = 8;
-const P_DATA_V2:                      u8 = 9;
+const P_DATA_V2: u8 = 9;
 const P_CONTROL_HARD_RESET_CLIENT_V3: u8 = 10;
-const P_CONTROL_WKC_V1:               u8 = 11;
+const P_CONTROL_WKC_V1: u8 = 11;
 
 const OPCODE_MAX_KNOWN: u8 = 11;
 
@@ -43,16 +43,16 @@ fn opcode_to_operation(opcode: u8) -> String {
     match opcode {
         P_CONTROL_HARD_RESET_CLIENT_V1 => "openvpn_hard_reset_client_v1".to_string(),
         P_CONTROL_HARD_RESET_SERVER_V1 => "openvpn_hard_reset_server_v1".to_string(),
-        P_CONTROL_SOFT_RESET_V1        => "openvpn_soft_reset".to_string(),
-        P_CONTROL_V1                   => "openvpn_control".to_string(),
-        P_ACK_V1                       => "openvpn_ack".to_string(),
-        P_DATA_V1                      => "openvpn_data".to_string(),
+        P_CONTROL_SOFT_RESET_V1 => "openvpn_soft_reset".to_string(),
+        P_CONTROL_V1 => "openvpn_control".to_string(),
+        P_ACK_V1 => "openvpn_ack".to_string(),
+        P_DATA_V1 => "openvpn_data".to_string(),
         P_CONTROL_HARD_RESET_CLIENT_V2 => "openvpn_hard_reset_client_v2".to_string(),
         P_CONTROL_HARD_RESET_SERVER_V2 => "openvpn_hard_reset_server_v2".to_string(),
-        P_DATA_V2                      => "openvpn_data_v2".to_string(),
+        P_DATA_V2 => "openvpn_data_v2".to_string(),
         P_CONTROL_HARD_RESET_CLIENT_V3 => "openvpn_hard_reset_client_v3".to_string(),
-        P_CONTROL_WKC_V1               => "openvpn_wkc".to_string(),
-        n                              => format!("openvpn_unknown_opcode_{n}"),
+        P_CONTROL_WKC_V1 => "openvpn_wkc".to_string(),
+        n => format!("openvpn_unknown_opcode_{n}"),
     }
 }
 
@@ -96,7 +96,7 @@ fn parse_openvpn_packet(
     };
 
     // Minimum length gate: opcode byte + 8-byte session_id.
-    if pkt.len() <= MIN_PACKET_LEN - 1 {
+    if pkt.len() < MIN_PACKET_LEN {
         out.push(parse_anomaly_event(
             chunk.capture_id.to_string(),
             build_env(transport),
@@ -110,9 +110,9 @@ fn parse_openvpn_packet(
 
     // Unpack the opcode/key_id byte.
     // High 5 bits = opcode; low 3 bits = key_id.
-    let first    = pkt[0];
-    let opcode   = first >> 3;
-    let key_id   = first & 0x07;
+    let first = pkt[0];
+    let opcode = first >> 3;
+    let key_id = first & 0x07;
 
     // Unknown opcode guard (> 11 is outside the defined table).
     if opcode > OPCODE_MAX_KNOWN {
@@ -131,15 +131,15 @@ fn parse_openvpn_packet(
     let session_id_bytes: [u8; 8] = pkt[1..9].try_into().expect("length already checked");
     let session_id_hex = hex::encode(session_id_bytes);
 
-    let operation      = opcode_to_operation(opcode);
+    let operation = opcode_to_operation(opcode);
     let payload_length = pkt.len();
 
     let mut attributes = BTreeMap::new();
-    attributes.insert("opcode".to_string(),          opcode.to_string());
-    attributes.insert("key_id".to_string(),          key_id.to_string());
-    attributes.insert("session_id_hex".to_string(),  session_id_hex.clone());
-    attributes.insert("transport".to_string(),       transport_str.to_string());
-    attributes.insert("payload_length".to_string(),  payload_length.to_string());
+    attributes.insert("opcode".to_string(), opcode.to_string());
+    attributes.insert("key_id".to_string(), key_id.to_string());
+    attributes.insert("session_id_hex".to_string(), session_id_hex.clone());
+    attributes.insert("transport".to_string(), transport_str.to_string());
+    attributes.insert("payload_length".to_string(), payload_length.to_string());
 
     let envelope = build_env(transport);
 
@@ -164,23 +164,20 @@ fn parse_openvpn_packet(
     // Emit AssetObservation once per unique session_id on any hard-reset packet.
     if is_hard_reset(opcode) && seen_sessions.insert(session_id_bytes) {
         let mut identifiers = BTreeMap::new();
-        identifiers.insert(
-            "openvpn_session_id".to_string(),
-            session_id_hex.clone(),
-        );
+        identifiers.insert("openvpn_session_id".to_string(), session_id_hex.clone());
         identifiers.insert("ip".to_string(), chunk.context.src_ip.to_string());
 
         out.push(new_event(
             chunk.capture_id.to_string(),
             envelope,
             BronzeEventFamily::AssetObservation(AssetObservation {
-                asset_key:   chunk.context.src_ip.to_string(),
-                role:        Some("openvpn_endpoint".to_string()),
-                vendor:      None,
-                model:       None,
-                firmware:    None,
-                hostnames:   vec![],
-                protocols:   vec!["openvpn".to_string()],
+                asset_key: chunk.context.src_ip.to_string(),
+                role: Some("openvpn_endpoint".to_string()),
+                vendor: None,
+                model: None,
+                firmware: None,
+                hostnames: vec![],
+                protocols: vec!["openvpn".to_string()],
                 identifiers,
             }),
         ));
@@ -437,7 +434,12 @@ mod tests {
         dec.on_datagram(&udp_chunk(&pkt), &mut evs);
 
         // Data packets: ProtocolTransaction only (no AssetObservation).
-        assert_eq!(evs.len(), 1, "data packet should emit tx only, got {}", evs.len());
+        assert_eq!(
+            evs.len(),
+            1,
+            "data packet should emit tx only, got {}",
+            evs.len()
+        );
 
         let tx = get_tx(&evs).unwrap();
         assert_eq!(tx.operation, "openvpn_data");
@@ -538,6 +540,9 @@ mod tests {
             .iter()
             .filter(|e| matches!(e.family, BronzeEventFamily::AssetObservation(_)))
             .count();
-        assert_eq!(asset_count, 1, "AssetObservation must be emitted exactly once per session_id");
+        assert_eq!(
+            asset_count, 1,
+            "AssetObservation must be emitted exactly once per session_id"
+        );
     }
 }

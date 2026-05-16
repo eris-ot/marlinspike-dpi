@@ -201,23 +201,7 @@ fn looks_like_ethercat_frame(data: &[u8]) -> bool {
 }
 
 fn is_supported_command(command_code: u8) -> bool {
-    matches!(
-        command_code,
-        0x00 | 0x01
-            | 0x02
-            | 0x03
-            | 0x04
-            | 0x05
-            | 0x06
-            | 0x07
-            | 0x08
-            | 0x09
-            | 0x0A
-            | 0x0B
-            | 0x0C
-            | 0x0D
-            | 0x0E
-    )
+    matches!(command_code, 0x00..=0x0E)
 }
 
 fn ethercat_command_name(command_code: u8) -> &'static str {
@@ -243,10 +227,10 @@ fn ethercat_command_name(command_code: u8) -> &'static str {
 
 fn ethercat_address_mode(command_code: u8) -> &'static str {
     match command_code {
-        0x01 | 0x02 | 0x03 => "auto_increment",
-        0x04 | 0x05 | 0x06 => "fixed",
-        0x07 | 0x08 | 0x09 => "broadcast",
-        0x0A | 0x0B | 0x0C => "logical",
+        0x01..=0x03 => "auto_increment",
+        0x04..=0x06 => "fixed",
+        0x07..=0x09 => "broadcast",
+        0x0A..=0x0C => "logical",
         0x0D | 0x0E => "read_modify_write",
         0x00 => "nop",
         _ => "unknown",
@@ -272,6 +256,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_datagram(
         command_code: u8,
         index: u8,

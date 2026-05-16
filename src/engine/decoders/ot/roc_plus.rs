@@ -32,7 +32,7 @@ use crate::bronze::{
     TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ---------------------------------------------------------------------------
@@ -108,11 +108,17 @@ fn opcode_name(opcode: u8) -> String {
         OPCODE_HISTORY_POINT_READ => "roc_plus_history_point_read".to_string(),
         OPCODE_READ_ALARM_DATA => "roc_plus_read_alarm_data".to_string(),
         OPCODE_READ_EVENT_DATA => "roc_plus_read_event_data".to_string(),
-        OPCODE_READ_CONFIGURABLE_OPCODE_LIST => "roc_plus_read_configurable_opcode_list".to_string(),
+        OPCODE_READ_CONFIGURABLE_OPCODE_LIST => {
+            "roc_plus_read_configurable_opcode_list".to_string()
+        }
         OPCODE_HOURLY_HISTORY_READ => "roc_plus_hourly_history_record_read".to_string(),
         OPCODE_DAILY_HISTORY_READ => "roc_plus_daily_history_record_read".to_string(),
-        OPCODE_READ_CONFIGURABLE_OPCODE_DATA => "roc_plus_read_configurable_opcode_data".to_string(),
-        OPCODE_CONVERT_RTC_TO_HISTORY_IDX => "roc_plus_convert_realtime_clock_to_history_index".to_string(),
+        OPCODE_READ_CONFIGURABLE_OPCODE_DATA => {
+            "roc_plus_read_configurable_opcode_data".to_string()
+        }
+        OPCODE_CONVERT_RTC_TO_HISTORY_IDX => {
+            "roc_plus_convert_realtime_clock_to_history_index".to_string()
+        }
         OPCODE_READ_AUTO_ACK_ALARM => "roc_plus_read_auto_acknowledge_alarm".to_string(),
         OPCODE_SEND_COMMANDS => "roc_plus_send_commands".to_string(),
         n => format!("roc_plus_unknown_opcode_{n}"),
@@ -122,26 +128,44 @@ fn opcode_name(opcode: u8) -> String {
 fn is_known_opcode(opcode: u8) -> bool {
     matches!(
         opcode,
-        OPCODE_COMM_TEST | OPCODE_GENERAL_READ | OPCODE_GENERAL_WRITE
-        | OPCODE_READ_RTC | OPCODE_SET_RTC | OPCODE_LOGIN | OPCODE_LOGIN_RESPONSE
-        | OPCODE_READ_HISTORY_IDX | OPCODE_HISTORY_POINT_READ | OPCODE_READ_ALARM_DATA
-        | OPCODE_READ_EVENT_DATA | OPCODE_READ_CONFIGURABLE_OPCODE_LIST
-        | OPCODE_HOURLY_HISTORY_READ | OPCODE_DAILY_HISTORY_READ
-        | OPCODE_READ_CONFIGURABLE_OPCODE_DATA | OPCODE_CONVERT_RTC_TO_HISTORY_IDX
-        | OPCODE_READ_AUTO_ACK_ALARM | OPCODE_SEND_COMMANDS
+        OPCODE_COMM_TEST
+            | OPCODE_GENERAL_READ
+            | OPCODE_GENERAL_WRITE
+            | OPCODE_READ_RTC
+            | OPCODE_SET_RTC
+            | OPCODE_LOGIN
+            | OPCODE_LOGIN_RESPONSE
+            | OPCODE_READ_HISTORY_IDX
+            | OPCODE_HISTORY_POINT_READ
+            | OPCODE_READ_ALARM_DATA
+            | OPCODE_READ_EVENT_DATA
+            | OPCODE_READ_CONFIGURABLE_OPCODE_LIST
+            | OPCODE_HOURLY_HISTORY_READ
+            | OPCODE_DAILY_HISTORY_READ
+            | OPCODE_READ_CONFIGURABLE_OPCODE_DATA
+            | OPCODE_CONVERT_RTC_TO_HISTORY_IDX
+            | OPCODE_READ_AUTO_ACK_ALARM
+            | OPCODE_SEND_COMMANDS
     )
 }
 
 /// Opcodes that mutate device state — emit a high-severity anomaly when observed.
 fn is_control_opcode(opcode: u8) -> bool {
-    matches!(opcode, OPCODE_GENERAL_WRITE | OPCODE_SET_RTC | OPCODE_SEND_COMMANDS)
+    matches!(
+        opcode,
+        OPCODE_GENERAL_WRITE | OPCODE_SET_RTC | OPCODE_SEND_COMMANDS
+    )
 }
 
 fn control_reason(opcode: u8) -> String {
     match opcode {
-        OPCODE_GENERAL_WRITE => "ROC Plus General Write (7) — device configuration write observed".to_string(),
+        OPCODE_GENERAL_WRITE => {
+            "ROC Plus General Write (7) — device configuration write observed".to_string()
+        }
         OPCODE_SET_RTC => "ROC Plus Set Real-Time Clock (11) — clock write observed".to_string(),
-        OPCODE_SEND_COMMANDS => "ROC Plus Send Commands (138) — control command observed".to_string(),
+        OPCODE_SEND_COMMANDS => {
+            "ROC Plus Send Commands (138) — control command observed".to_string()
+        }
         n => format!("ROC Plus opcode {n} — state-mutating command observed"),
     }
 }
@@ -166,17 +190,24 @@ struct PendingRoc {
     capture_id: String,
     envelope: EventEnvelope,
     frame: RocFrame,
+    #[expect(dead_code, reason = "reserved for future timeout/eviction logic")]
     last_seen: DateTime<Utc>,
 }
 
 /// Key for a pending request: session + addressing tuple + opcode.
 fn request_key(session: &str, f: &RocFrame) -> String {
-    format!("{}:{}:{}:{}:{}:{}", session, f.src_unit, f.src_group, f.dst_unit, f.dst_group, f.opcode)
+    format!(
+        "{}:{}:{}:{}:{}:{}",
+        session, f.src_unit, f.src_group, f.dst_unit, f.dst_group, f.opcode
+    )
 }
 
 /// Key that a response (src/dst swapped) would use to match a pending request.
 fn response_key(session: &str, f: &RocFrame) -> String {
-    format!("{}:{}:{}:{}:{}:{}", session, f.dst_unit, f.dst_group, f.src_unit, f.src_group, f.opcode)
+    format!(
+        "{}:{}:{}:{}:{}:{}",
+        session, f.dst_unit, f.dst_group, f.src_unit, f.src_group, f.opcode
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -191,13 +222,25 @@ pub(crate) struct RocPlusDecoder {
 impl RocPlusDecoder {
     fn envelope(&self, chunk: &StreamChunk<'_>) -> EventEnvelope {
         build_envelope(
-            &chunk.context, chunk.interface_id, chunk.frame_index,
-            chunk.timestamp, chunk.segment_hash, TransportProtocol::Tcp,
-            Some("roc_plus"), chunk.captured_len, chunk.session_key.clone(),
+            &chunk.context,
+            chunk.interface_id,
+            chunk.frame_index,
+            chunk.timestamp,
+            chunk.segment_hash,
+            TransportProtocol::Tcp,
+            Some("roc_plus"),
+            chunk.captured_len,
+            chunk.session_key.clone(),
         )
     }
 
-    fn emit_txn(capture_id: String, envelope: EventEnvelope, frame: &RocFrame, status: &str, out: &mut Vec<BronzeEvent>) {
+    fn emit_txn(
+        capture_id: String,
+        envelope: EventEnvelope,
+        frame: &RocFrame,
+        status: &str,
+        out: &mut Vec<BronzeEvent>,
+    ) {
         out.push(new_event(
             capture_id,
             envelope,
@@ -215,7 +258,11 @@ impl RocPlusDecoder {
         ));
     }
 
-    fn emit_asset_observations(chunk: &StreamChunk<'_>, envelope: &EventEnvelope, out: &mut Vec<BronzeEvent>) {
+    fn emit_asset_observations(
+        chunk: &StreamChunk<'_>,
+        envelope: &EventEnvelope,
+        out: &mut Vec<BronzeEvent>,
+    ) {
         let src = chunk.context.src_ip.to_string();
         let dst = chunk.context.dst_ip.to_string();
 
@@ -225,7 +272,9 @@ impl RocPlusDecoder {
             BronzeEventFamily::AssetObservation(AssetObservation {
                 asset_key: src.clone(),
                 role: Some("roc_plus_host".to_string()),
-                vendor: None, model: None, firmware: None,
+                vendor: None,
+                model: None,
+                firmware: None,
                 hostnames: Vec::new(),
                 protocols: vec!["roc_plus".to_string()],
                 identifiers: BTreeMap::from([("ip".to_string(), src)]),
@@ -238,7 +287,8 @@ impl RocPlusDecoder {
                 asset_key: dst.clone(),
                 role: Some("roc_plus_rtu".to_string()),
                 vendor: Some("Emerson".to_string()),
-                model: None, firmware: None,
+                model: None,
+                firmware: None,
                 hostnames: Vec::new(),
                 protocols: vec!["roc_plus".to_string()],
                 identifiers: BTreeMap::from([("ip".to_string(), dst)]),
@@ -248,7 +298,9 @@ impl RocPlusDecoder {
 }
 
 impl SessionDecoder for RocPlusDecoder {
-    fn name(&self) -> &'static str { "roc_plus" }
+    fn name(&self) -> &'static str {
+        "roc_plus"
+    }
 
     fn interest(&self) -> &'static [DecoderInterest] {
         &[DecoderInterest::TcpPort(4000)]
@@ -262,8 +314,12 @@ impl SessionDecoder for RocPlusDecoder {
                 out.push(parse_anomaly_event(
                     chunk.capture_id.to_string(),
                     self.envelope(chunk),
-                    self.name(), "medium",
-                    &format!("ROC Plus frame too short ({} < {ROC_MIN_FRAME} bytes)", payload.len()),
+                    self.name(),
+                    "medium",
+                    &format!(
+                        "ROC Plus frame too short ({} < {ROC_MIN_FRAME} bytes)",
+                        payload.len()
+                    ),
                     payload,
                 ));
             }
@@ -280,7 +336,10 @@ impl SessionDecoder for RocPlusDecoder {
         // Medium anomaly: claimed data_length doesn't fit in the buffer.
         if frame.truncated_data {
             out.push(parse_anomaly_event(
-                chunk.capture_id.to_string(), envelope.clone(), self.name(), "medium",
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                self.name(),
+                "medium",
                 &format!(
                     "ROC Plus data_length {} exceeds available buffer ({} bytes after header)",
                     frame.data_length,
@@ -293,7 +352,10 @@ impl SessionDecoder for RocPlusDecoder {
         // Low anomaly: unrecognised opcode (vendor extension or newer firmware).
         if !is_known_opcode(frame.opcode) {
             out.push(parse_anomaly_event(
-                chunk.capture_id.to_string(), envelope.clone(), self.name(), "low",
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                self.name(),
+                "low",
                 &format!("ROC Plus unknown opcode {}", frame.opcode),
                 payload,
             ));
@@ -302,7 +364,10 @@ impl SessionDecoder for RocPlusDecoder {
         // High anomaly: state-mutating control opcode observed.
         if is_control_opcode(frame.opcode) {
             out.push(parse_anomaly_event(
-                chunk.capture_id.to_string(), envelope.clone(), self.name(), "high",
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                self.name(),
+                "high",
                 &control_reason(frame.opcode),
                 payload,
             ));
@@ -332,13 +397,25 @@ impl SessionDecoder for RocPlusDecoder {
                     last_seen: chunk.timestamp,
                 },
             );
-            Self::emit_txn(chunk.capture_id.to_string(), envelope, &frame, "observed", out);
+            Self::emit_txn(
+                chunk.capture_id.to_string(),
+                envelope,
+                &frame,
+                "observed",
+                out,
+            );
         }
     }
 
     fn on_idle_flush(&mut self, _timestamp: DateTime<Utc>, out: &mut Vec<BronzeEvent>) {
         for (_key, pending) in self.pending.drain() {
-            Self::emit_txn(pending.capture_id, pending.envelope, &pending.frame, "observed", out);
+            Self::emit_txn(
+                pending.capture_id,
+                pending.envelope,
+                &pending.frame,
+                "observed",
+                out,
+            );
         }
     }
 }
@@ -359,19 +436,41 @@ inventory::submit!(crate::engine::decoders::DecoderRegistration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr};
-    use chrono::Utc;
     use crate::registry::PacketContext;
+    use chrono::Utc;
+    use std::net::{IpAddr, Ipv4Addr};
 
-    fn build_frame(src_unit: u8, src_group: u8, dst_unit: u8, dst_group: u8, opcode: u8, data: &[u8]) -> Vec<u8> {
+    fn build_frame(
+        src_unit: u8,
+        src_group: u8,
+        dst_unit: u8,
+        dst_group: u8,
+        opcode: u8,
+        data: &[u8],
+    ) -> Vec<u8> {
         let mut buf = Vec::with_capacity(8 + data.len());
-        buf.extend_from_slice(&[src_unit, src_group, dst_unit, dst_group, opcode, data.len() as u8]);
+        buf.extend_from_slice(&[
+            src_unit,
+            src_group,
+            dst_unit,
+            dst_group,
+            opcode,
+            data.len() as u8,
+        ]);
         buf.extend_from_slice(data);
         buf.extend_from_slice(&[0x00, 0x00]); // CRC placeholder
         buf
     }
 
-    fn feed(dec: &mut RocPlusDecoder, payload: &[u8], src: Ipv4Addr, dst: Ipv4Addr, src_port: u16, dst_port: u16, out: &mut Vec<BronzeEvent>) {
+    fn feed(
+        dec: &mut RocPlusDecoder,
+        payload: &[u8],
+        src: Ipv4Addr,
+        dst: Ipv4Addr,
+        src_port: u16,
+        dst_port: u16,
+        out: &mut Vec<BronzeEvent>,
+    ) {
         let session_key = format!("{src}-{dst}-{src_port}-{dst_port}");
         let chunk = StreamChunk {
             capture_id: "cap",
@@ -412,11 +511,14 @@ mod tests {
         let frame = build_frame(1, 0, 5, 1, OPCODE_LOGIN, &[]);
         feed(&mut dec, &frame, HOST, RTU, 50000, 4000, &mut out);
 
-        let txns: Vec<_> = out.iter()
+        let txns: Vec<_> = out
+            .iter()
             .filter(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
             .collect();
         assert_eq!(txns.len(), 1);
-        let BronzeEventFamily::ProtocolTransaction(ref t) = txns[0].family else { panic!() };
+        let BronzeEventFamily::ProtocolTransaction(ref t) = txns[0].family else {
+            panic!()
+        };
         assert_eq!(t.operation, "roc_plus_login");
         assert_eq!(t.status, "observed");
         assert_eq!(t.attributes["opcode"], "17");
@@ -425,18 +527,32 @@ mod tests {
         assert_eq!(t.attributes["dst_unit"], "5");
         assert_eq!(t.attributes["dst_group"], "1");
 
-        let host_obs = out.iter().find(|e| {
-            let BronzeEventFamily::AssetObservation(ref a) = e.family else { return false };
-            a.role.as_deref() == Some("roc_plus_host")
-        }).expect("host AssetObservation missing");
-        let BronzeEventFamily::AssetObservation(ref h) = host_obs.family else { panic!() };
+        let host_obs = out
+            .iter()
+            .find(|e| {
+                let BronzeEventFamily::AssetObservation(ref a) = e.family else {
+                    return false;
+                };
+                a.role.as_deref() == Some("roc_plus_host")
+            })
+            .expect("host AssetObservation missing");
+        let BronzeEventFamily::AssetObservation(ref h) = host_obs.family else {
+            panic!()
+        };
         assert_eq!(h.asset_key, HOST.to_string());
 
-        let rtu_obs = out.iter().find(|e| {
-            let BronzeEventFamily::AssetObservation(ref a) = e.family else { return false };
-            a.role.as_deref() == Some("roc_plus_rtu")
-        }).expect("RTU AssetObservation missing");
-        let BronzeEventFamily::AssetObservation(ref r) = rtu_obs.family else { panic!() };
+        let rtu_obs = out
+            .iter()
+            .find(|e| {
+                let BronzeEventFamily::AssetObservation(ref a) = e.family else {
+                    return false;
+                };
+                a.role.as_deref() == Some("roc_plus_rtu")
+            })
+            .expect("RTU AssetObservation missing");
+        let BronzeEventFamily::AssetObservation(ref r) = rtu_obs.family else {
+            panic!()
+        };
         assert_eq!(r.vendor.as_deref(), Some("Emerson"));
     }
 
@@ -449,8 +565,13 @@ mod tests {
         feed(&mut dec, &frame, HOST, RTU, 50001, 4000, &mut out);
 
         let BronzeEventFamily::ProtocolTransaction(ref t) = out
-            .iter().find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
-            .expect("no transaction").family else { panic!() };
+            .iter()
+            .find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
+            .expect("no transaction")
+            .family
+        else {
+            panic!()
+        };
         assert_eq!(t.operation, "roc_plus_history_point_read");
         assert_eq!(t.attributes["data_length"], "2");
     }
@@ -464,15 +585,27 @@ mod tests {
         feed(&mut dec, &frame, HOST, RTU, 50002, 4000, &mut out);
 
         let BronzeEventFamily::ProtocolTransaction(ref t) = out
-            .iter().find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
-            .expect("no transaction").family else { panic!() };
+            .iter()
+            .find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
+            .expect("no transaction")
+            .family
+        else {
+            panic!()
+        };
         assert_eq!(t.operation, "roc_plus_send_commands");
 
-        let anomaly = out.iter().find(|e| {
-            let BronzeEventFamily::ParseAnomaly(ref a) = e.family else { return false };
-            a.severity == "high"
-        }).expect("high anomaly missing");
-        let BronzeEventFamily::ParseAnomaly(ref a) = anomaly.family else { panic!() };
+        let anomaly = out
+            .iter()
+            .find(|e| {
+                let BronzeEventFamily::ParseAnomaly(ref a) = e.family else {
+                    return false;
+                };
+                a.severity == "high"
+            })
+            .expect("high anomaly missing");
+        let BronzeEventFamily::ParseAnomaly(ref a) = anomaly.family else {
+            panic!()
+        };
         assert_eq!(a.decoder, "roc_plus");
         assert!(a.reason.contains("138"), "reason: {}", a.reason);
     }
@@ -486,15 +619,27 @@ mod tests {
         feed(&mut dec, &frame, HOST, RTU, 50003, 4000, &mut out);
 
         let BronzeEventFamily::ProtocolTransaction(ref t) = out
-            .iter().find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
-            .expect("no transaction").family else { panic!() };
+            .iter()
+            .find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
+            .expect("no transaction")
+            .family
+        else {
+            panic!()
+        };
         assert_eq!(t.operation, "roc_plus_unknown_opcode_200");
 
-        let anomaly = out.iter().find(|e| {
-            let BronzeEventFamily::ParseAnomaly(ref a) = e.family else { return false };
-            a.severity == "low"
-        }).expect("low anomaly missing");
-        let BronzeEventFamily::ParseAnomaly(ref a) = anomaly.family else { panic!() };
+        let anomaly = out
+            .iter()
+            .find(|e| {
+                let BronzeEventFamily::ParseAnomaly(ref a) = e.family else {
+                    return false;
+                };
+                a.severity == "low"
+            })
+            .expect("low anomaly missing");
+        let BronzeEventFamily::ParseAnomaly(ref a) = anomaly.family else {
+            panic!()
+        };
         assert_eq!(a.decoder, "roc_plus");
     }
 
@@ -505,16 +650,26 @@ mod tests {
         let mut out = Vec::new();
         // 30-byte buffer; header claims data_length=100.
         let mut buf = vec![0u8; 30];
-        buf[0] = 1; buf[1] = 0; buf[2] = 5; buf[3] = 1;
+        buf[0] = 1;
+        buf[1] = 0;
+        buf[2] = 5;
+        buf[3] = 1;
         buf[4] = OPCODE_GENERAL_READ;
         buf[5] = 100; // lies — only 22 data bytes present in 30-byte frame
         feed(&mut dec, &buf, HOST, RTU, 50004, 4000, &mut out);
 
-        let anomaly = out.iter().find(|e| {
-            let BronzeEventFamily::ParseAnomaly(ref a) = e.family else { return false };
-            a.severity == "medium"
-        }).expect("medium anomaly missing");
-        let BronzeEventFamily::ParseAnomaly(ref a) = anomaly.family else { panic!() };
+        let anomaly = out
+            .iter()
+            .find(|e| {
+                let BronzeEventFamily::ParseAnomaly(ref a) = e.family else {
+                    return false;
+                };
+                a.severity == "medium"
+            })
+            .expect("medium anomaly missing");
+        let BronzeEventFamily::ParseAnomaly(ref a) = anomaly.family else {
+            panic!()
+        };
         assert_eq!(a.decoder, "roc_plus");
     }
 
@@ -535,7 +690,8 @@ mod tests {
         // Session keys differ (ports reversed), so the response is "observed".
         // In production the engine normalises the TCP session key. Here we verify
         // no panic and that the response produces a transaction event.
-        let resp_txns: Vec<_> = out[pre..].iter()
+        let resp_txns: Vec<_> = out[pre..]
+            .iter()
             .filter(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
             .collect();
         assert!(!resp_txns.is_empty(), "response must produce a transaction");

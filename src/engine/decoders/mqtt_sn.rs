@@ -27,118 +27,139 @@
 //! `data[0]` *is* the length and `data[1]` is MsgType (2-byte header).
 
 use std::collections::BTreeMap;
-use std::net::IpAddr;
 
 use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── Message type constants ────────────────────────────────────────
 
-const MSG_ADVERTISE: u8              = 0x00;
-const MSG_SEARCHGW: u8               = 0x01;
-const MSG_GWINFO: u8                 = 0x02;
-const MSG_CONNECT: u8                = 0x04;
-const MSG_CONNACK: u8                = 0x05;
-const MSG_WILLTOPICREQ: u8           = 0x06;
-const MSG_WILLTOPIC: u8              = 0x07;
-const MSG_WILLMSGREQ: u8             = 0x08;
-const MSG_WILLMSG: u8                = 0x09;
-const MSG_REGISTER: u8               = 0x0A;
-const MSG_REGACK: u8                 = 0x0B;
-const MSG_PUBLISH: u8                = 0x0C;
-const MSG_PUBACK: u8                 = 0x0D;
-const MSG_PUBCOMP: u8                = 0x0E;
-const MSG_PUBREC: u8                 = 0x0F;
-const MSG_PUBREL: u8                 = 0x10;
-const MSG_SUBSCRIBE: u8              = 0x12;
-const MSG_SUBACK: u8                 = 0x13;
-const MSG_UNSUBSCRIBE: u8            = 0x14;
-const MSG_UNSUBACK: u8               = 0x15;
-const MSG_PINGREQ: u8                = 0x16;
-const MSG_PINGRESP: u8               = 0x17;
-const MSG_DISCONNECT: u8             = 0x18;
-const MSG_WILLTOPICUPD: u8           = 0x1A;
-const MSG_WILLTOPICRESP: u8          = 0x1B;
-const MSG_WILLMSGUPD: u8             = 0x1C;
-const MSG_WILLMSGRESP: u8            = 0x1D;
+const MSG_ADVERTISE: u8 = 0x00;
+const MSG_SEARCHGW: u8 = 0x01;
+const MSG_GWINFO: u8 = 0x02;
+const MSG_CONNECT: u8 = 0x04;
+const MSG_CONNACK: u8 = 0x05;
+const MSG_WILLTOPICREQ: u8 = 0x06;
+const MSG_WILLTOPIC: u8 = 0x07;
+const MSG_WILLMSGREQ: u8 = 0x08;
+const MSG_WILLMSG: u8 = 0x09;
+const MSG_REGISTER: u8 = 0x0A;
+const MSG_REGACK: u8 = 0x0B;
+const MSG_PUBLISH: u8 = 0x0C;
+const MSG_PUBACK: u8 = 0x0D;
+const MSG_PUBCOMP: u8 = 0x0E;
+const MSG_PUBREC: u8 = 0x0F;
+const MSG_PUBREL: u8 = 0x10;
+const MSG_SUBSCRIBE: u8 = 0x12;
+const MSG_SUBACK: u8 = 0x13;
+const MSG_UNSUBSCRIBE: u8 = 0x14;
+const MSG_UNSUBACK: u8 = 0x15;
+const MSG_PINGREQ: u8 = 0x16;
+const MSG_PINGRESP: u8 = 0x17;
+const MSG_DISCONNECT: u8 = 0x18;
+const MSG_WILLTOPICUPD: u8 = 0x1A;
+const MSG_WILLTOPICRESP: u8 = 0x1B;
+const MSG_WILLMSGUPD: u8 = 0x1C;
+const MSG_WILLMSGRESP: u8 = 0x1D;
 const MSG_FORWARDER_ENCAPSULATION: u8 = 0xFE;
 
 // ── Header parsing ────────────────────────────────────────────────
 
 struct MqttSnFrame<'a> {
-    length:   usize,
+    length: usize,
     msg_type: u8,
-    payload:  &'a [u8],
+    payload: &'a [u8],
 }
 
 /// Decode the variable-length header. Returns `None` if the datagram is too
 /// short. Does not validate `data.len() == length`; the caller handles that.
 fn parse_header(data: &[u8]) -> Option<MqttSnFrame<'_>> {
-    if data.is_empty() { return None; }
+    if data.is_empty() {
+        return None;
+    }
     if data[0] == 0x01 {
         // Extended header: sentinel | u16 BE length | msg_type
-        if data.len() < 4 { return None; }
-        let length   = u16::from_be_bytes([data[1], data[2]]) as usize;
+        if data.len() < 4 {
+            return None;
+        }
+        let length = u16::from_be_bytes([data[1], data[2]]) as usize;
         let msg_type = data[3];
-        let end      = length.min(data.len());
-        Some(MqttSnFrame { length, msg_type, payload: if end >= 4 { &data[4..end] } else { &[] } })
+        let end = length.min(data.len());
+        Some(MqttSnFrame {
+            length,
+            msg_type,
+            payload: if end >= 4 { &data[4..end] } else { &[] },
+        })
     } else {
         // Short header: length | msg_type
-        if data.len() < 2 { return None; }
-        let length   = data[0] as usize;
+        if data.len() < 2 {
+            return None;
+        }
+        let length = data[0] as usize;
         let msg_type = data[1];
-        let end      = length.min(data.len());
-        Some(MqttSnFrame { length, msg_type, payload: if end >= 2 { &data[2..end] } else { &[] } })
+        let end = length.min(data.len());
+        Some(MqttSnFrame {
+            length,
+            msg_type,
+            payload: if end >= 2 { &data[2..end] } else { &[] },
+        })
     }
 }
 
 fn msg_type_name(t: u8) -> &'static str {
     match t {
-        MSG_ADVERTISE              => "mqtt_sn_advertise",
-        MSG_SEARCHGW               => "mqtt_sn_searchgw",
-        MSG_GWINFO                 => "mqtt_sn_gwinfo",
-        MSG_CONNECT                => "mqtt_sn_connect",
-        MSG_CONNACK                => "mqtt_sn_connack",
-        MSG_WILLTOPICREQ           => "mqtt_sn_willtopicreq",
-        MSG_WILLTOPIC              => "mqtt_sn_willtopic",
-        MSG_WILLMSGREQ             => "mqtt_sn_willmsgreq",
-        MSG_WILLMSG                => "mqtt_sn_willmsg",
-        MSG_REGISTER               => "mqtt_sn_register",
-        MSG_REGACK                 => "mqtt_sn_regack",
-        MSG_PUBLISH                => "mqtt_sn_publish",
-        MSG_PUBACK                 => "mqtt_sn_puback",
-        MSG_PUBCOMP                => "mqtt_sn_pubcomp",
-        MSG_PUBREC                 => "mqtt_sn_pubrec",
-        MSG_PUBREL                 => "mqtt_sn_pubrel",
-        MSG_SUBSCRIBE              => "mqtt_sn_subscribe",
-        MSG_SUBACK                 => "mqtt_sn_suback",
-        MSG_UNSUBSCRIBE            => "mqtt_sn_unsubscribe",
-        MSG_UNSUBACK               => "mqtt_sn_unsuback",
-        MSG_PINGREQ                => "mqtt_sn_pingreq",
-        MSG_PINGRESP               => "mqtt_sn_pingresp",
-        MSG_DISCONNECT             => "mqtt_sn_disconnect",
-        MSG_WILLTOPICUPD           => "mqtt_sn_willtopicupd",
-        MSG_WILLTOPICRESP          => "mqtt_sn_willtopicresp",
-        MSG_WILLMSGUPD             => "mqtt_sn_willmsgupd",
-        MSG_WILLMSGRESP            => "mqtt_sn_willmsgresp",
+        MSG_ADVERTISE => "mqtt_sn_advertise",
+        MSG_SEARCHGW => "mqtt_sn_searchgw",
+        MSG_GWINFO => "mqtt_sn_gwinfo",
+        MSG_CONNECT => "mqtt_sn_connect",
+        MSG_CONNACK => "mqtt_sn_connack",
+        MSG_WILLTOPICREQ => "mqtt_sn_willtopicreq",
+        MSG_WILLTOPIC => "mqtt_sn_willtopic",
+        MSG_WILLMSGREQ => "mqtt_sn_willmsgreq",
+        MSG_WILLMSG => "mqtt_sn_willmsg",
+        MSG_REGISTER => "mqtt_sn_register",
+        MSG_REGACK => "mqtt_sn_regack",
+        MSG_PUBLISH => "mqtt_sn_publish",
+        MSG_PUBACK => "mqtt_sn_puback",
+        MSG_PUBCOMP => "mqtt_sn_pubcomp",
+        MSG_PUBREC => "mqtt_sn_pubrec",
+        MSG_PUBREL => "mqtt_sn_pubrel",
+        MSG_SUBSCRIBE => "mqtt_sn_subscribe",
+        MSG_SUBACK => "mqtt_sn_suback",
+        MSG_UNSUBSCRIBE => "mqtt_sn_unsubscribe",
+        MSG_UNSUBACK => "mqtt_sn_unsuback",
+        MSG_PINGREQ => "mqtt_sn_pingreq",
+        MSG_PINGRESP => "mqtt_sn_pingresp",
+        MSG_DISCONNECT => "mqtt_sn_disconnect",
+        MSG_WILLTOPICUPD => "mqtt_sn_willtopicupd",
+        MSG_WILLTOPICRESP => "mqtt_sn_willtopicresp",
+        MSG_WILLMSGUPD => "mqtt_sn_willmsgupd",
+        MSG_WILLMSGRESP => "mqtt_sn_willmsgresp",
         MSG_FORWARDER_ENCAPSULATION => "mqtt_sn_forwarder_encapsulation",
-        _                          => "",
+        _ => "",
     }
 }
 
 #[inline]
 fn operation_string(t: u8) -> String {
     let s = msg_type_name(t);
-    if s.is_empty() { format!("mqtt_sn_unknown_0x{t:02x}") } else { s.to_string() }
+    if s.is_empty() {
+        format!("mqtt_sn_unknown_0x{t:02x}")
+    } else {
+        s.to_string()
+    }
 }
 
 #[inline]
 fn status_for_rc(rc: u8) -> String {
-    if rc == 0 { "observed".to_string() } else { format!("mqtt_sn_return_code_{rc}") }
+    if rc == 0 {
+        "observed".to_string()
+    } else {
+        format!("mqtt_sn_return_code_{rc}")
+    }
 }
 
 // ── Decoder ───────────────────────────────────────────────────────
@@ -147,7 +168,9 @@ fn status_for_rc(rc: u8) -> String {
 pub(crate) struct MqttSnDecoder;
 
 impl SessionDecoder for MqttSnDecoder {
-    fn name(&self) -> &'static str { "mqtt_sn" }
+    fn name(&self) -> &'static str {
+        "mqtt_sn"
+    }
 
     fn interest(&self) -> &'static [DecoderInterest] {
         // No IANA-assigned port; 1884 is the de-facto Eclipse Paho gateway port.
@@ -162,27 +185,50 @@ impl SessionDecoder for MqttSnDecoder {
             None => {
                 out.push(parse_anomaly_event(
                     chunk.capture_id.to_string(),
-                    build_envelope(&chunk.context, chunk.interface_id, chunk.frame_index,
-                        chunk.timestamp, chunk.segment_hash, TransportProtocol::Udp,
-                        Some("mqtt_sn"), chunk.captured_len, chunk.session_key.clone()),
-                    self.name(), "low", "datagram too short for mqtt-sn header", data,
+                    build_envelope(
+                        &chunk.context,
+                        chunk.interface_id,
+                        chunk.frame_index,
+                        chunk.timestamp,
+                        chunk.segment_hash,
+                        TransportProtocol::Udp,
+                        Some("mqtt_sn"),
+                        chunk.captured_len,
+                        chunk.session_key.clone(),
+                    ),
+                    self.name(),
+                    "low",
+                    "datagram too short for mqtt-sn header",
+                    data,
                 ));
                 return;
             }
         };
 
         let envelope = build_envelope(
-            &chunk.context, chunk.interface_id, chunk.frame_index,
-            chunk.timestamp, chunk.segment_hash, TransportProtocol::Udp,
-            Some("mqtt_sn"), chunk.captured_len, chunk.session_key.clone(),
+            &chunk.context,
+            chunk.interface_id,
+            chunk.frame_index,
+            chunk.timestamp,
+            chunk.segment_hash,
+            TransportProtocol::Udp,
+            Some("mqtt_sn"),
+            chunk.captured_len,
+            chunk.session_key.clone(),
         );
 
         // Declared length must equal the datagram length (it's a UDP datagram, not stream).
         if frame.length != data.len() {
             out.push(parse_anomaly_event(
-                chunk.capture_id.to_string(), envelope.clone(), self.name(), "low",
-                &format!("mqtt-sn declared length {} does not match datagram length {}",
-                    frame.length, data.len()),
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                self.name(),
+                "low",
+                &format!(
+                    "mqtt-sn declared length {} does not match datagram length {}",
+                    frame.length,
+                    data.len()
+                ),
                 data,
             ));
             // Still attempt to emit a transaction with what we have.
@@ -191,15 +237,16 @@ impl SessionDecoder for MqttSnDecoder {
         // Unknown type → anomaly before the transaction.
         if msg_type_name(frame.msg_type).is_empty() {
             out.push(parse_anomaly_event(
-                chunk.capture_id.to_string(), envelope.clone(), self.name(), "low",
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                self.name(),
+                "low",
                 &format!("unknown mqtt-sn msg_type 0x{:02x}", frame.msg_type),
                 data,
             ));
         }
 
-        let (tx, asset) = decode_message(
-            frame.msg_type, frame.length, frame.payload, chunk,
-        );
+        let (tx, asset) = decode_message(frame.msg_type, frame.length, frame.payload, chunk);
 
         out.push(new_event(
             chunk.capture_id.to_string(),
@@ -220,20 +267,22 @@ impl SessionDecoder for MqttSnDecoder {
 /// `AssetObservation`. Kept separate from the decoder to isolate wire logic.
 fn decode_message(
     msg_type: u8,
-    length:   usize,
-    payload:  &[u8],
-    chunk:    &StreamChunk<'_>,
+    length: usize,
+    payload: &[u8],
+    chunk: &StreamChunk<'_>,
 ) -> (ProtocolTransaction, Option<AssetObservation>) {
     let mut attrs: BTreeMap<String, String> = BTreeMap::new();
     attrs.insert("msg_type".to_string(), format!("0x{msg_type:02x}"));
     attrs.insert("length".to_string(), length.to_string());
 
     let mut status = "observed".to_string();
-    let mut asset:  Option<AssetObservation> = None;
+    let mut asset: Option<AssetObservation> = None;
 
     /// Inline helper: u16 from two bytes at offset.
     macro_rules! u16be {
-        ($off:expr) => { u16::from_be_bytes([payload[$off], payload[$off + 1]]) };
+        ($off:expr) => {
+            u16::from_be_bytes([payload[$off], payload[$off + 1]])
+        };
     }
 
     match msg_type {
@@ -255,8 +304,8 @@ fn decode_message(
         }
         MSG_CONNECT if payload.len() >= 4 => {
             let protocol_id = payload[1];
-            let duration    = u16be!(2);
-            let client_id   = String::from_utf8_lossy(&payload[4..]).trim().to_string();
+            let duration = u16be!(2);
+            let client_id = String::from_utf8_lossy(&payload[4..]).trim().to_string();
             attrs.insert("protocol_id".to_string(), protocol_id.to_string());
             attrs.insert("duration".to_string(), duration.to_string());
             attrs.insert("client_id".to_string(), client_id.clone());
@@ -272,8 +321,10 @@ fn decode_message(
             status = status_for_rc(rc);
         }
         MSG_WILLTOPIC | MSG_WILLTOPICUPD if payload.len() >= 2 => {
-            attrs.insert("will_topic".to_string(),
-                String::from_utf8_lossy(&payload[1..]).to_string());
+            attrs.insert(
+                "will_topic".to_string(),
+                String::from_utf8_lossy(&payload[1..]).to_string(),
+            );
         }
         MSG_WILLMSG | MSG_WILLMSGUPD => {
             attrs.insert("payload_length".to_string(), payload.len().to_string());
@@ -281,8 +332,10 @@ fn decode_message(
         MSG_REGISTER if payload.len() >= 4 => {
             attrs.insert("topic_id".to_string(), u16be!(0).to_string());
             attrs.insert("msg_id".to_string(), u16be!(2).to_string());
-            attrs.insert("topic_name".to_string(),
-                String::from_utf8_lossy(&payload[4..]).trim().to_string());
+            attrs.insert(
+                "topic_name".to_string(),
+                String::from_utf8_lossy(&payload[4..]).trim().to_string(),
+            );
         }
         MSG_REGACK if payload.len() >= 5 => {
             attrs.insert("topic_id".to_string(), u16be!(0).to_string());
@@ -295,8 +348,10 @@ fn decode_message(
             // flags(1) + topic_id(2) + msg_id(2) + data(rest)
             attrs.insert("topic_id".to_string(), u16be!(1).to_string());
             attrs.insert("msg_id".to_string(), u16be!(3).to_string());
-            attrs.insert("payload_length".to_string(),
-                payload.len().saturating_sub(5).to_string());
+            attrs.insert(
+                "payload_length".to_string(),
+                payload.len().saturating_sub(5).to_string(),
+            );
         }
         MSG_PUBACK if payload.len() >= 5 => {
             attrs.insert("topic_id".to_string(), u16be!(0).to_string());
@@ -320,7 +375,9 @@ fn decode_message(
         }
         MSG_PINGREQ if !payload.is_empty() => {
             let cid = String::from_utf8_lossy(payload).trim().to_string();
-            if !cid.is_empty() { attrs.insert("client_id".to_string(), cid); }
+            if !cid.is_empty() {
+                attrs.insert("client_id".to_string(), cid);
+            }
         }
         MSG_DISCONNECT if payload.len() >= 2 => {
             attrs.insert("duration".to_string(), u16be!(0).to_string());
@@ -374,7 +431,7 @@ fn make_asset(
 
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "mqtt_sn",
-    factory: || Box::new(MqttSnDecoder::default()),
+    factory: || Box::new(MqttSnDecoder),
 });
 
 // ── Tests ─────────────────────────────────────────────────────────
@@ -382,7 +439,7 @@ inventory::submit!(crate::engine::decoders::DecoderRegistration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::Ipv4Addr;
+    use std::net::{IpAddr, Ipv4Addr};
 
     use chrono::{TimeZone, Utc};
 
@@ -422,28 +479,49 @@ mod tests {
     }
 
     fn run(pkt: &[u8]) -> Vec<BronzeEvent> {
-        let mut dec = MqttSnDecoder::default();
+        let mut dec = MqttSnDecoder;
         let mut out = vec![];
         dec.on_datagram(&chunk(pkt), &mut out);
         out
     }
 
     fn tx(events: &[BronzeEvent]) -> &ProtocolTransaction {
-        events.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family { Some(t) } else { None }
-        }).expect("no ProtocolTransaction")
+        events
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .expect("no ProtocolTransaction")
     }
 
     fn asset(events: &[BronzeEvent]) -> &AssetObservation {
-        events.iter().find_map(|e| {
-            if let BronzeEventFamily::AssetObservation(ref a) = e.family { Some(a) } else { None }
-        }).expect("no AssetObservation")
+        events
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::AssetObservation(ref a) = e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .expect("no AssetObservation")
     }
 
     fn anomaly(events: &[BronzeEvent]) -> &crate::bronze::ParseAnomaly {
-        events.iter().find_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(ref a) = e.family { Some(a) } else { None }
-        }).expect("no ParseAnomaly")
+        events
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ParseAnomaly(ref a) = e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .expect("no ParseAnomaly")
     }
 
     // Test 1: CONNECT short-header, client_id="sensor01" → transaction + asset.
@@ -513,7 +591,7 @@ mod tests {
         pkt.push(0x0C); // PUBLISH
         pkt.push(0x00); // flags
         pkt.extend_from_slice(&255u16.to_be_bytes()); // topic_id=255
-        pkt.extend_from_slice(&1u16.to_be_bytes());   // msg_id=1
+        pkt.extend_from_slice(&1u16.to_be_bytes()); // msg_id=1
         pkt.extend(std::iter::repeat(0xAAu8).take(DATA_LEN));
         assert_eq!(pkt.len(), total as usize);
 
@@ -539,9 +617,11 @@ mod tests {
     // Test 7: UdpPort(1884) registered in interest().
     #[test]
     fn test_interest_port() {
-        assert!(MqttSnDecoder::default()
-            .interest()
-            .contains(&DecoderInterest::UdpPort(1884)));
+        assert!(
+            MqttSnDecoder
+                .interest()
+                .contains(&DecoderInterest::UdpPort(1884))
+        );
     }
 
     // Test 8: Declared length mismatch → ParseAnomaly severity=low.

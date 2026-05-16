@@ -247,13 +247,13 @@ impl FixtureSpec {
             }
         }
 
-        if let Some(limit) = self.max_parse_anomalies {
-            if observation.parse_anomalies > limit {
-                failures.push(format!(
-                    "expected at most {limit} parse anomalies, observed {}",
-                    observation.parse_anomalies
-                ));
-            }
+        if let Some(limit) = self.max_parse_anomalies
+            && observation.parse_anomalies > limit
+        {
+            failures.push(format!(
+                "expected at most {limit} parse anomalies, observed {}",
+                observation.parse_anomalies
+            ));
         }
 
         if failures.is_empty() {

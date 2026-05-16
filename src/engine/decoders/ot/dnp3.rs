@@ -18,8 +18,8 @@ use crate::bronze::{
 };
 use crate::dissectors::dnp3::Dnp3Dissector;
 use crate::engine::{
-    artifact_event, build_envelope, new_event, parse_anomaly_event, DecoderInterest,
-    SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
+    parse_anomaly_event,
 };
 use crate::registry::{Dnp3Fields, PacketContext, ProtocolData, ProtocolDissector};
 
@@ -148,7 +148,7 @@ fn dnp3_function_name(code: u8) -> &'static str {
 }
 
 fn is_dnp3_artifact(code: u8) -> bool {
-    matches!(code, 0x02 | 0x03 | 0x04 | 0x05 | 0x06)
+    matches!(code, 0x02..=0x06)
 }
 
 fn dnp3_role_observations(
@@ -335,7 +335,13 @@ mod tests {
         }
     }
 
-    fn feed(dec: &mut Dnp3DecoderWrapper, payload: &[u8], src_port: u16, dst_port: u16, out: &mut Vec<BronzeEvent>) {
+    fn feed(
+        dec: &mut Dnp3DecoderWrapper,
+        payload: &[u8],
+        src_port: u16,
+        dst_port: u16,
+        out: &mut Vec<BronzeEvent>,
+    ) {
         let chunk = StreamChunk {
             capture_id: "cap",
             segment_hash: "aa",
@@ -358,14 +364,14 @@ mod tests {
     fn read_request_bytes() -> Vec<u8> {
         vec![
             0x05, 0x64, // start bytes
-            0x08,       // length
-            0xC4,       // DLL control (DIR=1, PRM=1, FC=4)
+            0x08, // length
+            0xC4, // DLL control (DIR=1, PRM=1, FC=4)
             0x01, 0x00, // destination = 1
             0x03, 0x00, // source = 3
             0xAA, 0xBB, // CRC (not validated)
-            0xC0,       // transport: FIR=1, FIN=1, seq=0
-            0xC2,       // app control: FIR=1, FIN=1, CON=0, UNS=0, seq=2
-            0x01,       // function code = Read (0x01)
+            0xC0, // transport: FIR=1, FIN=1, seq=0
+            0xC2, // app control: FIR=1, FIN=1, CON=0, UNS=0, seq=2
+            0x01, // function code = Read (0x01)
             // Object header: group=60 variation=2 qualifier=0x06 (no range, all)
             0x3C, 0x02, 0x06,
         ]
@@ -374,15 +380,12 @@ mod tests {
     /// Minimal DNP3 Response frame (fc=0x81) with IIN bytes.
     fn response_bytes(iin1: u8, iin2: u8) -> Vec<u8> {
         vec![
-            0x05, 0x64,
-            0x0A,
-            0x44,
-            0x03, 0x00, // destination = 3
+            0x05, 0x64, 0x0A, 0x44, 0x03, 0x00, // destination = 3
             0x01, 0x00, // source = 1
             0xCC, 0xDD, // CRC
-            0xC0,       // transport: FIR=1, FIN=1, seq=0
-            0xC5,       // app control: FIR=1, FIN=1, CON=0, UNS=0, seq=5
-            0x81,       // function code = Response
+            0xC0, // transport: FIR=1, FIN=1, seq=0
+            0xC5, // app control: FIR=1, FIN=1, CON=0, UNS=0, seq=5
+            0x81, // function code = Response
             iin1, iin2, // IIN bytes
             // Object header: group=30 variation=1 qualifier=0x01 (1-byte start/stop)
             0x1E, 0x01, 0x01, 0x00, 0x00,
@@ -392,13 +395,12 @@ mod tests {
     /// DNP3 Unsolicited Response frame (fc=0x82), IIN device_restart bit set.
     fn unsolicited_response_bytes() -> Vec<u8> {
         vec![
-            0x05, 0x64, 0x08, 0x44,
-            0x03, 0x00, // destination = 3
+            0x05, 0x64, 0x08, 0x44, 0x03, 0x00, // destination = 3
             0x01, 0x00, // source = 1
             0x00, 0x00, // CRC
-            0xC0,       // transport
-            0xC0,       // app control: seq=0
-            0x82,       // function code = UnsolicitedResponse
+            0xC0, // transport
+            0xC0, // app control: seq=0
+            0x82, // function code = UnsolicitedResponse
             0x80, 0x00, // IIN: device_restart bit (IIN1 bit 7)
         ]
     }
@@ -423,7 +425,10 @@ mod tests {
         let txn = extract_txn(&out[0]);
 
         let Some(ProtocolFields::Dnp3(ref f)) = txn.protocol_fields else {
-            panic!("expected ProtocolFields::Dnp3, got {:?}", txn.protocol_fields);
+            panic!(
+                "expected ProtocolFields::Dnp3, got {:?}",
+                txn.protocol_fields
+            );
         };
 
         assert_eq!(f.source_addr, 3);
@@ -445,7 +450,13 @@ mod tests {
         let mut dec = Dnp3DecoderWrapper::default();
         let mut out = Vec::new();
         // IIN1=0x80 (device_restart), IIN2=0x00
-        feed(&mut dec, &response_bytes(0x80, 0x00), 20000, 49152, &mut out);
+        feed(
+            &mut dec,
+            &response_bytes(0x80, 0x00),
+            20000,
+            49152,
+            &mut out,
+        );
 
         let txn = extract_txn(&out[0]);
 
@@ -472,7 +483,13 @@ mod tests {
     fn response_iin_no_flags() {
         let mut dec = Dnp3DecoderWrapper::default();
         let mut out = Vec::new();
-        feed(&mut dec, &response_bytes(0x00, 0x00), 20000, 49152, &mut out);
+        feed(
+            &mut dec,
+            &response_bytes(0x00, 0x00),
+            20000,
+            49152,
+            &mut out,
+        );
 
         let txn = extract_txn(&out[0]);
         let Some(ProtocolFields::Dnp3(ref f)) = txn.protocol_fields else {
@@ -488,7 +505,13 @@ mod tests {
     fn unsolicited_response_direction() {
         let mut dec = Dnp3DecoderWrapper::default();
         let mut out = Vec::new();
-        feed(&mut dec, &unsolicited_response_bytes(), 20000, 49152, &mut out);
+        feed(
+            &mut dec,
+            &unsolicited_response_bytes(),
+            20000,
+            49152,
+            &mut out,
+        );
 
         let txn = extract_txn(&out[0]);
         let Some(ProtocolFields::Dnp3(ref f)) = txn.protocol_fields else {
@@ -516,7 +539,11 @@ mod tests {
         // Object header has group=0x3C (60 decimal) with qualifier=0x06 (no range)
         // Our scanner stops at qualifier 0x06 (range_class 0x00 → 0 range bytes, break),
         // so we still capture group 60 before the break.
-        assert!(f.object_groups.contains(&60), "expected group 60 in {:?}", f.object_groups);
+        assert!(
+            f.object_groups.contains(&60),
+            "expected group 60 in {:?}",
+            f.object_groups
+        );
     }
 
     // --------------------------------------------------------------------------
@@ -526,14 +553,24 @@ mod tests {
     fn response_object_groups_extracted() {
         let mut dec = Dnp3DecoderWrapper::default();
         let mut out = Vec::new();
-        feed(&mut dec, &response_bytes(0x00, 0x00), 20000, 49152, &mut out);
+        feed(
+            &mut dec,
+            &response_bytes(0x00, 0x00),
+            20000,
+            49152,
+            &mut out,
+        );
 
         let txn = extract_txn(&out[0]);
         let Some(ProtocolFields::Dnp3(ref f)) = txn.protocol_fields else {
             panic!("expected ProtocolFields::Dnp3");
         };
         // Object header group=0x1E (30), variation=0x01, qualifier=0x01 (1-byte start/stop)
-        assert!(f.object_groups.contains(&30), "expected group 30 in {:?}", f.object_groups);
+        assert!(
+            f.object_groups.contains(&30),
+            "expected group 30 in {:?}",
+            f.object_groups
+        );
     }
 
     // --------------------------------------------------------------------------
@@ -548,10 +585,16 @@ mod tests {
         let txn = extract_txn(&out[0]);
 
         // Typed surface present
-        assert!(txn.protocol_fields.is_some(), "protocol_fields must be Some");
+        assert!(
+            txn.protocol_fields.is_some(),
+            "protocol_fields must be Some"
+        );
         // Legacy attributes still present
         assert_eq!(txn.attributes.get("source_address"), Some(&"3".to_string()));
-        assert_eq!(txn.attributes.get("destination_address"), Some(&"1".to_string()));
+        assert_eq!(
+            txn.attributes.get("destination_address"),
+            Some(&"1".to_string())
+        );
     }
 
     // --------------------------------------------------------------------------
@@ -578,6 +621,9 @@ mod tests {
         let back: ProtocolFields = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(pf, back);
         // iin_flags: None should be omitted from JSON
-        assert!(!json.contains("iin_flags"), "iin_flags:None should be skipped in JSON, got: {json}");
+        assert!(
+            !json.contains("iin_flags"),
+            "iin_flags:None should be skipped in JSON, got: {json}"
+        );
     }
 }

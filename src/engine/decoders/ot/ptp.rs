@@ -26,7 +26,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 const MSG_SYNC: u8 = 0x0;
@@ -60,8 +60,15 @@ fn msg_type_operation(t: u8) -> String {
 fn is_known_type(t: u8) -> bool {
     matches!(
         t,
-        MSG_SYNC | MSG_DELAY_REQ | MSG_PDELAY_REQ | MSG_PDELAY_RESP | MSG_FOLLOW_UP
-            | MSG_DELAY_RESP | MSG_PDELAY_RESP_FOLLOW_UP | MSG_SIGNALING | MSG_MANAGEMENT
+        MSG_SYNC
+            | MSG_DELAY_REQ
+            | MSG_PDELAY_REQ
+            | MSG_PDELAY_RESP
+            | MSG_FOLLOW_UP
+            | MSG_DELAY_RESP
+            | MSG_PDELAY_RESP_FOLLOW_UP
+            | MSG_SIGNALING
+            | MSG_MANAGEMENT
     )
 }
 
@@ -77,7 +84,9 @@ struct PtpHdr {
 }
 
 fn parse_hdr(buf: &[u8]) -> Option<PtpHdr> {
-    if buf.len() < 34 { return None; }
+    if buf.len() < 34 {
+        return None;
+    }
     let mut clock_id = [0u8; 8];
     clock_id.copy_from_slice(&buf[20..28]);
     Some(PtpHdr {
@@ -103,7 +112,9 @@ struct AnnounceBody {
 }
 
 fn parse_announce(buf: &[u8]) -> Option<AnnounceBody> {
-    if buf.len() < 64 { return None; }
+    if buf.len() < 64 {
+        return None;
+    }
     let b = &buf[34..]; // body slice; b[0] = originTimestamp[0]
     let mut gm_identity = [0u8; 8];
     gm_identity.copy_from_slice(&b[19..27]);
@@ -132,7 +143,9 @@ pub(crate) struct PtpDecoder {
 }
 
 impl SessionDecoder for PtpDecoder {
-    fn name(&self) -> &'static str { "ptp" }
+    fn name(&self) -> &'static str {
+        "ptp"
+    }
 
     fn interest(&self) -> &'static [DecoderInterest] {
         &[
@@ -149,24 +162,30 @@ impl SessionDecoder for PtpDecoder {
             TransportProtocol::Udp
         };
 
-        let envelope = || build_envelope(
-            &chunk.context,
-            chunk.interface_id,
-            chunk.frame_index,
-            chunk.timestamp,
-            chunk.segment_hash,
-            transport,
-            Some("ptp"),
-            chunk.captured_len,
-            chunk.session_key.clone(),
-        );
+        let envelope = || {
+            build_envelope(
+                &chunk.context,
+                chunk.interface_id,
+                chunk.frame_index,
+                chunk.timestamp,
+                chunk.segment_hash,
+                transport,
+                Some("ptp"),
+                chunk.captured_len,
+                chunk.session_key.clone(),
+            )
+        };
 
         let hdr = match parse_hdr(chunk.payload) {
             Some(h) => h,
             None => {
                 out.push(parse_anomaly_event(
-                    chunk.capture_id.to_string(), envelope(), self.name(), "medium",
-                    "PTP packet too short for 34-byte common header", chunk.payload,
+                    chunk.capture_id.to_string(),
+                    envelope(),
+                    self.name(),
+                    "medium",
+                    "PTP packet too short for 34-byte common header",
+                    chunk.payload,
                 ));
                 return;
             }
@@ -174,24 +193,36 @@ impl SessionDecoder for PtpDecoder {
 
         if hdr.version != 2 {
             out.push(parse_anomaly_event(
-                chunk.capture_id.to_string(), envelope(), self.name(), "low",
-                &format!("PTP versionPTP={} expected 2", hdr.version), chunk.payload,
+                chunk.capture_id.to_string(),
+                envelope(),
+                self.name(),
+                "low",
+                &format!("PTP versionPTP={} expected 2", hdr.version),
+                chunk.payload,
             ));
         }
 
         if hdr.message_length != chunk.payload.len() as u16 {
             out.push(parse_anomaly_event(
-                chunk.capture_id.to_string(), envelope(), self.name(), "medium",
+                chunk.capture_id.to_string(),
+                envelope(),
+                self.name(),
+                "medium",
                 &format!(
                     "PTP messageLength={} disagrees with packet length={}",
-                    hdr.message_length, chunk.payload.len()
+                    hdr.message_length,
+                    chunk.payload.len()
                 ),
                 chunk.payload,
             ));
         }
 
         let clock_hex = hex::encode(hdr.clock_id);
-        let ts_name = if hdr.transport_specific == 1 { "gptp" } else { "ptp" };
+        let ts_name = if hdr.transport_specific == 1 {
+            "gptp"
+        } else {
+            "ptp"
+        };
 
         // Emit ptp_clock_observed on first sight of each clockIdentity.
         if self.seen_clocks.insert(hdr.clock_id) {
@@ -202,7 +233,8 @@ impl SessionDecoder for PtpDecoder {
             attrs.insert("transport_specific".to_string(), ts_name.to_string());
             attrs.insert("version".to_string(), hdr.version.to_string());
             out.push(new_event(
-                chunk.capture_id.to_string(), envelope(),
+                chunk.capture_id.to_string(),
+                envelope(),
                 BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                     operation: "ptp_clock_observed".to_string(),
                     status: "observed".to_string(),
@@ -210,8 +242,12 @@ impl SessionDecoder for PtpDecoder {
                         "PTP clock {clock_hex} domain={} port={}",
                         hdr.domain_number, hdr.port_number
                     )),
-                    response_summary: None, object_refs: vec![], values: vec![],
-                    attributes: attrs, modbus: None, protocol_fields: None,
+                    response_summary: None,
+                    object_refs: vec![],
+                    values: vec![],
+                    attributes: attrs,
+                    modbus: None,
+                    protocol_fields: None,
                 }),
             ));
         }
@@ -233,13 +269,19 @@ impl PtpDecoder {
         clock_hex: &str,
         envelope: F,
         out: &mut Vec<BronzeEvent>,
-    ) where F: Fn() -> crate::bronze::EventEnvelope {
+    ) where
+        F: Fn() -> crate::bronze::EventEnvelope,
+    {
         let ann = match parse_announce(chunk.payload) {
             Some(a) => a,
             None => {
                 out.push(parse_anomaly_event(
-                    chunk.capture_id.to_string(), envelope(), "ptp", "medium",
-                    "PTP Announce body too short (need 64 bytes total)", chunk.payload,
+                    chunk.capture_id.to_string(),
+                    envelope(),
+                    "ptp",
+                    "medium",
+                    "PTP Announce body too short (need 64 bytes total)",
+                    chunk.payload,
                 ));
                 return;
             }
@@ -249,17 +291,20 @@ impl PtpDecoder {
         let dk = (hdr.domain_number, hdr.clock_id);
 
         // Grandmaster change detection per (domain, sourceClockIdentity).
-        if let Some(prev) = self.domain_gm.get(&dk) {
-            if *prev != ann.gm_identity {
-                out.push(parse_anomaly_event(
-                    chunk.capture_id.to_string(), envelope(), "ptp", "medium",
-                    &format!(
-                        "PTP grandmaster changed in domain {} — verify legitimate failover",
-                        hdr.domain_number
-                    ),
-                    chunk.payload,
-                ));
-            }
+        if let Some(prev) = self.domain_gm.get(&dk)
+            && *prev != ann.gm_identity
+        {
+            out.push(parse_anomaly_event(
+                chunk.capture_id.to_string(),
+                envelope(),
+                "ptp",
+                "medium",
+                &format!(
+                    "PTP grandmaster changed in domain {} — verify legitimate failover",
+                    hdr.domain_number
+                ),
+                chunk.payload,
+            ));
         }
         self.domain_gm.insert(dk, ann.gm_identity);
 
@@ -270,15 +315,22 @@ impl PtpDecoder {
         attrs.insert("transport_specific".to_string(), ts_name.to_string());
         attrs.insert("version".to_string(), hdr.version.to_string());
         attrs.insert("grandmaster_identity_hex".to_string(), gm_hex.clone());
-        attrs.insert("grandmaster_priority1".to_string(), ann.gm_priority1.to_string());
-        attrs.insert("grandmaster_priority2".to_string(), ann.gm_priority2.to_string());
+        attrs.insert(
+            "grandmaster_priority1".to_string(),
+            ann.gm_priority1.to_string(),
+        );
+        attrs.insert(
+            "grandmaster_priority2".to_string(),
+            ann.gm_priority2.to_string(),
+        );
         attrs.insert("clock_class".to_string(), ann.clock_class.to_string());
         attrs.insert("clock_accuracy".to_string(), ann.clock_accuracy.to_string());
         attrs.insert("steps_removed".to_string(), ann.steps_removed.to_string());
         attrs.insert("time_source".to_string(), ann.time_source.to_string());
 
         out.push(new_event(
-            chunk.capture_id.to_string(), envelope(),
+            chunk.capture_id.to_string(),
+            envelope(),
             BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                 operation: "ptp_announce".to_string(),
                 status: "observed".to_string(),
@@ -286,8 +338,12 @@ impl PtpDecoder {
                     "Announce gm={gm_hex} priority1={} class={}",
                     ann.gm_priority1, ann.clock_class
                 )),
-                response_summary: None, object_refs: vec![], values: vec![],
-                attributes: attrs, modbus: None, protocol_fields: None,
+                response_summary: None,
+                object_refs: vec![],
+                values: vec![],
+                attributes: attrs,
+                modbus: None,
+                protocol_fields: None,
             }),
         ));
 
@@ -299,11 +355,22 @@ impl PtpDecoder {
             ids.insert("ptp_domain".to_string(), hdr.domain_number.to_string());
             ids.insert("ptp_grandmaster_identity".to_string(), gm_hex);
             out.push(new_event(
-                chunk.capture_id.to_string(), envelope(),
+                chunk.capture_id.to_string(),
+                envelope(),
                 BronzeEventFamily::AssetObservation(AssetObservation {
                     asset_key: clock_hex.to_string(),
-                    role: Some(if is_gm { "ptp_grandmaster" } else { "ptp_clock" }.to_string()),
-                    vendor: None, model: None, firmware: None, hostnames: vec![],
+                    role: Some(
+                        if is_gm {
+                            "ptp_grandmaster"
+                        } else {
+                            "ptp_clock"
+                        }
+                        .to_string(),
+                    ),
+                    vendor: None,
+                    model: None,
+                    firmware: None,
+                    hostnames: vec![],
                     protocols: vec!["ptp".to_string()],
                     identifiers: ids,
                 }),
@@ -319,13 +386,15 @@ impl PtpDecoder {
         clock_hex: &str,
         envelope: F,
         out: &mut Vec<BronzeEvent>,
-    ) where F: Fn() -> crate::bronze::EventEnvelope {
+    ) where
+        F: Fn() -> crate::bronze::EventEnvelope,
+    {
         let key = (hdr.clock_id, hdr.msg_type);
         let count = self.msg_counts.entry(key).or_insert(0);
         *count += 1;
 
         let is_first = !self.first_seen.contains(&key);
-        if !is_first && *count % 1000 != 0 {
+        if !is_first && !(*count).is_multiple_of(1000) {
             return;
         }
         if is_first {
@@ -334,7 +403,10 @@ impl PtpDecoder {
 
         if !is_known_type(hdr.msg_type) {
             out.push(parse_anomaly_event(
-                chunk.capture_id.to_string(), envelope(), "ptp", "low",
+                chunk.capture_id.to_string(),
+                envelope(),
+                "ptp",
+                "low",
                 &format!("PTP unknown messageType {:#x}", hdr.msg_type),
                 chunk.payload,
             ));
@@ -349,15 +421,21 @@ impl PtpDecoder {
         attrs.insert("sequence_id".to_string(), hdr.sequence_id.to_string());
 
         out.push(new_event(
-            chunk.capture_id.to_string(), envelope(),
+            chunk.capture_id.to_string(),
+            envelope(),
             BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                 operation: msg_type_operation(hdr.msg_type),
                 status: "observed".to_string(),
                 request_summary: Some(format!(
-                    "PTP msg={:#x} clock={clock_hex} seq={}", hdr.msg_type, hdr.sequence_id
+                    "PTP msg={:#x} clock={clock_hex} seq={}",
+                    hdr.msg_type, hdr.sequence_id
                 )),
-                response_summary: None, object_refs: vec![], values: vec![],
-                attributes: attrs, modbus: None, protocol_fields: None,
+                response_summary: None,
+                object_refs: vec![],
+                values: vec![],
+                attributes: attrs,
+                modbus: None,
+                protocol_fields: None,
             }),
         ));
     }
@@ -372,34 +450,53 @@ inventory::submit!(crate::engine::decoders::DecoderRegistration {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use chrono::Utc;
     use super::*;
     use crate::bronze::BronzeEventFamily;
     use crate::engine::StreamChunk;
     use crate::registry::PacketContext;
+    use chrono::Utc;
+    use std::net::{IpAddr, Ipv4Addr};
 
     // ── Frame builders ────────────────────────────────────────────────────────
 
     /// Build a minimal PTP packet of `total_len` bytes with a complete header.
-    fn ptp_pkt(ts: u8, msg: u8, version: u8, domain: u8, clock: [u8; 8], port: u16, total_len: usize) -> Vec<u8> {
+    fn ptp_pkt(
+        ts: u8,
+        msg: u8,
+        version: u8,
+        domain: u8,
+        clock: [u8; 8],
+        port: u16,
+        total_len: usize,
+    ) -> Vec<u8> {
         let mut b = vec![0u8; total_len];
         b[0] = ((ts & 0xF) << 4) | (msg & 0xF);
         b[1] = version & 0xF;
         let len = (total_len as u16).to_be_bytes();
-        b[2] = len[0]; b[3] = len[1];
+        b[2] = len[0];
+        b[3] = len[1];
         b[4] = domain;
         b[20..28].copy_from_slice(&clock);
         let pn = port.to_be_bytes();
-        b[28] = pn[0]; b[29] = pn[1];
+        b[28] = pn[0];
+        b[29] = pn[1];
         b
     }
 
     /// Build a 64-byte Announce packet.
+    #[allow(clippy::too_many_arguments)]
     fn announce_pkt(
-        ts: u8, domain: u8, clock: [u8; 8], port: u16,
-        pri1: u8, pri2: u8, cls: u8, acc: u8,
-        gm: [u8; 8], steps: u16, time_src: u8,
+        ts: u8,
+        domain: u8,
+        clock: [u8; 8],
+        port: u16,
+        pri1: u8,
+        pri2: u8,
+        cls: u8,
+        acc: u8,
+        gm: [u8; 8],
+        steps: u16,
+        time_src: u8,
     ) -> Vec<u8> {
         let mut b = ptp_pkt(ts, MSG_ANNOUNCE, 2, domain, clock, port, 64);
         b[34 + 13] = pri1;
@@ -408,7 +505,8 @@ mod tests {
         b[34 + 18] = pri2;
         b[34 + 19..34 + 27].copy_from_slice(&gm);
         let s = steps.to_be_bytes();
-        b[34 + 27] = s[0]; b[34 + 28] = s[1];
+        b[34 + 27] = s[0];
+        b[34 + 28] = s[1];
         b[34 + 29] = time_src;
         b
     }
@@ -419,10 +517,12 @@ mod tests {
         PacketContext {
             src_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             dst_ip: IpAddr::V4(Ipv4Addr::new(1, 0, 94, 0)),
-            src_port: 0, dst_port: 0,
+            src_port: 0,
+            dst_port: 0,
             src_mac: [0x00, 0x1B, 0x21, 0xAA, 0xBB, 0xCC],
             dst_mac: [0x01, 0x1B, 0x19, 0x00, 0x00, 0x00],
-            vlan_id: None, timestamp: 0,
+            vlan_id: None,
+            timestamp: 0,
         }
     }
 
@@ -430,41 +530,78 @@ mod tests {
         PacketContext {
             src_ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
             dst_ip: IpAddr::V4(Ipv4Addr::new(224, 0, 1, 129)),
-            src_port: src, dst_port: dst,
+            src_port: src,
+            dst_port: dst,
             src_mac: [0x00, 0x1B, 0x21, 0x11, 0x22, 0x33],
             dst_mac: [0x01, 0x00, 0x5E, 0x00, 0x01, 0x81],
-            vlan_id: None, timestamp: 0,
+            vlan_id: None,
+            timestamp: 0,
         }
     }
 
     fn feed_l2(dec: &mut PtpDecoder, payload: &[u8], out: &mut Vec<BronzeEvent>) {
-        dec.on_datagram(&StreamChunk {
-            capture_id: "cap", segment_hash: "seg", interface_id: 0, frame_index: 1,
-            timestamp: Utc::now(), context: ctx_l2(), ethertype: 0x88F7,
-            ip_proto: None, llc: None, transport: TransportProtocol::Ethernet,
-            payload, session_key: "l2".to_string(), captured_len: payload.len() as u64,
-        }, out);
+        dec.on_datagram(
+            &StreamChunk {
+                capture_id: "cap",
+                segment_hash: "seg",
+                interface_id: 0,
+                frame_index: 1,
+                timestamp: Utc::now(),
+                context: ctx_l2(),
+                ethertype: 0x88F7,
+                ip_proto: None,
+                llc: None,
+                transport: TransportProtocol::Ethernet,
+                payload,
+                session_key: "l2".to_string(),
+                captured_len: payload.len() as u64,
+            },
+            out,
+        );
     }
 
     fn feed_udp(dec: &mut PtpDecoder, payload: &[u8], dst_port: u16, out: &mut Vec<BronzeEvent>) {
-        dec.on_datagram(&StreamChunk {
-            capture_id: "cap", segment_hash: "seg", interface_id: 0, frame_index: 1,
-            timestamp: Utc::now(), context: ctx_udp(12345, dst_port), ethertype: 0x0800,
-            ip_proto: Some(17), llc: None, transport: TransportProtocol::Udp,
-            payload, session_key: "udp".to_string(), captured_len: payload.len() as u64,
-        }, out);
+        dec.on_datagram(
+            &StreamChunk {
+                capture_id: "cap",
+                segment_hash: "seg",
+                interface_id: 0,
+                frame_index: 1,
+                timestamp: Utc::now(),
+                context: ctx_udp(12345, dst_port),
+                ethertype: 0x0800,
+                ip_proto: Some(17),
+                llc: None,
+                transport: TransportProtocol::Udp,
+                payload,
+                session_key: "udp".to_string(),
+                captured_len: payload.len() as u64,
+            },
+            out,
+        );
     }
 
-    fn find_txn<'a>(out: &'a [BronzeEvent], op: &str) -> Option<&'a crate::bronze::ProtocolTransaction> {
+    fn find_txn<'a>(
+        out: &'a [BronzeEvent],
+        op: &str,
+    ) -> Option<&'a crate::bronze::ProtocolTransaction> {
         out.iter().find_map(|e| match &e.family {
             BronzeEventFamily::ProtocolTransaction(t) if t.operation == op => Some(t),
             _ => None,
         })
     }
 
-    fn find_anomaly<'a>(out: &'a [BronzeEvent], sev: &str, substr: &str) -> Option<&'a crate::bronze::ParseAnomaly> {
+    fn find_anomaly<'a>(
+        out: &'a [BronzeEvent],
+        sev: &str,
+        substr: &str,
+    ) -> Option<&'a crate::bronze::ParseAnomaly> {
         out.iter().find_map(|e| match &e.family {
-            BronzeEventFamily::ParseAnomaly(a) if a.severity == sev && a.reason.contains(substr) => Some(a),
+            BronzeEventFamily::ParseAnomaly(a)
+                if a.severity == sev && a.reason.contains(substr) =>
+            {
+                Some(a)
+            }
             _ => None,
         })
     }
@@ -489,7 +626,10 @@ mod tests {
     #[test]
     fn test_announce_grandmaster_self() {
         let clock = [0x00, 0x1B, 0x21, 0xFF, 0xFE, 0x01, 0x02, 0x03];
-        let pkt = announce_pkt(1, 0, clock, 1, 128, 128, 6, 0x20, clock /* gm = self */, 0, 0x20);
+        let pkt = announce_pkt(
+            1, 0, clock, 1, 128, 128, 6, 0x20, clock, /* gm = self */
+            0, 0x20,
+        );
         let mut dec = PtpDecoder::default();
         let mut out = Vec::new();
         feed_l2(&mut dec, &pkt, &mut out);
@@ -499,7 +639,11 @@ mod tests {
         assert_eq!(txn.attributes["clock_class"], "6");
 
         let asset = out.iter().find_map(|e| match &e.family {
-            BronzeEventFamily::AssetObservation(a) if a.role.as_deref() == Some("ptp_grandmaster") => Some(a),
+            BronzeEventFamily::AssetObservation(a)
+                if a.role.as_deref() == Some("ptp_grandmaster") =>
+            {
+                Some(a)
+            }
             _ => None,
         });
         assert!(asset.is_some(), "missing ptp_grandmaster AssetObservation");
@@ -528,7 +672,10 @@ mod tests {
         let mut dec = PtpDecoder::default();
         let mut out = Vec::new();
         feed_udp(&mut dec, &pkt, 319, &mut out);
-        assert!(find_txn(&out, "ptp_delay_req_first").is_some(), "missing ptp_delay_req_first");
+        assert!(
+            find_txn(&out, "ptp_delay_req_first").is_some(),
+            "missing ptp_delay_req_first"
+        );
     }
 
     // ── Test 5: Unknown messageType 0xF → unknown operation + low ParseAnomaly ─
@@ -541,8 +688,14 @@ mod tests {
         let mut out = Vec::new();
         feed_l2(&mut dec, &pkt, &mut out);
 
-        assert!(find_txn(&out, "ptp_unknown_type_0xf_first").is_some(), "missing unknown-type txn");
-        assert!(find_anomaly(&out, "low", "unknown messageType").is_some(), "missing low ParseAnomaly");
+        assert!(
+            find_txn(&out, "ptp_unknown_type_0xf_first").is_some(),
+            "missing unknown-type txn"
+        );
+        assert!(
+            find_anomaly(&out, "low", "unknown messageType").is_some(),
+            "missing low ParseAnomaly"
+        );
     }
 
     // ── Test 6: Two Announces, different GM in same domain → medium ParseAnomaly ─
@@ -565,6 +718,10 @@ mod tests {
         feed_l2(&mut dec, &pkt_b, &mut out);
         let anomaly = find_anomaly(&out, "medium", "grandmaster changed")
             .expect("missing grandmaster-change ParseAnomaly on second Announce");
-        assert!(anomaly.reason.contains("domain 0"), "reason should mention domain: {}", anomaly.reason);
+        assert!(
+            anomaly.reason.contains("domain 0"),
+            "reason should mention domain: {}",
+            anomaly.reason
+        );
     }
 }

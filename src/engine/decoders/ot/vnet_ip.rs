@@ -35,7 +35,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 /// Minimum number of bytes required to extract all header fields.
@@ -153,9 +153,7 @@ impl SessionDecoder for VnetIpDecoder {
                 envelope.clone(),
                 self.name(),
                 "low",
-                &format!(
-                    "vnet_ip unknown function code 0x{function_code:04x}; emitting by hex"
-                ),
+                &format!("vnet_ip unknown function code 0x{function_code:04x}; emitting by hex"),
                 &payload[6..8],
             ));
         }
@@ -273,41 +271,68 @@ mod tests {
 
     fn find_tx(out: &[BronzeEvent]) -> Option<&ProtocolTransaction> {
         out.iter().find_map(|ev| {
-            if let BronzeEventFamily::ProtocolTransaction(tx) = &ev.family { Some(tx) } else { None }
+            if let BronzeEventFamily::ProtocolTransaction(tx) = &ev.family {
+                Some(tx)
+            } else {
+                None
+            }
         })
     }
     fn find_anomaly(out: &[BronzeEvent]) -> Option<&crate::bronze::ParseAnomaly> {
         out.iter().find_map(|ev| {
-            if let BronzeEventFamily::ParseAnomaly(a) = &ev.family { Some(a) } else { None }
+            if let BronzeEventFamily::ParseAnomaly(a) = &ev.family {
+                Some(a)
+            } else {
+                None
+            }
         })
     }
     fn find_obs(out: &[BronzeEvent]) -> Option<&AssetObservation> {
         out.iter().find_map(|ev| {
-            if let BronzeEventFamily::AssetObservation(o) = &ev.family { Some(o) } else { None }
+            if let BronzeEventFamily::AssetObservation(o) = &ev.family {
+                Some(o)
+            } else {
+                None
+            }
         })
     }
 
     #[test]
     fn test_read_function_code() {
         let mut dec = VnetIpDecoder::default();
-        let out = run(&mut dec, &make_payload(0x0001, 0x0010, 0x0020), Ipv4Addr::new(10, 0, 0, 1));
+        let out = run(
+            &mut dec,
+            &make_payload(0x0001, 0x0010, 0x0020),
+            Ipv4Addr::new(10, 0, 0, 1),
+        );
         let tx = find_tx(&out).expect("transaction");
         assert_eq!(tx.operation, "vnet_read");
         assert_eq!(tx.status, "observed");
-        assert_eq!(tx.attributes.get("function_code").map(String::as_str), Some("0x0001"));
+        assert_eq!(
+            tx.attributes.get("function_code").map(String::as_str),
+            Some("0x0001")
+        );
     }
 
     #[test]
     fn test_write_function_code() {
         let mut dec = VnetIpDecoder::default();
-        let out = run(&mut dec, &make_payload(0x0002, 0x0011, 0x0022), Ipv4Addr::new(10, 0, 0, 2));
+        let out = run(
+            &mut dec,
+            &make_payload(0x0002, 0x0011, 0x0022),
+            Ipv4Addr::new(10, 0, 0, 2),
+        );
         assert_eq!(find_tx(&out).expect("transaction").operation, "vnet_write");
     }
 
     #[test]
     fn test_unknown_function_code() {
         let mut dec = VnetIpDecoder::default();
-        let out = run(&mut dec, &make_payload(0x9999, 0x0030, 0x0040), Ipv4Addr::new(10, 0, 0, 3));
+        let out = run(
+            &mut dec,
+            &make_payload(0x9999, 0x0030, 0x0040),
+            Ipv4Addr::new(10, 0, 0, 3),
+        );
         let a = find_anomaly(&out).expect("anomaly");
         assert_eq!(a.severity, "low");
         assert_eq!(find_tx(&out).expect("tx").operation, "vnet_unknown_0x9999");
@@ -325,11 +350,18 @@ mod tests {
     #[test]
     fn test_asset_observation_vnet_address() {
         let mut dec = VnetIpDecoder::default();
-        let out = run(&mut dec, &make_payload(0x0001, 0x00AB, 0x00CD), Ipv4Addr::new(192, 168, 1, 10));
+        let out = run(
+            &mut dec,
+            &make_payload(0x0001, 0x00AB, 0x00CD),
+            Ipv4Addr::new(192, 168, 1, 10),
+        );
         let obs = find_obs(&out).expect("asset observation");
         assert_eq!(obs.vendor.as_deref(), Some("Yokogawa"));
         assert_eq!(obs.role.as_deref(), Some("yokogawa_vnet_node"));
-        assert_eq!(obs.identifiers.get("vnet_address").map(String::as_str), Some("0x00ab"));
+        assert_eq!(
+            obs.identifiers.get("vnet_address").map(String::as_str),
+            Some("0x00ab")
+        );
     }
 
     #[test]
@@ -338,8 +370,13 @@ mod tests {
         let payload = make_payload(0x0001, 0x0010, 0x0020);
         let ip = Ipv4Addr::new(10, 1, 1, 1);
         let mut all_out = Vec::new();
-        for _ in 0..3 { all_out.extend(run(&mut dec, &payload, ip)); }
-        let obs_count = all_out.iter().filter(|ev| matches!(ev.family, BronzeEventFamily::AssetObservation(_))).count();
+        for _ in 0..3 {
+            all_out.extend(run(&mut dec, &payload, ip));
+        }
+        let obs_count = all_out
+            .iter()
+            .filter(|ev| matches!(ev.family, BronzeEventFamily::AssetObservation(_)))
+            .count();
         assert_eq!(obs_count, 1);
     }
 }

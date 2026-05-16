@@ -89,8 +89,14 @@ fn ocsf_format_emits_ndjson_records() {
     // every emitted line is well-formed OCSF JSON with class_uid set).
     for line in stdout.lines().filter(|l| !l.is_empty()) {
         let v: serde_json::Value = serde_json::from_str(line).expect("each OCSF line is JSON");
-        assert!(v["class_uid"].is_number(), "class_uid present on every line");
-        assert!(v["metadata"]["version"].is_string(), "metadata.version present");
+        assert!(
+            v["class_uid"].is_number(),
+            "class_uid present on every line"
+        );
+        assert!(
+            v["metadata"]["version"].is_string(),
+            "metadata.version present"
+        );
     }
 }
 
@@ -139,8 +145,7 @@ fn zeek_format_conn_rows_have_id_fields() {
     let (stdout, stderr, status) = run_cli(pcap.path(), "zeek");
     assert!(status.success(), "exit failed: stderr={stderr}");
     for line in stdout.lines().filter(|l| !l.is_empty()) {
-        let v: serde_json::Value =
-            serde_json::from_str(line).expect("valid JSON");
+        let v: serde_json::Value = serde_json::from_str(line).expect("valid JSON");
         if v["_path"] == "conn" {
             // Conn rows must have id.orig_h etc.
             assert!(v["id.orig_h"].is_string(), "id.orig_h present: {line}");

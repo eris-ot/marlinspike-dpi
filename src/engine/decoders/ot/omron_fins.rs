@@ -6,8 +6,8 @@ use crate::bronze::{
 };
 use crate::dissectors::fins::OmronFinsDissector;
 use crate::engine::{
-    artifact_event, build_envelope, new_event, parse_anomaly_event, DecoderInterest,
-    SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
+    parse_anomaly_event,
 };
 use crate::registry::{OmronFinsFields, PacketContext, ProtocolData, ProtocolDissector};
 
@@ -206,9 +206,9 @@ impl OmronFinsDecoder {
                 ),
                 values: Vec::new(),
                 attributes,
-                        modbus: None,
-                                        protocol_fields: None,
-}),
+                modbus: None,
+                protocol_fields: None,
+            }),
         ));
 
         if source_node.is_some() || source_network.is_some() || source_unit.is_some() {

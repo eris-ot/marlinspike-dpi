@@ -13,12 +13,11 @@
 //! identification and avoids any XML dependency.
 
 use std::collections::BTreeMap;
-use std::net::{IpAddr, Ipv4Addr};
 
 use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
-use crate::engine::{build_envelope, new_event, DecoderInterest, SessionDecoder, StreamChunk};
+use crate::engine::{DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event};
 
 const PORT_MDNS: u16 = 5353;
 const PORT_WSD: u16 = 3702;
@@ -133,7 +132,11 @@ fn decode_mdns(chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
                     let target = parse_name_from_rdata(data, &rdata[6..]).unwrap_or_default();
                     let mut ids = BTreeMap::new();
                     ids.insert("service_name".to_string(), name.clone());
-                    let hostnames = if target.is_empty() { vec![] } else { vec![target] };
+                    let hostnames = if target.is_empty() {
+                        vec![]
+                    } else {
+                        vec![target]
+                    };
                     emit_mdns_asset(chunk, out, name, Some("mdns_service"), hostnames, ids);
                 }
             }
@@ -150,7 +153,9 @@ fn decode_mdns(chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
             28 if rdlength == 16 => {
                 if !name.is_empty() {
                     let addr = (0..8)
-                        .map(|i| format!("{:x}", u16::from_be_bytes([rdata[i * 2], rdata[i * 2 + 1]])))
+                        .map(|i| {
+                            format!("{:x}", u16::from_be_bytes([rdata[i * 2], rdata[i * 2 + 1]]))
+                        })
                         .collect::<Vec<_>>()
                         .join(":");
                     let mut ids = BTreeMap::new();
@@ -165,7 +170,11 @@ fn decode_mdns(chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
     }
 
     // One ProtocolTransaction per packet.
-    let object_refs = if ancount > 0 { answer_names } else { question_names };
+    let object_refs = if ancount > 0 {
+        answer_names
+    } else {
+        question_names
+    };
     let envelope = mdns_envelope(chunk);
     let mut attributes = BTreeMap::new();
     attributes.insert("qdcount".to_string(), qdcount.to_string());
@@ -346,12 +355,20 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 /// This is byte-pattern extraction, not XML parsing. No escaping, CDATA, or
 /// nested element handling — sufficient for WS-Discovery asset identification.
 fn extract_xml_text(data: &[u8], open_suffix: &[u8], close_prefix: &[u8]) -> Option<String> {
-    let pos = data.windows(open_suffix.len()).position(|w| w == open_suffix)?;
+    let pos = data
+        .windows(open_suffix.len())
+        .position(|w| w == open_suffix)?;
     let content_start = pos + open_suffix.len();
     let rest = &data[content_start..];
-    let end = rest.windows(close_prefix.len()).position(|w| w == close_prefix)?;
+    let end = rest
+        .windows(close_prefix.len())
+        .position(|w| w == close_prefix)?;
     let text = std::str::from_utf8(&rest[..end]).ok()?.trim();
-    if text.is_empty() { None } else { Some(text.to_string()) }
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
 }
 
 // ── DNS label parser ───────────────────────────────────────────────
@@ -408,7 +425,11 @@ fn parse_dns_name(data: &[u8], mut offset: usize) -> Option<(String, usize)> {
         hops += 1;
     }
 
-    let name = if labels.is_empty() { ".".to_string() } else { labels.join(".") };
+    let name = if labels.is_empty() {
+        ".".to_string()
+    } else {
+        labels.join(".")
+    };
     Some((name, final_offset))
 }
 
@@ -430,23 +451,39 @@ fn parse_dns_name_no_compression(data: &[u8]) -> Option<String> {
     let mut labels: Vec<String> = Vec::new();
     let mut offset = 0usize;
     loop {
-        if offset >= data.len() { return None; }
+        if offset >= data.len() {
+            return None;
+        }
         let len = data[offset] as usize;
-        if len == 0 { break; }
-        if len & 0xC0 == 0xC0 { return None; } // needs full msg
+        if len == 0 {
+            break;
+        }
+        if len & 0xC0 == 0xC0 {
+            return None;
+        } // needs full msg
         offset += 1;
-        if offset + len > data.len() { return None; }
-        labels.push(std::str::from_utf8(&data[offset..offset + len]).ok()?.to_string());
+        if offset + len > data.len() {
+            return None;
+        }
+        labels.push(
+            std::str::from_utf8(&data[offset..offset + len])
+                .ok()?
+                .to_string(),
+        );
         offset += len;
     }
-    if labels.is_empty() { None } else { Some(labels.join(".")) }
+    if labels.is_empty() {
+        None
+    } else {
+        Some(labels.join("."))
+    }
 }
 
 // ── Inventory registration ────────────────────────────────────────
 
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "discovery",
-    factory: || Box::new(DiscoveryDecoder::default()),
+    factory: || Box::new(DiscoveryDecoder),
 });
 
 // ── Tests ─────────────────────────────────────────────────────────
@@ -454,6 +491,8 @@ inventory::submit!(crate::engine::decoders::DecoderRegistration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
     use crate::registry::PacketContext;
     use chrono::Utc;
 
@@ -552,9 +591,7 @@ mod tests {
     }
 
     fn soap(body: &str) -> Vec<u8> {
-        let mut s = String::from(
-            r#"<?xml version="1.0"?><s:Envelope "#,
-        );
+        let mut s = String::from(r#"<?xml version="1.0"?><s:Envelope "#);
         s.push_str(r#"xmlns:s="http://www.w3.org/2003/05/soap-envelope" "#);
         s.push_str(r#"xmlns:wsd="http://schemas.xmlsoap.org/ws/2005/04/discovery">"#);
         s.push_str("<s:Body>");
@@ -594,7 +631,11 @@ mod tests {
         let tx = find_tx(&out).expect("ProtocolTransaction");
         assert_eq!(tx.operation, "mdns_query");
         assert_eq!(tx.status, "observed");
-        assert!(tx.object_refs.iter().any(|r| r.contains("_services._dns-sd._udp.local")));
+        assert!(
+            tx.object_refs
+                .iter()
+                .any(|r| r.contains("_services._dns-sd._udp.local"))
+        );
         assert_eq!(tx.attributes["qdcount"], "1");
         assert_eq!(tx.attributes["ancount"], "0");
     }
@@ -676,7 +717,10 @@ mod tests {
         decode_wsd(&wsd_chunk(&pkt), &mut out);
 
         assert_eq!(find_tx(&out).expect("tx").operation, "wsd_hello");
-        assert!(find_obs(&out).is_some(), "Hello with XAddrs should produce AssetObservation");
+        assert!(
+            find_obs(&out).is_some(),
+            "Hello with XAddrs should produce AssetObservation"
+        );
     }
 
     // ── Test 7: Unknown WSD action → "wsd_unknown" ───────────────

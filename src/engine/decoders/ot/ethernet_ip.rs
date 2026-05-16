@@ -18,8 +18,8 @@ use crate::bronze::{
 };
 use crate::dissectors::ethernet_ip::EthernetIpDissector;
 use crate::engine::{
-    artifact_event, build_envelope, new_event, parse_anomaly_event, DecoderInterest,
-    SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
+    parse_anomaly_event,
 };
 use crate::registry::{EthernetIpFields, ProtocolData, ProtocolDissector};
 
@@ -88,17 +88,16 @@ impl SessionDecoder for EthernetIpDecoderWrapper {
                 }
 
                 // --- Typed surface ---
-                let protocol_fields =
-                    Some(ProtocolFields::EthernetIp(build_eip_bronze_fields(
-                        command,
-                        command_name,
-                        session_handle,
-                        encap_status,
-                        encap_options,
-                        &cip_data,
-                        is_request,
-                        &direction,
-                    )));
+                let protocol_fields = Some(ProtocolFields::EthernetIp(build_eip_bronze_fields(
+                    command,
+                    command_name,
+                    session_handle,
+                    encap_status,
+                    encap_options,
+                    &cip_data,
+                    is_request,
+                    &direction,
+                )));
 
                 let envelope = build_envelope(
                     &chunk.context,
@@ -172,19 +171,17 @@ impl SessionDecoder for EthernetIpDecoderWrapper {
                     // PCCC dispatch: if the CIP service is Execute PCCC
                     // (request 0x4B / response 0xCB), pull the embedded PCCC
                     // PDU and let the PcccDecoder produce ProcessReadings.
-                    if let Some(message) = cip_explicit_message(&cip_data) {
-                        if let Some((is_request, pccc_pdu)) =
-                            extract_pccc_pdu(message)
-                        {
-                            let mut events = self.pccc_decoder.handle_pdu(
-                                pccc_pdu,
-                                is_request,
-                                chunk.context.src_ip,
-                                &envelope,
-                                chunk.capture_id,
-                            );
-                            out.append(&mut events);
-                        }
+                    if let Some(message) = cip_explicit_message(&cip_data)
+                        && let Some((is_request, pccc_pdu)) = extract_pccc_pdu(message)
+                    {
+                        let mut events = self.pccc_decoder.handle_pdu(
+                            pccc_pdu,
+                            is_request,
+                            chunk.context.src_ip,
+                            &envelope,
+                            chunk.capture_id,
+                        );
+                        out.append(&mut events);
                     }
                     out.push(artifact_event(
                         chunk.capture_id.to_string(),
@@ -292,10 +289,10 @@ fn parse_enip_list_identity(data: &[u8]) -> Vec<CipIdentityClaim> {
             break;
         }
         let item = &data[offset..offset + item_len];
-        if item_type == 0x000C {
-            if let Some(claim) = parse_list_identity_item(item) {
-                claims.push(claim);
-            }
+        if item_type == 0x000C
+            && let Some(claim) = parse_list_identity_item(item)
+        {
+            claims.push(claim);
         }
         offset += item_len;
     }
@@ -468,7 +465,7 @@ fn cip_service_code_name(service: u8) -> Option<&'static str> {
         0x52 => Some("unconnected_send"),
         0x54 => Some("forward_open"),
         0x5B => Some("large_forward_open"),
-        0x81 => Some("get_attributes_all"),  // reply for 0x01
+        0x81 => Some("get_attributes_all"), // reply for 0x01
         _ => None,
     }
 }
@@ -477,7 +474,7 @@ fn cip_service_code_name(service: u8) -> Option<&'static str> {
 /// Returns `(class, instance, attribute)` where any missing segment is `None`.
 /// The path is a sequence of segments; we scan until we run out of bytes.
 fn parse_cip_path(data: &[u8]) -> (Option<u32>, Option<u32>, Option<u32>) {
-    if data.len() < 1 {
+    if data.is_empty() {
         return (None, None, None);
     }
     // path_size is in 16-bit words
@@ -494,7 +491,7 @@ fn parse_cip_path(data: &[u8]) -> (Option<u32>, Option<u32>, Option<u32>) {
     while i < path.len() {
         let seg = path[i];
         let seg_type = (seg & 0b1110_0000) >> 5; // 3-bit segment type
-        let seg_format = seg & 0b0001_1111;       // 5-bit format
+        let seg_format = seg & 0b0001_1111; // 5-bit format
         match seg_type {
             0b001 => {
                 // Logical segment
@@ -524,8 +521,12 @@ fn parse_cip_path(data: &[u8]) -> (Option<u32>, Option<u32>, Option<u32>) {
                         if i + 5 >= path.len() {
                             break;
                         }
-                        let v =
-                            u32::from_le_bytes([path[i + 2], path[i + 3], path[i + 4], path[i + 5]]);
+                        let v = u32::from_le_bytes([
+                            path[i + 2],
+                            path[i + 3],
+                            path[i + 4],
+                            path[i + 5],
+                        ]);
                         i += 6;
                         v
                     }
@@ -616,7 +617,11 @@ fn build_eip_bronze_fields(
     EthernetIpBronzeFields {
         encap_command: command,
         encap_command_name: command_name.to_string(),
-        session_handle: if session_handle == 0 { None } else { Some(session_handle) },
+        session_handle: if session_handle == 0 {
+            None
+        } else {
+            Some(session_handle)
+        },
         encap_status: Some(encap_status),
         encap_options: Some(encap_options),
         cip_service,
@@ -657,7 +662,7 @@ mod tests {
         pkt.extend_from_slice(&encap_len.to_le_bytes());
         pkt.extend_from_slice(&session.to_le_bytes());
         pkt.extend_from_slice(&0u32.to_le_bytes()); // status
-        pkt.extend_from_slice(&[0u8; 8]);           // sender_context
+        pkt.extend_from_slice(&[0u8; 8]); // sender_context
         pkt.extend_from_slice(&0u32.to_le_bytes()); // options
         pkt
     }
@@ -673,7 +678,7 @@ mod tests {
         cpf.extend_from_slice(&2u16.to_le_bytes()); // item count = 2
         // null address item
         cpf.extend_from_slice(&0x0000u16.to_le_bytes()); // type: null address
-        cpf.extend_from_slice(&0u16.to_le_bytes());       // length 0
+        cpf.extend_from_slice(&0u16.to_le_bytes()); // length 0
         // data item
         cpf.extend_from_slice(&item_type.to_le_bytes());
         cpf.extend_from_slice(&(data.len() as u16).to_le_bytes());
@@ -683,7 +688,7 @@ mod tests {
 
     /// Build a CIP request message: service + path_size(words) + path + data.
     fn build_cip_request(service: u8, path: &[u8], extra: &[u8]) -> Vec<u8> {
-        assert!(path.len() % 2 == 0, "path must be word-aligned");
+        assert!(path.len().is_multiple_of(2), "path must be word-aligned");
         let mut msg = vec![service, (path.len() / 2) as u8];
         msg.extend_from_slice(path);
         msg.extend_from_slice(extra);
@@ -765,10 +770,10 @@ mod tests {
 
     fn extract_tx(events: &[crate::bronze::BronzeEvent]) -> &EthernetIpBronzeFields {
         for ev in events {
-            if let BronzeEventFamily::ProtocolTransaction(tx) = &ev.family {
-                if let Some(ProtocolFields::EthernetIp(ref f)) = tx.protocol_fields {
-                    return f;
-                }
+            if let BronzeEventFamily::ProtocolTransaction(tx) = &ev.family
+                && let Some(ProtocolFields::EthernetIp(ref f)) = tx.protocol_fields
+            {
+                return f;
             }
         }
         panic!("no EthernetIp protocol_fields found in events");
@@ -941,12 +946,18 @@ mod tests {
 
         for ev in &out {
             if let BronzeEventFamily::ProtocolTransaction(tx) = &ev.family {
-                assert!(tx.attributes.contains_key("session_handle"),
-                    "legacy attributes missing 'session_handle'");
-                assert!(tx.attributes.contains_key("encapsulation_command"),
-                    "legacy attributes missing 'encapsulation_command'");
-                assert!(tx.protocol_fields.is_some(),
-                    "protocol_fields should be populated");
+                assert!(
+                    tx.attributes.contains_key("session_handle"),
+                    "legacy attributes missing 'session_handle'"
+                );
+                assert!(
+                    tx.attributes.contains_key("encapsulation_command"),
+                    "legacy attributes missing 'encapsulation_command'"
+                );
+                assert!(
+                    tx.protocol_fields.is_some(),
+                    "protocol_fields should be populated"
+                );
                 return;
             }
         }
@@ -979,6 +990,9 @@ mod tests {
         let back: ProtocolFields = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, pf);
         // Verify the JSON tag is present
-        assert!(json.contains("\"ethernet_ip\""), "expected protocol tag in JSON: {json}");
+        assert!(
+            json.contains("\"ethernet_ip\""),
+            "expected protocol tag in JSON: {json}"
+        );
     }
 }

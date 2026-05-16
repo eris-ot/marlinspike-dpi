@@ -46,6 +46,11 @@ fn success_result(payload: String) -> FmDpiProcessResult {
 }
 
 #[unsafe(no_mangle)]
+/// # Safety
+///
+/// `capture_id` must be a valid, non-null, NUL-terminated UTF-8 C string.
+/// `data_ptr` must be non-null and valid for reads of `data_len` bytes for the
+/// duration of the call.
 pub unsafe extern "C" fn fm_dpi_process_pcapng_json(
     capture_id: *const c_char,
     data_ptr: *const u8,
@@ -81,7 +86,12 @@ pub unsafe extern "C" fn fm_dpi_process_pcapng_json(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn fm_dpi_string_free(ptr: *mut c_char) {
+/// # Safety
+///
+/// `ptr` must either be null or a pointer returned by this crate from
+/// `fm_dpi_process_pcapng_json` via `CString::into_raw`. It must not be freed
+/// more than once.
+pub unsafe extern "C" fn fm_dpi_string_free(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }
@@ -119,7 +129,7 @@ mod tests {
             .to_string();
         assert!(error.contains("capture_id must not be empty"));
 
-        fm_dpi_string_free(result.error_ptr);
+        unsafe { fm_dpi_string_free(result.error_ptr) };
     }
 
     #[test]
@@ -139,6 +149,6 @@ mod tests {
             .to_string();
         assert!(!error.is_empty());
 
-        fm_dpi_string_free(result.error_ptr);
+        unsafe { fm_dpi_string_free(result.error_ptr) };
     }
 }

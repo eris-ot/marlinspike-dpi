@@ -28,8 +28,8 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use crate::bronze::{
-    BronzeEvent, BronzeEventFamily, EventEnvelope, PointIdentifier, PointValue, ProcessReading,
-    RawQuality, BRONZE_SCHEMA_VERSION,
+    BRONZE_SCHEMA_VERSION, BronzeEvent, BronzeEventFamily, EventEnvelope, PointIdentifier,
+    PointValue, ProcessReading, RawQuality,
 };
 
 const SOURCE_PROTOCOL: &str = "pccc";
@@ -277,13 +277,7 @@ impl PcccDecoder {
                 element: pending.start.element + n,
                 ..pending.start
             };
-            readings.push(self.make_event(
-                address,
-                value,
-                envelope,
-                capture_id,
-                observed_ts,
-            ));
+            readings.push(self.make_event(address, value, envelope, capture_id, observed_ts));
         }
         readings
     }
@@ -318,10 +312,7 @@ impl PcccDecoder {
     }
 }
 
-fn read_three_address_from_function_body(
-    bytes: &[u8],
-    offset: &mut usize,
-) -> Option<PcccAddress> {
+fn read_three_address_from_function_body(bytes: &[u8], offset: &mut usize) -> Option<PcccAddress> {
     // For function 0x67/0x68 the address fields follow byte_size with
     // file_number, file_type, element, sub_element. byte_size already read
     // by caller.
@@ -358,11 +349,7 @@ fn decode_value(bytes: &[u8], offset: &mut usize, file_type: u8) -> Option<Point
 
 fn envelope_us(env: &EventEnvelope) -> u64 {
     let nanos = env.timestamp.timestamp_nanos_opt().unwrap_or(0);
-    if nanos < 0 {
-        0
-    } else {
-        (nanos / 1_000) as u64
-    }
+    if nanos < 0 { 0 } else { (nanos / 1_000) as u64 }
 }
 
 #[cfg(test)]

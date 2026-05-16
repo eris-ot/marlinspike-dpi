@@ -15,7 +15,7 @@ use crate::bronze::{
     TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── Port constants ────────────────────────────────────────────────────────────
@@ -348,10 +348,8 @@ fn decode_nbns(chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
             .unwrap_or(name_str.as_str())
             .to_string();
 
-        let mut identifiers = BTreeMap::from([(
-            "ip".to_string(),
-            chunk.context.src_ip.to_string(),
-        )]);
+        let mut identifiers =
+            BTreeMap::from([("ip".to_string(), chunk.context.src_ip.to_string())]);
         identifiers.insert("netbios_name".to_string(), name_str.clone());
         identifiers.insert("netbios_suffix_hex".to_string(), suffix_hex.to_lowercase());
 
@@ -493,10 +491,7 @@ fn decode_nbds(chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
         .unwrap_or(source_name.as_str())
         .to_string();
 
-    let mut identifiers = BTreeMap::from([(
-        "ip".to_string(),
-        IpAddr::V4(source_ip).to_string(),
-    )]);
+    let mut identifiers = BTreeMap::from([("ip".to_string(), IpAddr::V4(source_ip).to_string())]);
     identifiers.insert("netbios_name".to_string(), source_name.clone());
     identifiers.insert("netbios_suffix_hex".to_string(), suffix_hex.to_lowercase());
 
@@ -549,7 +544,7 @@ fn emit_nbds_unknown(chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>, msg_ty
 
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "netbios",
-    factory: || Box::new(NetBiosDecoder::default()),
+    factory: || Box::new(NetBiosDecoder),
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -632,12 +627,11 @@ mod tests {
         let flags_hi = 0x85u8; // QR=1, AA=1, opcode=0
         let flags_lo = rcode & 0x0F;
         let mut pkt = vec![
-            0x00, 0x02,     // transaction_id = 2
-            flags_hi, flags_lo,
-            0x00, 0x00,     // qdcount = 0
-            0x00, 0x01,     // ancount = 1
-            0x00, 0x00,     // nscount = 0
-            0x00, 0x00,     // arcount = 0
+            0x00, 0x02, // transaction_id = 2
+            flags_hi, flags_lo, 0x00, 0x00, // qdcount = 0
+            0x00, 0x01, // ancount = 1
+            0x00, 0x00, // nscount = 0
+            0x00, 0x00, // arcount = 0
         ];
         pkt.extend(encode_netbios_name(name, suffix));
         // type NB (0x0020), class IN (0x0001), TTL (4 bytes), rdlength = 6.
@@ -650,12 +644,11 @@ mod tests {
     /// Build a minimal NBNS registration (opcode=5 in response).
     fn nbns_registration(name: &str, suffix: u8) -> Vec<u8> {
         let mut pkt = vec![
-            0x00, 0x03,     // transaction_id = 3
-            0xAD, 0x00,     // QR=1, opcode=5 (registration), AA=1
-            0x00, 0x00,     // qdcount = 0
-            0x00, 0x01,     // ancount = 1
-            0x00, 0x00,
-            0x00, 0x00,
+            0x00, 0x03, // transaction_id = 3
+            0xAD, 0x00, // QR=1, opcode=5 (registration), AA=1
+            0x00, 0x00, // qdcount = 0
+            0x00, 0x01, // ancount = 1
+            0x00, 0x00, 0x00, 0x00,
         ];
         pkt.extend(encode_netbios_name(name, suffix));
         pkt.extend_from_slice(&[0x00, 0x20, 0x00, 0x01, 0x00, 0x00, 0x04, 0xB0, 0x00, 0x06]);
@@ -664,15 +657,21 @@ mod tests {
     }
 
     /// Build a minimal NBDS datagram with source + dest names.
-    fn nbds_datagram(msg_type: u8, src_name: &str, src_suffix: u8, dst_name: &str, dst_suffix: u8) -> Vec<u8> {
+    fn nbds_datagram(
+        msg_type: u8,
+        src_name: &str,
+        src_suffix: u8,
+        dst_name: &str,
+        dst_suffix: u8,
+    ) -> Vec<u8> {
         let mut pkt = vec![
-            msg_type,           // msg_type
-            0x02,               // flags: first fragment
-            0xAB, 0xCD,         // datagram_id
-            192, 168, 1, 20,    // source_ip
-            0x00, 0x8A,         // source_port = 138
-            0x00, 0x50,         // dgm_length = 80
-            0x00, 0x00,         // packet_offset = 0
+            msg_type, // msg_type
+            0x02,     // flags: first fragment
+            0xAB, 0xCD, // datagram_id
+            192, 168, 1, 20, // source_ip
+            0x00, 0x8A, // source_port = 138
+            0x00, 0x50, // dgm_length = 80
+            0x00, 0x00, // packet_offset = 0
         ];
         pkt.extend(encode_netbios_name(src_name, src_suffix));
         pkt.extend(encode_netbios_name(dst_name, dst_suffix));
@@ -686,30 +685,56 @@ mod tests {
         let payload = nbns_query("WORKSTATION", 0x00);
         let chunk = make_chunk(&payload, 1025, PORT_NBNS);
         let mut out = Vec::new();
-        let mut dec = NetBiosDecoder::default();
+        let mut dec = NetBiosDecoder;
         dec.on_datagram(&chunk, &mut out);
 
         // Expect ProtocolTransaction + AssetObservation.
-        assert!(out.len() >= 2, "expected at least 2 events, got {}", out.len());
+        assert!(
+            out.len() >= 2,
+            "expected at least 2 events, got {}",
+            out.len()
+        );
 
-        let tx = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(tx) = &e.family { Some(tx) } else { None }
-        }).expect("no ProtocolTransaction");
+        let tx = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(tx) = &e.family {
+                    Some(tx)
+                } else {
+                    None
+                }
+            })
+            .expect("no ProtocolTransaction");
 
         assert_eq!(tx.operation, "nbns_query");
         assert_eq!(tx.status, "observed");
         assert!(
-            tx.attributes.get("decoded_names").unwrap().contains("WORKSTATION<00>"),
-            "decoded_names={:?}", tx.attributes.get("decoded_names")
+            tx.attributes
+                .get("decoded_names")
+                .unwrap()
+                .contains("WORKSTATION<00>"),
+            "decoded_names={:?}",
+            tx.attributes.get("decoded_names")
         );
         assert!(tx.object_refs.iter().any(|r| r.contains("WORKSTATION<00>")));
 
-        let obs = out.iter().find_map(|e| {
-            if let BronzeEventFamily::AssetObservation(o) = &e.family { Some(o) } else { None }
-        }).expect("no AssetObservation");
+        let obs = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::AssetObservation(o) = &e.family {
+                    Some(o)
+                } else {
+                    None
+                }
+            })
+            .expect("no AssetObservation");
 
         assert_eq!(obs.role.as_deref(), Some("netbios_workstation"));
-        assert!(obs.hostnames.iter().any(|h| h == "WORKSTATION"), "hostnames={:?}", obs.hostnames);
+        assert!(
+            obs.hostnames.iter().any(|h| h == "WORKSTATION"),
+            "hostnames={:?}",
+            obs.hostnames
+        );
     }
 
     // ── Test 2: NBNS response for FILESERVER<20> ─────────────────────────────
@@ -719,19 +744,33 @@ mod tests {
         let payload = nbns_response("FILESERVER", 0x20, 0);
         let chunk = make_chunk(&payload, PORT_NBNS, 1025);
         let mut out = Vec::new();
-        let mut dec = NetBiosDecoder::default();
+        let mut dec = NetBiosDecoder;
         dec.on_datagram(&chunk, &mut out);
 
-        let tx = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(tx) = &e.family { Some(tx) } else { None }
-        }).expect("no ProtocolTransaction");
+        let tx = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(tx) = &e.family {
+                    Some(tx)
+                } else {
+                    None
+                }
+            })
+            .expect("no ProtocolTransaction");
 
         assert_eq!(tx.operation, "nbns_response");
         assert_eq!(tx.status, "observed");
 
-        let obs = out.iter().find_map(|e| {
-            if let BronzeEventFamily::AssetObservation(o) = &e.family { Some(o) } else { None }
-        }).expect("no AssetObservation");
+        let obs = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::AssetObservation(o) = &e.family {
+                    Some(o)
+                } else {
+                    None
+                }
+            })
+            .expect("no AssetObservation");
 
         assert_eq!(obs.role.as_deref(), Some("netbios_file_server"));
         assert!(obs.hostnames.iter().any(|h| h == "FILESERVER"));
@@ -744,17 +783,31 @@ mod tests {
         let payload = nbns_query("DOMAIN", 0x1C);
         let chunk = make_chunk(&payload, 1025, PORT_NBNS);
         let mut out = Vec::new();
-        let mut dec = NetBiosDecoder::default();
+        let mut dec = NetBiosDecoder;
         dec.on_datagram(&chunk, &mut out);
 
-        let obs = out.iter().find_map(|e| {
-            if let BronzeEventFamily::AssetObservation(o) = &e.family { Some(o) } else { None }
-        }).expect("no AssetObservation");
+        let obs = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::AssetObservation(o) = &e.family {
+                    Some(o)
+                } else {
+                    None
+                }
+            })
+            .expect("no AssetObservation");
 
         assert_eq!(obs.role.as_deref(), Some("netbios_domain_controllers"));
         let ids = &obs.identifiers;
-        assert!(ids.get("netbios_name").map(|n| n.contains("1C")).unwrap_or(false));
-        assert_eq!(ids.get("netbios_suffix_hex").map(|s| s.as_str()), Some("1c"));
+        assert!(
+            ids.get("netbios_name")
+                .map(|n| n.contains("1C"))
+                .unwrap_or(false)
+        );
+        assert_eq!(
+            ids.get("netbios_suffix_hex").map(|s| s.as_str()),
+            Some("1c")
+        );
     }
 
     // ── Test 4: NBDS direct-group message ────────────────────────────────────
@@ -764,17 +817,27 @@ mod tests {
         let payload = nbds_datagram(0x11, "SRCHOST", 0x00, "WORKGROUP", 0x1E);
         let chunk = make_chunk(&payload, PORT_NBDS, PORT_NBDS);
         let mut out = Vec::new();
-        let mut dec = NetBiosDecoder::default();
+        let mut dec = NetBiosDecoder;
         dec.on_datagram(&chunk, &mut out);
 
-        let tx = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(tx) = &e.family { Some(tx) } else { None }
-        }).expect("no ProtocolTransaction");
+        let tx = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(tx) = &e.family {
+                    Some(tx)
+                } else {
+                    None
+                }
+            })
+            .expect("no ProtocolTransaction");
 
         assert_eq!(tx.operation, "nbds_direct_group");
         assert_eq!(tx.status, "observed");
 
-        let src = tx.attributes.get("source_name").expect("source_name missing");
+        let src = tx
+            .attributes
+            .get("source_name")
+            .expect("source_name missing");
         let dst = tx.attributes.get("dest_name").expect("dest_name missing");
         assert!(src.contains("SRCHOST"), "source_name={src}");
         assert!(dst.contains("WORKGROUP"), "dest_name={dst}");
@@ -784,9 +847,16 @@ mod tests {
         assert!(tx.object_refs.iter().any(|r| r.contains("WORKGROUP")));
 
         // AssetObservation for the source.
-        let obs = out.iter().find_map(|e| {
-            if let BronzeEventFamily::AssetObservation(o) = &e.family { Some(o) } else { None }
-        }).expect("no AssetObservation");
+        let obs = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::AssetObservation(o) = &e.family {
+                    Some(o)
+                } else {
+                    None
+                }
+            })
+            .expect("no AssetObservation");
         assert_eq!(obs.role.as_deref(), Some("netbios_workstation")); // suffix 0x00
     }
 
@@ -797,12 +867,19 @@ mod tests {
         let payload = nbns_registration("MYSERVER", 0x20);
         let chunk = make_chunk(&payload, PORT_NBNS, PORT_NBNS);
         let mut out = Vec::new();
-        let mut dec = NetBiosDecoder::default();
+        let mut dec = NetBiosDecoder;
         dec.on_datagram(&chunk, &mut out);
 
-        let tx = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(tx) = &e.family { Some(tx) } else { None }
-        }).expect("no ProtocolTransaction");
+        let tx = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(tx) = &e.family {
+                    Some(tx)
+                } else {
+                    None
+                }
+            })
+            .expect("no ProtocolTransaction");
 
         assert_eq!(tx.operation, "nbns_registration");
     }
@@ -817,9 +894,7 @@ mod tests {
             0x00, 0x04, // transaction_id
             0x01, 0x10, // flags: query
             0x00, 0x01, // qdcount = 1
-            0x00, 0x00,
-            0x00, 0x00,
-            0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
         pkt.push(0x10); // wrong length byte (16 instead of 32)
         pkt.extend_from_slice(b"AAAAAAAAAAAAAAAA"); // 16 chars, not 32
@@ -828,12 +903,19 @@ mod tests {
 
         let chunk = make_chunk(&pkt, 1025, PORT_NBNS);
         let mut out = Vec::new();
-        let mut dec = NetBiosDecoder::default();
+        let mut dec = NetBiosDecoder;
         dec.on_datagram(&chunk, &mut out);
 
-        let anomaly = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(a) = &e.family { Some(a) } else { None }
-        }).expect("expected a ParseAnomaly event");
+        let anomaly = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ParseAnomaly(a) = &e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .expect("expected a ParseAnomaly event");
 
         assert_eq!(anomaly.severity, "low");
         assert_eq!(anomaly.decoder, "netbios");

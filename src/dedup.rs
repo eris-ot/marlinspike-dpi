@@ -46,11 +46,11 @@ impl DedupEngine {
 
         let hash = self.compute_hash(timestamp_ns, src_ip, dst_ip, src_port, dst_port, protocol);
 
-        if self.seen.contains_key(&hash) {
-            true
-        } else {
-            self.seen.insert(hash, timestamp_ns);
+        if let std::collections::hash_map::Entry::Vacant(e) = self.seen.entry(hash) {
+            e.insert(timestamp_ns);
             false
+        } else {
+            true
         }
     }
 

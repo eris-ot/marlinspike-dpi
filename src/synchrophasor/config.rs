@@ -43,27 +43,15 @@ impl PmuFormat {
 
     /// Bytes per phasor (mag+angle or real+imag).
     pub fn phasor_size(&self) -> usize {
-        if self.phasor_is_float {
-            8
-        } else {
-            4
-        }
+        if self.phasor_is_float { 8 } else { 4 }
     }
 
     pub fn analog_size(&self) -> usize {
-        if self.analog_is_float {
-            4
-        } else {
-            2
-        }
+        if self.analog_is_float { 4 } else { 2 }
     }
 
     pub fn freq_size(&self) -> usize {
-        if self.freq_is_float {
-            4
-        } else {
-            2
-        }
+        if self.freq_is_float { 4 } else { 2 }
     }
 }
 
@@ -81,7 +69,7 @@ pub struct ConfigFrame {
 fn read_chnam(r: &mut Reader<'_>) -> Result<String, ReaderError> {
     let bytes = r.read_array::<16>()?;
     let s = std::str::from_utf8(&bytes).unwrap_or("");
-    Ok(s.trim_end_matches(|c: char| c == ' ' || c == '\0').to_string())
+    Ok(s.trim_end_matches([' ', '\0']).to_string())
 }
 
 pub fn parse_config_frame(r: &mut Reader<'_>) -> Result<ConfigFrame, ReaderError> {

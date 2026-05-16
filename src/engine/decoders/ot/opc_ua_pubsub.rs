@@ -41,11 +41,11 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, OpcUaNodeId, PointIdentifier,
-    ProcessReading, ProtocolTransaction, RawQuality, TopologyObservation, TransportProtocol,
+    AssetObservation, BronzeEvent, BronzeEventFamily, OpcUaNodeId, PointIdentifier, ProcessReading,
+    ProtocolTransaction, RawQuality, TopologyObservation, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 use crate::opc_ua::data_value::read_data_value;
 use crate::opc_ua::datetime::opcua_datetime_to_unix_us;
@@ -77,20 +77,12 @@ const SOURCE_PROTOCOL: &str = "opc_ua_pubsub";
 
 // ── Decoder state ────────────────────────────────────────────────────────────
 
+#[derive(Default)]
 pub(crate) struct OpcUaPubSubDecoder {
     /// Publisher IDs already emitted as TopologyObservations this session.
     seen_publishers: HashSet<String>,
     /// Publisher IDs already emitted as AssetObservations this session.
     seen_assets: HashSet<String>,
-}
-
-impl Default for OpcUaPubSubDecoder {
-    fn default() -> Self {
-        Self {
-            seen_publishers: HashSet::new(),
-            seen_assets: HashSet::new(),
-        }
-    }
 }
 
 // ── Wire parsing ─────────────────────────────────────────────────────────────
@@ -129,20 +121,19 @@ fn parse_network_message(buf: &[u8]) -> Result<NetworkMessageHeader, &'static st
     let mut cursor = 1usize;
 
     // — ExtendedFlags1 ————————————————————————————————————————————
-    let (pid_type, dataset_class_id_enabled, extended_flags2_enabled) =
-        if extended_flags1_enabled {
-            if buf.len() < cursor + 1 {
-                return Err("truncated: missing ExtendedFlags1");
-            }
-            let f2 = buf[cursor];
-            cursor += 1;
-            let pid_type = f2 & 0x07;
-            let dataset_class_id_enabled = (f2 >> 3) & 1 == 1;
-            let extended_flags2_enabled = (f2 >> 7) & 1 == 1;
-            (pid_type, dataset_class_id_enabled, extended_flags2_enabled)
-        } else {
-            (PID_TYPE_BYTE, false, false)
-        };
+    let (pid_type, dataset_class_id_enabled, extended_flags2_enabled) = if extended_flags1_enabled {
+        if buf.len() < cursor + 1 {
+            return Err("truncated: missing ExtendedFlags1");
+        }
+        let f2 = buf[cursor];
+        cursor += 1;
+        let pid_type = f2 & 0x07;
+        let dataset_class_id_enabled = (f2 >> 3) & 1 == 1;
+        let extended_flags2_enabled = (f2 >> 7) & 1 == 1;
+        (pid_type, dataset_class_id_enabled, extended_flags2_enabled)
+    } else {
+        (PID_TYPE_BYTE, false, false)
+    };
 
     // — ExtendedFlags2 ————————————————————————————————————————————
     if extended_flags2_enabled {
@@ -383,7 +374,9 @@ struct DsmHeader {
 /// Parse the DataSetMessage header from a `Reader`.
 /// Returns `Err(&'static str)` on truncation.
 fn parse_dsm_header(r: &mut Reader<'_>) -> Result<DsmHeader, &'static str> {
-    let flags1 = r.read_u8().map_err(|_| "truncated: missing DataSetFlags1")?;
+    let flags1 = r
+        .read_u8()
+        .map_err(|_| "truncated: missing DataSetFlags1")?;
 
     let _valid = flags1 & 0x01 != 0;
     let field_encoding = (flags1 >> 1) & 0x03;
@@ -394,7 +387,9 @@ fn parse_dsm_header(r: &mut Reader<'_>) -> Result<DsmHeader, &'static str> {
     let flags2_enabled = (flags1 >> 7) & 1 != 0;
 
     let (message_type, timestamp_enabled, pico_seconds_enabled) = if flags2_enabled {
-        let flags2 = r.read_u8().map_err(|_| "truncated: missing DataSetFlags2")?;
+        let flags2 = r
+            .read_u8()
+            .map_err(|_| "truncated: missing DataSetFlags2")?;
         let mt = flags2 & 0x0F;
         let ts_en = (flags2 >> 4) & 1 != 0;
         let ps_en = (flags2 >> 5) & 1 != 0;
@@ -404,14 +399,18 @@ fn parse_dsm_header(r: &mut Reader<'_>) -> Result<DsmHeader, &'static str> {
     };
 
     let sequence_number = if seq_num_enabled {
-        let sn = r.read_u16().map_err(|_| "truncated: missing DSM SequenceNumber")?;
+        let sn = r
+            .read_u16()
+            .map_err(|_| "truncated: missing DSM SequenceNumber")?;
         Some(sn)
     } else {
         None
     };
 
     let dsm_timestamp_us = if timestamp_enabled {
-        let ticks = r.read_u64().map_err(|_| "truncated: missing DSM Timestamp")?;
+        let ticks = r
+            .read_u64()
+            .map_err(|_| "truncated: missing DSM Timestamp")?;
         // Convert Windows FILETIME (100-ns ticks since 1601) to Unix microseconds.
         opcua_datetime_to_unix_us(ticks as i64)
     } else {
@@ -419,21 +418,26 @@ fn parse_dsm_header(r: &mut Reader<'_>) -> Result<DsmHeader, &'static str> {
     };
 
     if pico_seconds_enabled {
-        r.read_u16().map_err(|_| "truncated: missing DSM PicoSeconds")?;
+        r.read_u16()
+            .map_err(|_| "truncated: missing DSM PicoSeconds")?;
     }
 
     let status_code = if status_enabled {
-        let sc = r.read_u16().map_err(|_| "truncated: missing DSM StatusCode")?;
+        let sc = r
+            .read_u16()
+            .map_err(|_| "truncated: missing DSM StatusCode")?;
         Some(sc)
     } else {
         None
     };
 
     if major_ver_enabled {
-        r.read_u32().map_err(|_| "truncated: missing DSM MajorVersion")?;
+        r.read_u32()
+            .map_err(|_| "truncated: missing DSM MajorVersion")?;
     }
     if minor_ver_enabled {
-        r.read_u32().map_err(|_| "truncated: missing DSM MinorVersion")?;
+        r.read_u32()
+            .map_err(|_| "truncated: missing DSM MinorVersion")?;
     }
 
     Ok(DsmHeader {
@@ -725,29 +729,13 @@ fn decode_dsm(
             raw_excerpt,
         ));
         // Emit a KeepAlive-style transaction so the writer_id is recorded.
-        emit_dsm_transaction(
-            r,
-            capture_id,
-            envelope,
-            writer_id,
-            &dsm_hdr,
-            0,
-            out,
-        );
+        emit_dsm_transaction(r, capture_id, envelope, writer_id, &dsm_hdr, 0, out);
         return;
     }
 
     // KeepAlive: no fields, just emit the transaction.
     if dsm_hdr.message_type == MSG_TYPE_KEEP_ALIVE {
-        emit_dsm_transaction(
-            r,
-            capture_id,
-            envelope,
-            writer_id,
-            &dsm_hdr,
-            0,
-            out,
-        );
+        emit_dsm_transaction(r, capture_id, envelope, writer_id, &dsm_hdr, 0, out);
         return;
     }
 
@@ -807,84 +795,80 @@ fn decode_dsm(
         };
 
         match dsm_hdr.field_encoding {
-            FIELD_ENC_VARIANT => {
-                match read_variant(r) {
-                    Ok(value) => {
-                        readings.push(new_event(
-                            capture_id.to_string(),
-                            envelope.clone(),
-                            BronzeEventFamily::ProcessReading(ProcessReading {
-                                source_protocol: SOURCE_PROTOCOL.to_string(),
-                                point_id,
-                                value,
-                                quality: RawQuality::None,
-                                source_ts: dsm_hdr.dsm_timestamp_us,
-                                observed_ts,
-                            }),
-                        ));
-                    }
-                    Err(_) => {
-                        out.push(parse_anomaly_event(
-                            capture_id.to_string(),
-                            envelope.clone(),
-                            decoder_name,
-                            "low",
-                            "unsupported or truncated Variant in DataSetMessage",
-                            raw_excerpt,
-                        ));
-                        emit_dsm_transaction(
-                            r,
-                            capture_id,
-                            envelope,
-                            writer_id,
-                            &dsm_hdr,
-                            readings.len() as u16,
-                            out,
-                        );
-                        out.append(&mut readings);
-                        return;
-                    }
+            FIELD_ENC_VARIANT => match read_variant(r) {
+                Ok(value) => {
+                    readings.push(new_event(
+                        capture_id.to_string(),
+                        envelope.clone(),
+                        BronzeEventFamily::ProcessReading(ProcessReading {
+                            source_protocol: SOURCE_PROTOCOL.to_string(),
+                            point_id,
+                            value,
+                            quality: RawQuality::None,
+                            source_ts: dsm_hdr.dsm_timestamp_us,
+                            observed_ts,
+                        }),
+                    ));
                 }
-            }
-            FIELD_ENC_DATA_VALUE => {
-                match read_data_value(r) {
-                    Ok(dv) => {
-                        readings.push(new_event(
-                            capture_id.to_string(),
-                            envelope.clone(),
-                            BronzeEventFamily::ProcessReading(ProcessReading {
-                                source_protocol: SOURCE_PROTOCOL.to_string(),
-                                point_id,
-                                value: dv.value,
-                                quality: dv.quality,
-                                source_ts: dv.source_ts,
-                                observed_ts,
-                            }),
-                        ));
-                    }
-                    Err(_) => {
-                        out.push(parse_anomaly_event(
-                            capture_id.to_string(),
-                            envelope.clone(),
-                            decoder_name,
-                            "low",
-                            "truncated DataValue in DataSetMessage",
-                            raw_excerpt,
-                        ));
-                        emit_dsm_transaction(
-                            r,
-                            capture_id,
-                            envelope,
-                            writer_id,
-                            &dsm_hdr,
-                            readings.len() as u16,
-                            out,
-                        );
-                        out.append(&mut readings);
-                        return;
-                    }
+                Err(_) => {
+                    out.push(parse_anomaly_event(
+                        capture_id.to_string(),
+                        envelope.clone(),
+                        decoder_name,
+                        "low",
+                        "unsupported or truncated Variant in DataSetMessage",
+                        raw_excerpt,
+                    ));
+                    emit_dsm_transaction(
+                        r,
+                        capture_id,
+                        envelope,
+                        writer_id,
+                        &dsm_hdr,
+                        readings.len() as u16,
+                        out,
+                    );
+                    out.append(&mut readings);
+                    return;
                 }
-            }
+            },
+            FIELD_ENC_DATA_VALUE => match read_data_value(r) {
+                Ok(dv) => {
+                    readings.push(new_event(
+                        capture_id.to_string(),
+                        envelope.clone(),
+                        BronzeEventFamily::ProcessReading(ProcessReading {
+                            source_protocol: SOURCE_PROTOCOL.to_string(),
+                            point_id,
+                            value: dv.value,
+                            quality: dv.quality,
+                            source_ts: dv.source_ts,
+                            observed_ts,
+                        }),
+                    ));
+                }
+                Err(_) => {
+                    out.push(parse_anomaly_event(
+                        capture_id.to_string(),
+                        envelope.clone(),
+                        decoder_name,
+                        "low",
+                        "truncated DataValue in DataSetMessage",
+                        raw_excerpt,
+                    ));
+                    emit_dsm_transaction(
+                        r,
+                        capture_id,
+                        envelope,
+                        writer_id,
+                        &dsm_hdr,
+                        readings.len() as u16,
+                        out,
+                    );
+                    out.append(&mut readings);
+                    return;
+                }
+            },
             _ => {
                 // Should not reach here (RawData handled above, reserved enc=3).
                 out.push(parse_anomaly_event(
@@ -1198,12 +1182,16 @@ mod tests {
         let payload = &[
             0b1001_0001u8, // flags1: version=1, pid_enabled, ext1_enabled
             0b0000_0001u8, // flags2: pid_type=UInt16
-            0x39, 0x05,    // publisher_id = 1337 LE
+            0x39,
+            0x05, // publisher_id = 1337 LE
         ];
         let events = run_decoder(payload);
 
         let tx = get_transaction(&events).expect("ProtocolTransaction");
-        assert_eq!(tx.attributes.get("publisher_id").map(String::as_str), Some("1337"));
+        assert_eq!(
+            tx.attributes.get("publisher_id").map(String::as_str),
+            Some("1337")
+        );
         assert_eq!(
             tx.attributes.get("publisher_id_type").map(String::as_str),
             Some("uint16")
@@ -1212,10 +1200,7 @@ mod tests {
         let topology = get_topology(&events);
         assert_eq!(topology.len(), 1);
         assert_eq!(topology[0].local_id, "1337");
-        assert_eq!(
-            topology[0].observation_type,
-            "opc_ua_pubsub_publisher"
-        );
+        assert_eq!(topology[0].observation_type, "opc_ua_pubsub_publisher");
     }
 
     // ── Test 3: publisher_id of String type ───────────────────────────────────
@@ -1229,7 +1214,10 @@ mod tests {
         let mut payload = vec![
             0b1001_0001u8, // flags1
             0b0000_0100u8, // flags2: pid_type=String (4)
-            5, 0, 0, 0,    // i32 LE length = 5
+            5,
+            0,
+            0,
+            0, // i32 LE length = 5
         ];
         payload.extend_from_slice(label);
 
@@ -1260,21 +1248,26 @@ mod tests {
         // DSM for writer 10: flags1=0x01, field_count=0
         // DSM for writer 20: flags1=0x01, field_count=0
         let payload = &[
-            0x41u8,        // flags1: version=1, payload_header_enabled
-            2u8,           // count = 2
-            10, 0,         // writer id 10
-            20, 0,         // writer id 20
-            0x01u8, 0, 0,  // DSM1: flags1=valid, Variant enc, FieldCount=0
-            0x01u8, 0, 0,  // DSM2: flags1=valid, Variant enc, FieldCount=0
+            0x41u8, // flags1: version=1, payload_header_enabled
+            2u8,    // count = 2
+            10, 0, // writer id 10
+            20, 0, // writer id 20
+            0x01u8, 0, 0, // DSM1: flags1=valid, Variant enc, FieldCount=0
+            0x01u8, 0, 0, // DSM2: flags1=valid, Variant enc, FieldCount=0
         ];
         let events = run_decoder(payload);
 
         let tx = get_transaction(&events).expect("ProtocolTransaction");
         assert_eq!(
-            tx.attributes.get("dataset_writer_count").map(String::as_str),
+            tx.attributes
+                .get("dataset_writer_count")
+                .map(String::as_str),
             Some("2")
         );
-        let ids_str = tx.attributes.get("dataset_writer_ids").expect("dataset_writer_ids");
+        let ids_str = tx
+            .attributes
+            .get("dataset_writer_ids")
+            .expect("dataset_writer_ids");
         assert!(ids_str.contains("10"), "must contain writer id 10");
         assert!(ids_str.contains("20"), "must contain writer id 20");
     }
@@ -1445,8 +1438,8 @@ mod tests {
         let mut dsm = vec![
             0x81u8, // DataSetFlags1: valid, Variant enc, Flags2Enabled
             0x01u8, // DataSetFlags2: MessageType=1 (DeltaFrame)
-            1, 0,   // FieldCount = 1
-            5, 0,   // FieldIndex = 5
+            1, 0, // FieldCount = 1
+            5, 0, // FieldIndex = 5
         ];
         dsm.extend_from_slice(&variant_int32(99));
 
@@ -1496,13 +1489,12 @@ mod tests {
 
         let mut dsm = vec![
             0x05u8, // DataSetFlags1: valid, DataValue encoding (bits 1..2 = 2 = 0b10)
-            1, 0,   // FieldCount = 1
-            dv_mask,
-            11, // T_DOUBLE
+            1, 0, // FieldCount = 1
+            dv_mask, 11, // T_DOUBLE
         ];
         dsm.extend_from_slice(&72.5f64.to_le_bytes());
         dsm.extend_from_slice(&0x8000_0000u32.to_le_bytes()); // status code
-        dsm.extend_from_slice(&ts_ticks.to_le_bytes());       // source timestamp
+        dsm.extend_from_slice(&ts_ticks.to_le_bytes()); // source timestamp
 
         let payload = make_uadp_with_dsm(2, &dsm);
         let events = run_decoder(&payload);
@@ -1586,29 +1578,35 @@ mod tests {
         // After the anomaly the DSM is abandoned.
         let mut dsm = vec![
             0x01u8, // DataSetFlags1: valid, Variant enc
-            1, 0,   // FieldCount = 1
-            22u8,   // T_EXTENSION_OBJECT (unsupported)
-            // No further bytes — read_scalar returns Null (not Err) for type 22.
-            // The variant decoder returns Ok(Null) for unknown types.
-            // So no anomaly from unsupported type per the variant.rs design.
-            // Instead test an actual truncation to force an Err path:
+            1, 0, // FieldCount = 1
+            22u8, // T_EXTENSION_OBJECT (unsupported)
+               // No further bytes — read_scalar returns Null (not Err) for type 22.
+               // The variant decoder returns Ok(Null) for unknown types.
+               // So no anomaly from unsupported type per the variant.rs design.
+               // Instead test an actual truncation to force an Err path:
         ];
         // Actually T_STRING (12) with a truncated length triggers ReaderError.
         // Reset: single String variant with no length bytes.
         dsm = vec![
             0x01u8, // DataSetFlags1
-            1, 0,   // FieldCount = 1
-            12u8,   // T_STRING — needs 4-byte i32 length, truncated
+            1, 0,    // FieldCount = 1
+            12u8, // T_STRING — needs 4-byte i32 length, truncated
         ];
         let payload = make_uadp_with_dsm(11, &dsm);
         let events = run_decoder(&payload);
 
         let anomalies = get_anomalies(&events);
         let low = anomalies.iter().find(|a| a.severity == "low");
-        assert!(low.is_some(), "expected low-severity anomaly for truncated Variant");
+        assert!(
+            low.is_some(),
+            "expected low-severity anomaly for truncated Variant"
+        );
 
         let readings = get_readings(&events);
-        assert!(readings.is_empty(), "truncated Variant must not produce readings");
+        assert!(
+            readings.is_empty(),
+            "truncated Variant must not produce readings"
+        );
     }
 
     // ── Test 14: Windows FILETIME → Unix micros conversion correctness ─────────
@@ -1651,7 +1649,13 @@ mod tests {
         assert_eq!(assets.len(), 1, "AssetObservation must appear exactly once");
         assert_eq!(assets[0].role.as_deref(), Some("opc_ua_publisher"));
         assert!(assets[0].asset_key.contains("7"));
-        assert_eq!(assets[0].identifiers.get("publisher_id").map(String::as_str), Some("7"));
+        assert_eq!(
+            assets[0]
+                .identifiers
+                .get("publisher_id")
+                .map(String::as_str),
+            Some("7")
+        );
     }
 
     // ── Test 16: Multiple DSMs in one UADP datagram ───────────────────────────
@@ -1704,8 +1708,8 @@ mod tests {
         // FieldCount = 0
         let dsm = vec![
             0x09u8, // DataSetFlags1: valid, Variant enc, SeqNumEnabled
-            42, 0,  // SequenceNumber = 42
-            0, 0,   // FieldCount = 0
+            42, 0, // SequenceNumber = 42
+            0, 0, // FieldCount = 0
         ];
         let payload = make_uadp_with_dsm(8, &dsm);
         let events = run_decoder(&payload);

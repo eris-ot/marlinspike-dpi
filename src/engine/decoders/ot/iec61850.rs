@@ -11,19 +11,19 @@
 
 use std::collections::BTreeMap;
 
+use super::{context_asset_key, context_remote_asset_key, normalize_operation_name};
 use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, Iec61850BronzeFields, ProtocolFields,
     ProtocolTransaction, TopologyObservation, TransportProtocol,
 };
 use crate::dissectors::iec61850::{
-    Iec61850Dissector, Iec61850Fields, Iec61850Profile, IEC61850_GOOSE_ETHERTYPE,
-    IEC61850_MMS_PORT, IEC61850_SV_ETHERTYPE,
+    IEC61850_GOOSE_ETHERTYPE, IEC61850_MMS_PORT, IEC61850_SV_ETHERTYPE, Iec61850Dissector,
+    Iec61850Fields, Iec61850Profile,
 };
 use crate::engine::{
-    artifact_event, build_envelope, new_event, parse_anomaly_event, DecoderInterest,
-    SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
+    parse_anomaly_event,
 };
-use super::{context_asset_key, context_remote_asset_key, normalize_operation_name};
 
 #[derive(Default)]
 pub(crate) struct Iec61850DecoderWrapper {
@@ -462,10 +462,10 @@ mod tests {
 
     fn extract_iec61850_fields(events: &[BronzeEvent]) -> &Iec61850BronzeFields {
         for ev in events {
-            if let BronzeEventFamily::ProtocolTransaction(tx) = &ev.family {
-                if let Some(ProtocolFields::Iec61850(ref f)) = tx.protocol_fields {
-                    return f;
-                }
+            if let BronzeEventFamily::ProtocolTransaction(tx) = &ev.family
+                && let Some(ProtocolFields::Iec61850(ref f)) = tx.protocol_fields
+            {
+                return f;
             }
         }
         panic!("no Iec61850BronzeFields found in events");
@@ -506,7 +506,10 @@ mod tests {
         assert_eq!(f.sub_protocol, "mms");
         assert_eq!(f.mms_service.as_deref(), Some("confirmed_request_pdu"));
         assert_eq!(f.mms_invoke_id, Some(1));
-        assert!(f.mms_visible_string.is_some(), "expected at least one visible string");
+        assert!(
+            f.mms_visible_string.is_some(),
+            "expected at least one visible string"
+        );
         assert_eq!(f.direction, "request");
     }
 
@@ -517,17 +520,29 @@ mod tests {
         let pkt = build_tpkt_cotp_mms(payload);
         let events = run_decoder(&pkt, 50_000, IEC61850_MMS_PORT, 0);
 
-        let tx = events.iter().find_map(|ev| {
-            if let BronzeEventFamily::ProtocolTransaction(tx) = &ev.family {
-                Some(tx)
-            } else {
-                None
-            }
-        }).expect("expected ProtocolTransaction");
+        let tx = events
+            .iter()
+            .find_map(|ev| {
+                if let BronzeEventFamily::ProtocolTransaction(tx) = &ev.family {
+                    Some(tx)
+                } else {
+                    None
+                }
+            })
+            .expect("expected ProtocolTransaction");
 
-        assert!(tx.attributes.contains_key("profile"), "attributes must still carry profile");
-        assert!(tx.attributes.contains_key("message_type"), "attributes must carry message_type");
-        assert!(tx.protocol_fields.is_some(), "protocol_fields must be populated");
+        assert!(
+            tx.attributes.contains_key("profile"),
+            "attributes must still carry profile"
+        );
+        assert!(
+            tx.attributes.contains_key("message_type"),
+            "attributes must carry message_type"
+        );
+        assert!(
+            tx.protocol_fields.is_some(),
+            "protocol_fields must be populated"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -541,8 +556,8 @@ mod tests {
         //   [9] stNum=5   → 0x89 0x01 0x05
         //   [10] sqNum=2  → 0x8A 0x01 0x02
         let goose_body: &[u8] = &[
-            0x89, 0x01, 0x05,  // stNum = 5
-            0x8A, 0x01, 0x02,  // sqNum = 2
+            0x89, 0x01, 0x05, // stNum = 5
+            0x8A, 0x01, 0x02, // sqNum = 2
         ];
         let mut goose_pdu = vec![0x61u8, goose_body.len() as u8];
         goose_pdu.extend_from_slice(goose_body);
@@ -566,9 +581,9 @@ mod tests {
     fn goose_test_bit_set() {
         // GOOSE PDU with test bit = true (0x86 0x01 0xFF), stNum=1, sqNum=0.
         let goose_body: &[u8] = &[
-            0x86, 0x01, 0xFF,  // test = true
-            0x89, 0x01, 0x01,  // stNum = 1
-            0x8A, 0x01, 0x00,  // sqNum = 0
+            0x86, 0x01, 0xFF, // test = true
+            0x89, 0x01, 0x01, // stNum = 1
+            0x8A, 0x01, 0x00, // sqNum = 0
         ];
         let mut goose_pdu = vec![0x61u8, goose_body.len() as u8];
         goose_pdu.extend_from_slice(goose_body);
@@ -581,7 +596,10 @@ mod tests {
 
         let f = extract_iec61850_fields(&events);
         assert_eq!(f.sub_protocol, "goose");
-        assert!(f.goose_test, "test bit must be true for security-relevant test-mode detection");
+        assert!(
+            f.goose_test,
+            "test bit must be true for security-relevant test-mode detection"
+        );
         assert_eq!(f.goose_state_number, Some(1));
         assert_eq!(f.goose_sequence_number, Some(0));
     }
@@ -596,8 +614,8 @@ mod tests {
         //   smpCnt [2] = 0x82 0x02 0x01 0xF4  (smpCnt = 500)
         //   smpSynch [5] = 0x85 0x01 0x02      (smpSynch = 2 = global)
         let asdu_inner: &[u8] = &[
-            0x82, 0x02, 0x01, 0xF4,  // smpCnt = 500
-            0x85, 0x01, 0x02,         // smpSynch = 2
+            0x82, 0x02, 0x01, 0xF4, // smpCnt = 500
+            0x85, 0x01, 0x02, // smpSynch = 2
         ];
         let mut asdu = vec![0x30u8, asdu_inner.len() as u8];
         asdu.extend_from_slice(asdu_inner);

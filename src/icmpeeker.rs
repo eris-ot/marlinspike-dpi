@@ -58,10 +58,7 @@ impl Default for IcmpeekerConfig {
 /// Inspect an ICMP packet for anomalies.
 ///
 /// `icmp_payload` starts at the ICMP header (type, code, checksum, ...).
-pub fn inspect(
-    config: &IcmpeekerConfig,
-    icmp_payload: &[u8],
-) -> Vec<FrameFinding> {
+pub fn inspect(config: &IcmpeekerConfig, icmp_payload: &[u8]) -> Vec<FrameFinding> {
     if !config.enabled || icmp_payload.len() < 4 {
         return Vec::new();
     }
@@ -92,9 +89,7 @@ pub fn inspect(
     }
 
     // ICMP Echo tunnel detection
-    if config.check_tunnels
-        && (icmp_type == ICMP_ECHO_REQUEST || icmp_type == ICMP_ECHO_REPLY)
-    {
+    if config.check_tunnels && (icmp_type == ICMP_ECHO_REQUEST || icmp_type == ICMP_ECHO_REPLY) {
         // Echo header: type(1) + code(1) + checksum(2) + id(2) + seq(2) = 8 bytes
         if icmp_payload.len() > 8 {
             let echo_data = &icmp_payload[8..];

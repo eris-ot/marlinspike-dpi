@@ -50,7 +50,9 @@ impl FtpDissector {
         };
 
         // Validate: known FTP commands are 3-4 uppercase letters.
-        if command.len() < 3 || command.len() > 4 || !command.chars().all(|c| c.is_ascii_uppercase())
+        if command.len() < 3
+            || command.len() > 4
+            || !command.chars().all(|c| c.is_ascii_uppercase())
         {
             return None;
         }

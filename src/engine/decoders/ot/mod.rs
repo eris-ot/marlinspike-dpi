@@ -6,7 +6,7 @@
 
 use std::net::{IpAddr, Ipv4Addr};
 
-use crate::registry::{format_mac, PacketContext};
+use crate::registry::{PacketContext, format_mac};
 
 pub(crate) mod ab_csp;
 pub(crate) mod ads;
@@ -28,10 +28,10 @@ pub(crate) mod iec61850;
 pub(crate) mod melsec;
 pub(crate) mod modbus;
 pub(crate) mod modbus_udp;
+pub(crate) mod omron_fins;
 pub(crate) mod opc_classic;
 pub(crate) mod opc_ua;
 pub(crate) mod opc_ua_pubsub;
-pub(crate) mod omron_fins;
 pub(crate) mod osi_pi;
 pub(crate) mod powerlink;
 pub(crate) mod profinet;

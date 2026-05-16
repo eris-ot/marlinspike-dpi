@@ -21,7 +21,7 @@ use crate::bronze::{
 };
 use crate::dissectors::opc_ua::OpcUaDissector;
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 use crate::registry::{OpcUaFields, ProtocolData, ProtocolDissector};
 
@@ -73,8 +73,7 @@ impl SessionDecoder for OpcUaDecoderWrapper {
                 // --- Direction heuristic ---
                 let is_server_port = matches!(chunk.context.dst_port, 4840 | 12001);
                 let is_request = is_server_port;
-                let is_response = !is_server_port
-                    && matches!(chunk.context.src_port, 4840 | 12001);
+                let is_response = !is_server_port && matches!(chunk.context.src_port, 4840 | 12001);
 
                 // --- Extended header fields extracted from raw payload ---
                 let chunk_type_char = if chunk.payload.len() > 3 {
@@ -83,18 +82,17 @@ impl SessionDecoder for OpcUaDecoderWrapper {
                     "F".to_string()
                 };
 
-                let secure_channel_id: Option<u32> =
-                    match message_type.as_str() {
-                        "MSG" | "OPN" | "CLO" if chunk.payload.len() >= 12 => Some(
-                            u32::from_le_bytes([
-                                chunk.payload[8],
-                                chunk.payload[9],
-                                chunk.payload[10],
-                                chunk.payload[11],
-                            ]),
-                        ),
-                        _ => None,
-                    };
+                let secure_channel_id: Option<u32> = match message_type.as_str() {
+                    "MSG" | "OPN" | "CLO" if chunk.payload.len() >= 12 => {
+                        Some(u32::from_le_bytes([
+                            chunk.payload[8],
+                            chunk.payload[9],
+                            chunk.payload[10],
+                            chunk.payload[11],
+                        ]))
+                    }
+                    _ => None,
+                };
 
                 let sequence_number: Option<u32> =
                     if message_type == "MSG" && chunk.payload.len() >= 20 {
@@ -115,8 +113,7 @@ impl SessionDecoder for OpcUaDecoderWrapper {
                 };
 
                 // Status code for ERR frames (bytes 8–11).
-                let status_code: Option<u32> = if message_type == "ERR"
-                    && chunk.payload.len() >= 12
+                let status_code: Option<u32> = if message_type == "ERR" && chunk.payload.len() >= 12
                 {
                     Some(u32::from_le_bytes([
                         chunk.payload[8],
@@ -344,10 +341,10 @@ mod tests {
 
     fn extract_opc_ua_fields(events: &[BronzeEvent]) -> &OpcUaBronzeFields {
         for ev in events {
-            if let BronzeEventFamily::ProtocolTransaction(tx) = &ev.family {
-                if let Some(ProtocolFields::OpcUa(f)) = &tx.protocol_fields {
-                    return f;
-                }
+            if let BronzeEventFamily::ProtocolTransaction(tx) = &ev.family
+                && let Some(ProtocolFields::OpcUa(f)) = &tx.protocol_fields
+            {
+                return f;
             }
         }
         panic!("no OpcUa ProtocolFields found in events");

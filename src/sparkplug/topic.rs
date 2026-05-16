@@ -94,10 +94,10 @@ pub fn parse_topic(topic: &str) -> Option<SparkplugTopic<'_>> {
     if group_id.is_empty() || edge_node_id.is_empty() {
         return None;
     }
-    if let Some(d) = device_id {
-        if d.is_empty() {
-            return None;
-        }
+    if let Some(d) = device_id
+        && d.is_empty()
+    {
+        return None;
     }
     Some(SparkplugTopic {
         group_id,

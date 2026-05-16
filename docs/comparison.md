@@ -21,7 +21,7 @@ These tools all touch network traffic but solve different problems. This page is
 | Dependencies | Zero C deps | libpcap, Zeek deps | libpcap, libhtp, etc. | libpcap, GLib, many | libpcap | libpcap, ES, libpcap |
 | Distribution | Library (rlib + cdylib + staticlib) + CLI | Daemon + scripts | Daemon | GUI / CLI tool | C library | Daemon + UI |
 | Live capture | Out of scope (passive PCAP/PCAPNG) | ✓ | ✓ | ✓ | Library only | ✓ |
-| OT/ICS protocols | **40+ with deep parse** | Modbus, DNP3, BACnet, S7 (scripts) | Modbus, DNP3, ENIP (limited) | Most (recognition + drilldown) | Limited | Whatever Wireshark does |
+| OT/ICS protocols | **44 total (34 with deep/full parse)** | Modbus, DNP3, BACnet, S7 (scripts) | Modbus, DNP3, ENIP (limited) | Most (recognition + drilldown) | Limited | Whatever Wireshark does |
 | IT protocols | DNS, DHCP, HTTP, TLS, SMB2/3, Kerberos, LDAP, RDP, etc. | Full | Full | Full | Yes | Full |
 | VQT (Value/Quality/Timestamp) for historian | **Native — typed `ProcessReading`** | Possible via scripts | No | No | No | No |
 | Stateful L2 detection (ARP spoof, VLAN hop, STP) | **Native (Bilgepump)** | Possible via scripts | Some | Manual | No | No |
@@ -29,7 +29,7 @@ These tools all touch network traffic but solve different problems. This page is
 | Embeddable in another Rust app | **Yes — one `cargo add`** | No (subprocess) | No (subprocess) | No (subprocess) | Yes via C FFI | No |
 | C ABI for other languages | **Yes (`fm_dpi_*`)** | No | No | No | Yes (native C) | No |
 | Detection subsystems | Stovetop (frame integrity) + ICMPeeker (ICMP threats) + Bilgepump (L2 stateful) | Scripted | Signature engine | None | None | None |
-| Test count | 850 | Hundreds (varies) | Yes | Yes | Yes | Yes |
+| Test count | 880+ | Hundreds (varies) | Yes | Yes | Yes | Yes |
 | Licence | AGPL-3.0-or-later / commercial | BSD | GPL-2.0 | GPL-2.0 | GPL-3.0 / LGPL | Apache 2.0 |
 
 ## Per-tool deep comparison
@@ -40,7 +40,7 @@ These tools all touch network traffic but solve different problems. This page is
 
 **Where marlinspike-dpi differs:**
 
-- **OT/ICS depth.** Zeek has Modbus, DNP3, BACnet, and S7 — that's roughly 4 OT protocols at varying depths, mostly community-contributed. marlinspike-dpi has 40+ OT protocols at deep parse with typed Bronze v2 emission for the 9 most-deployed (Modbus, DNP3, IEC 104, S7comm, OPC UA, EtherNet/IP, IEC 61850, HART-IP, Sparkplug). VQT extraction (Value/Quality/Timestamp) is built into the event model — `ProcessReading` with typed `PointIdentifier`, `PointValue`, and `RawQuality`.
+- **OT/ICS depth.** Zeek has Modbus, DNP3, BACnet, and S7 — that's roughly 4 OT protocols at varying depths, mostly community-contributed. marlinspike-dpi has 44 OT/ICS protocols (34 with deep or full parse) with typed Bronze v2 emission for the 9 most-deployed (Modbus, DNP3, IEC 104, S7comm, OPC UA, EtherNet/IP, IEC 61850, HART-IP, Sparkplug). VQT extraction (Value/Quality/Timestamp) is built into the event model — `ProcessReading` with typed `PointIdentifier`, `PointValue`, and `RawQuality`.
 - **Embedding model.** Zeek is a daemon; you write Zeek scripts. marlinspike-dpi is a library you import. You can call `DpiEngine::new()` from your Rust application and stream Bronze events via the `BronzeSink` trait — no subprocess, no IPC, no shared filesystem.
 - **Dependency story.** Zeek depends on libpcap, OpenSSL, and a long C++ build chain. marlinspike-dpi has zero C dependencies; the entire stack is safe Rust.
 - **What Zeek does better.** Live capture (we're passive-only — feed us PCAP / PCAPNG bytes); scripting (we don't have a DSL — you write Rust); the community ecosystem of Zeek packages.
@@ -55,7 +55,7 @@ These tools all touch network traffic but solve different problems. This page is
 **Where marlinspike-dpi differs:**
 
 - **Different category.** Suricata is an IDS — its job is to fire alerts on signature matches. marlinspike-dpi is a *parser*. We emit structured events about every flow we see; what to alert on is the embedder's policy decision.
-- **OT/ICS protocols.** Suricata has Modbus, DNP3, and ENIP at limited depths. marlinspike-dpi parses 40+ industrial protocols including the harder ones (IEC 61850 GOOSE/SV, Sparkplug B with stateful alias resolution, Triconex TriStation, Modicon UMAS, etc.).
+- **OT/ICS protocols.** Suricata has Modbus, DNP3, and ENIP at limited depths. marlinspike-dpi covers 44 OT/ICS protocols (34 with deep parse) including the harder ones (IEC 61850 GOOSE/SV, Sparkplug B with stateful alias resolution, Triconex TriStation, Modicon UMAS, etc.).
 - **Output.** Suricata emits EVE JSON (alerts + flow records + protocol records). We emit a richer typed Bronze v2 schema and have native OCSF / Influx renderers.
 
 **Pick Suricata if:** you want rule-based intrusion detection on live traffic.

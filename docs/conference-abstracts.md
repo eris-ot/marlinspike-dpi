@@ -28,7 +28,7 @@ This talk presents marlinspike-dpi, a pure-Rust passive DPI engine purpose-built
 
 3. **Open questions.** Where deep parsing is hard or impossible — member-restricted specs (CC-Link IE, FF HSE), proprietary protocols with patchy reverse-engineering (Vnet/IP, OSIsoft PI), and the absolute limits at encrypted boundaries.
 
-850 tests. AGPL-3.0 + commercial. Working code on stage.
+880+ tests. AGPL-3.0 + commercial. Working code on stage.
 
 ### Speaker bio template (60 words)
 
@@ -50,7 +50,7 @@ This talk presents marlinspike-dpi, a pure-Rust passive DPI engine purpose-built
 
 The OT defender story is bleak. The commercial offerings (Dragos, Claroty, Nozomi) cost six-to-seven figures and run as black-box appliances. The OSS offerings (Zeek, Suricata) have a handful of ICS-protocol dissectors that haven't shipped meaningful new coverage in years. If you're at a water utility or a mid-sized manufacturer, you're stuck between "buy a Lamborghini" and "fork Zeek scripts you don't understand".
 
-marlinspike-dpi is an attempt at a third option: a passive DPI library that handles 40+ OT protocols deeply, ships as a single Rust binary or Docker image, and emits structured events into whatever downstream pipeline you already have (SIEM via OCSF, historian via InfluxDB, custom via Bronze v2 JSON).
+marlinspike-dpi is an attempt at a third option: a passive DPI library that covers 44 OT/ICS protocols (34 parsed deeply), ships as a single Rust binary or Docker image, and emits structured events into whatever downstream pipeline you already have (SIEM via OCSF, historian via InfluxDB, custom via Bronze v2 JSON).
 
 In this talk we'll:
 
@@ -60,7 +60,7 @@ In this talk we'll:
 - Show what happens at the spec-blocked boundaries (CC-Link IE, OSIsoft PI, FF HSE) and where reverse-engineering buys you something
 - Walk the contribution path: how to add a new decoder in 30 minutes when your specific vendor's protocol isn't yet supported
 
-The whole engine is pure Rust with zero C dependencies. AGPL-3.0 with commercial option. 850 tests. Working code, no slideware that doesn't compile.
+The whole engine is pure Rust with zero C dependencies. AGPL-3.0 with commercial option. 880+ tests. Working code, no slideware that doesn't compile.
 
 ### Demo plan (for the tool-demo track variant)
 
@@ -119,7 +119,7 @@ This talk presents an alternative: marlinspike-dpi, a pure-Rust passive deep-pac
 
 We'll cover, from an operator's perspective:
 
-- **What it actually does:** 40+ OT protocols parsed deeply, not just port-classified. Worked examples on Modbus, DNP3, IEC 104, S7comm, OPC UA, IEC 61850, Sparkplug B. Plus 30+ IT protocols for the IT/OT bridge — SMB2/3, Kerberos, LDAP, DNS.
+- **What it actually does:** 44 OT/ICS protocols (34 parsed deeply), not just port-classified. Worked examples on Modbus, DNP3, IEC 104, S7comm, OPC UA, IEC 61850, Sparkplug B. Plus 40+ IT protocols for the IT/OT bridge — SMB2/3, Kerberos, LDAP, DNS.
 
 - **What it doesn't do:** It's a parser, not an IDS. No signature rules. No live capture (use `tcpdump` or your existing SPAN tap). No GUI. No decryption past TLS handshake. Stated up front so you don't get blindsided three months in.
 

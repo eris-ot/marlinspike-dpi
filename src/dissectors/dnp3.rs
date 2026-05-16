@@ -15,6 +15,7 @@ const DNP3_START_2: u8 = 0x64;
 const DLL_HEADER_SIZE: usize = 10;
 
 /// Returns the human-readable name of a DNP3 application-layer function code.
+#[cfg(test)]
 fn function_code_name(fc: u8) -> &'static str {
     match fc {
         0x00 => "Confirm",
@@ -115,7 +116,10 @@ impl ProtocolDissector for Dnp3Dissector {
         // For responses (0x81, 0x82) the next 2 bytes are Internal Indications (IIN).
         let (iin, app_data_start) = if function_code == 0x81 || function_code == 0x82 {
             let iin_val = if data.len() >= app_offset + 4 {
-                Some(u16::from_le_bytes([data[app_offset + 2], data[app_offset + 3]]))
+                Some(u16::from_le_bytes([
+                    data[app_offset + 2],
+                    data[app_offset + 3],
+                ]))
             } else {
                 None
             };

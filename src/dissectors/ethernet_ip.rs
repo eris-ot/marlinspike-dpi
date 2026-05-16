@@ -66,11 +66,7 @@ impl ProtocolDissector for EthernetIpDissector {
             .unwrap_or(data.len())
             .min(data.len());
 
-        let cip_data = if command == 0x006F || command == 0x0070 {
-            data[ENCAP_HEADER_SIZE..payload_end].to_vec()
-        } else {
-            data[ENCAP_HEADER_SIZE..payload_end].to_vec()
-        };
+        let cip_data = data[ENCAP_HEADER_SIZE..payload_end].to_vec();
 
         let _ = command_name(command); // ensure the function is used
 

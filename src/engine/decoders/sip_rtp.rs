@@ -19,18 +19,28 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction,
-};
+use crate::bronze::{AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction};
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── SIP method set (RFC 3261 core + extensions) ─────────────────────────────
 
 const SIP_METHODS: &[&str] = &[
-    "REGISTER", "INVITE", "ACK", "CANCEL", "BYE", "OPTIONS", "SUBSCRIBE", "NOTIFY", "REFER",
-    "MESSAGE", "INFO", "UPDATE", "PRACK", "PUBLISH",
+    "REGISTER",
+    "INVITE",
+    "ACK",
+    "CANCEL",
+    "BYE",
+    "OPTIONS",
+    "SUBSCRIBE",
+    "NOTIFY",
+    "REFER",
+    "MESSAGE",
+    "INFO",
+    "UPDATE",
+    "PRACK",
+    "PUBLISH",
 ];
 
 // ── RTP payload type names (RFC 3551 static map) ─────────────────────────────
@@ -149,7 +159,7 @@ fn dispatch(dec: &mut SipRtpDecoder, chunk: &StreamChunk<'_>, out: &mut Vec<Bron
 
 // ── SIP parser ───────────────────────────────────────────────────────────────
 
-fn handle_sip(dec: &mut SipRtpDecoder, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+fn handle_sip(_dec: &mut SipRtpDecoder, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
     let text = match std::str::from_utf8(chunk.payload) {
         Ok(s) => s,
         Err(_) => {
@@ -186,12 +196,27 @@ fn handle_sip(dec: &mut SipRtpDecoder, chunk: &StreamChunk<'_>, out: &mut Vec<Br
     // Parse headers from `rest`; stop at blank line (header/body separator).
     let headers = parse_sip_headers(rest);
 
-    let from = headers.get("from").or_else(|| headers.get("f")).cloned().unwrap_or_default();
-    let to = headers.get("to").or_else(|| headers.get("t")).cloned().unwrap_or_default();
-    let call_id =
-        headers.get("call-id").or_else(|| headers.get("i")).cloned().unwrap_or_default();
+    let from = headers
+        .get("from")
+        .or_else(|| headers.get("f"))
+        .cloned()
+        .unwrap_or_default();
+    let to = headers
+        .get("to")
+        .or_else(|| headers.get("t"))
+        .cloned()
+        .unwrap_or_default();
+    let call_id = headers
+        .get("call-id")
+        .or_else(|| headers.get("i"))
+        .cloned()
+        .unwrap_or_default();
     let cseq = headers.get("cseq").cloned().unwrap_or_default();
-    let contact = headers.get("contact").or_else(|| headers.get("m")).cloned().unwrap_or_default();
+    let contact = headers
+        .get("contact")
+        .or_else(|| headers.get("m"))
+        .cloned()
+        .unwrap_or_default();
     let user_agent = headers.get("user-agent").cloned();
     let server = headers.get("server").cloned();
 
@@ -336,6 +361,7 @@ fn parse_sip_headers(text: &str) -> HashMap<String, String> {
     map
 }
 
+#[allow(clippy::too_many_arguments)]
 fn insert_common_attrs(
     attrs: &mut BTreeMap<String, String>,
     from: &str,
@@ -397,7 +423,7 @@ fn handle_rtp_rtcp(dec: &mut SipRtpDecoder, chunk: &StreamChunk<'_>, out: &mut V
     // RTCP packet types occupy the range 192–223 — full 8-bit byte (no marker
     // bit in RTCP). RTP byte 1 is M(1)|PT(7) where PT is 0–127. The two ranges
     // are disjoint, so dispatch on the raw byte before masking.
-    if b1 >= 192 && b1 <= 223 {
+    if (192..=223).contains(&b1) {
         let pt_rtcp = b1;
         let mut attributes = BTreeMap::new();
         attributes.insert("packet_type".to_string(), pt_rtcp.to_string());
@@ -427,11 +453,14 @@ fn handle_rtp_rtcp(dec: &mut SipRtpDecoder, chunk: &StreamChunk<'_>, out: &mut V
     let ssrc = u32::from_be_bytes([p[8], p[9], p[10], p[11]]);
     let marker = (b1 & 0x80) != 0;
 
-    let state = dec.rtp_streams.entry(ssrc).or_insert_with(|| RtpStreamState {
-        count: 0,
-        seq_initial: seq,
-        marker_seen: false,
-    });
+    let state = dec
+        .rtp_streams
+        .entry(ssrc)
+        .or_insert_with(|| RtpStreamState {
+            count: 0,
+            seq_initial: seq,
+            marker_seen: false,
+        });
     state.count += 1;
     if marker {
         state.marker_seen = true;
@@ -439,7 +468,7 @@ fn handle_rtp_rtcp(dec: &mut SipRtpDecoder, chunk: &StreamChunk<'_>, out: &mut V
 
     // Emit on first packet of a new SSRC, then every 1000th — throttles noise
     // without losing visibility into long-lived media streams.
-    let should_emit = state.count == 1 || state.count % 1000 == 0;
+    let should_emit = state.count == 1 || state.count.is_multiple_of(1000);
     if !should_emit {
         return;
     }
@@ -449,7 +478,10 @@ fn handle_rtp_rtcp(dec: &mut SipRtpDecoder, chunk: &StreamChunk<'_>, out: &mut V
     attributes.insert("payload_type".to_string(), pt.to_string());
     attributes.insert("payload_type_name".to_string(), pt_name(pt).to_string());
     attributes.insert("ssrc_hex".to_string(), format!("{ssrc:#010x}"));
-    attributes.insert("sequence_number_initial".to_string(), state.seq_initial.to_string());
+    attributes.insert(
+        "sequence_number_initial".to_string(),
+        state.seq_initial.to_string(),
+    );
     attributes.insert("marker_seen".to_string(), state.marker_seen.to_string());
 
     out.push(new_event(
@@ -534,6 +566,7 @@ mod tests {
         }
     }
 
+    #[expect(dead_code, reason = "left available for future TCP reassembly tests")]
     fn tcp_chunk<'a>(payload: &'a [u8]) -> StreamChunk<'a> {
         StreamChunk {
             capture_id: "test-cap",
@@ -578,7 +611,10 @@ mod tests {
         if let BronzeEventFamily::ProtocolTransaction(ref tx) = ev.family {
             assert_eq!(tx.operation, "sip_invite");
             assert_eq!(tx.status, "observed");
-            assert_eq!(tx.attributes.get("method").map(String::as_str), Some("INVITE"));
+            assert_eq!(
+                tx.attributes.get("method").map(String::as_str),
+                Some("INVITE")
+            );
             assert_eq!(
                 tx.attributes.get("request_uri").map(String::as_str),
                 Some("sip:bob@biloxi.com")
@@ -629,7 +665,10 @@ mod tests {
                 Some("OK")
             );
             assert_eq!(tx.request_summary.as_deref(), Some("200 OK"));
-            assert!(tx.attributes.contains_key("server"), "server header missing");
+            assert!(
+                tx.attributes.contains_key("server"),
+                "server header missing"
+            );
         } else {
             panic!("expected ProtocolTransaction");
         }
@@ -659,10 +698,13 @@ mod tests {
         // Expect: one ProtocolTransaction + one AssetObservation
         assert_eq!(out.len(), 2, "REGISTER should emit tx + asset obs");
 
-        let asset_ev = out.iter().find(|e| {
-            matches!(e.family, BronzeEventFamily::AssetObservation(_))
-        });
-        assert!(asset_ev.is_some(), "no AssetObservation emitted for REGISTER");
+        let asset_ev = out
+            .iter()
+            .find(|e| matches!(e.family, BronzeEventFamily::AssetObservation(_)));
+        assert!(
+            asset_ev.is_some(),
+            "no AssetObservation emitted for REGISTER"
+        );
 
         if let BronzeEventFamily::AssetObservation(ref obs) = asset_ev.unwrap().family {
             assert_eq!(obs.role.as_deref(), Some("sip_endpoint"));
@@ -685,7 +727,9 @@ mod tests {
         //   bytes 2-3: seq = 0x0001
         //   bytes 4-7: timestamp = 0x00000000
         //   bytes 8-11: SSRC = 0xDEADBEEF
-        let mut pkt = vec![0x80u8, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
+        let mut pkt = vec![
+            0x80u8, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF,
+        ];
         // Append some fake audio payload bytes
         pkt.extend_from_slice(&[0xAA; 20]);
 
@@ -698,8 +742,14 @@ mod tests {
         if let BronzeEventFamily::ProtocolTransaction(ref tx) = out[0].family {
             assert_eq!(tx.operation, "rtp_stream");
             assert_eq!(tx.status, "observed");
-            assert_eq!(tx.attributes.get("payload_type_name").map(String::as_str), Some("PCMU"));
-            assert_eq!(tx.attributes.get("payload_type").map(String::as_str), Some("0"));
+            assert_eq!(
+                tx.attributes.get("payload_type_name").map(String::as_str),
+                Some("PCMU")
+            );
+            assert_eq!(
+                tx.attributes.get("payload_type").map(String::as_str),
+                Some("0")
+            );
             assert_eq!(tx.attributes.get("version").map(String::as_str), Some("2"));
             assert!(tx.attributes.contains_key("ssrc_hex"), "ssrc_hex missing");
         } else {
@@ -732,7 +782,10 @@ mod tests {
         if let BronzeEventFamily::ProtocolTransaction(ref tx) = out[0].family {
             assert_eq!(tx.operation, "rtcp_sr");
             assert_eq!(tx.status, "observed");
-            assert_eq!(tx.attributes.get("packet_type").map(String::as_str), Some("200"));
+            assert_eq!(
+                tx.attributes.get("packet_type").map(String::as_str),
+                Some("200")
+            );
         } else {
             panic!("expected ProtocolTransaction");
         }
@@ -753,7 +806,11 @@ mod tests {
         assert_eq!(out.len(), 1, "malformed SIP must emit exactly one event");
         if let BronzeEventFamily::ParseAnomaly(ref a) = out[0].family {
             assert_eq!(a.severity, "low");
-            assert!(a.decoder.contains("sip_rtp"), "decoder field wrong: {}", a.decoder);
+            assert!(
+                a.decoder.contains("sip_rtp"),
+                "decoder field wrong: {}",
+                a.decoder
+            );
         } else {
             panic!("expected ParseAnomaly, got {:?}", out[0].family);
         }
@@ -783,6 +840,10 @@ mod tests {
         out.clear();
 
         dec.on_datagram(&udp_chunk(&pkt2, 5004, 5004), &mut out);
-        assert_eq!(out.len(), 0, "second packet of same SSRC must NOT emit (flood guard)");
+        assert_eq!(
+            out.len(),
+            0,
+            "second packet of same SSRC must NOT emit (flood guard)"
+        );
     }
 }

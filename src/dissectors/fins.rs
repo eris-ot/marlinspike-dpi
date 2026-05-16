@@ -181,7 +181,7 @@ fn parse_memory_area_arguments(
     payload: &[u8],
 ) -> (Option<u8>, Option<u16>, Option<u8>, Option<u16>) {
     match command_code {
-        0x0101 | 0x0102 | 0x0103 | 0x0104 | 0x0105 if payload.len() >= 6 => {
+        0x0101..=0x0105 if payload.len() >= 6 => {
             let memory_area = Some(payload[0]);
             let memory_word = Some(u16::from_be_bytes([payload[1], payload[2]]));
             let memory_bit = Some(payload[3]);

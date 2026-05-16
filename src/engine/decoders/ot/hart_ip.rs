@@ -13,10 +13,10 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, HartIpBronzeFields, ProtocolFields,
     ProtocolTransaction, TopologyObservation, TransportProtocol,
 };
-use crate::dissectors::hart_ip::{parse_hart_ip_frames, HartIpBody, HartIpDissector, HartIpFields};
+use crate::dissectors::hart_ip::{HartIpBody, HartIpDissector, HartIpFields, parse_hart_ip_frames};
 use crate::engine::{
-    artifact_event, build_envelope, new_event, parse_anomaly_event, DecoderInterest,
-    SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
+    parse_anomaly_event,
 };
 use crate::registry::{PacketContext, ProtocolData, ProtocolDissector};
 
@@ -393,9 +393,7 @@ fn hart_ip_bronze_fields(fields: &HartIpFields) -> HartIpBronzeFields {
     let (passthrough_command, passthrough_command_name, device_status, field_device_address) =
         match &fields.body {
             HartIpBody::PassThrough(pass) => {
-                let addr = pass
-                    .long_address
-                    .map(|a| a.to_vec());
+                let addr = pass.long_address.map(|a| a.to_vec());
                 (
                     Some(pass.command),
                     Some(hart_passthrough_command_name(pass.command).to_string()),
@@ -432,7 +430,7 @@ mod tests {
     use super::*;
     use crate::bronze::ProtocolFields;
     use crate::dissectors::hart_ip::{
-        parse_hart_ip_frames, HartIpBody, HartIpDissector, HartIpFields,
+        HartIpBody, HartIpDissector, HartIpFields, parse_hart_ip_frames,
     };
     use crate::registry::{ProtocolData, ProtocolDissector};
 
@@ -586,11 +584,11 @@ mod tests {
         // Minimal cmd-0 response payload (19 bytes) as used in the dissector tests.
         let command_data: [u8; 19] = [
             0x00, 0x12, 0x34, // byte0 (ignored), device_type hi/lo
-            0x05, 0x06,       // byte3 (ignored), hart_universal_rev=6
-            0x07, 0x08,       // device_rev=7, software_rev=8
+            0x05, 0x06, // byte3 (ignored), hart_universal_rev=6
+            0x07, 0x08, // device_rev=7, software_rev=8
             0x09, 0xAA, 0x01, 0x02, 0x03, // hw_rev=9, ignored, device_id bytes
             0x04, 0x05, 0x00, 0x10, 0x11, // more bytes
-            0x00, 0x2A,       // manufacturer_id = 42
+            0x00, 0x2A, // manufacturer_id = 42
         ];
         let data = build_pass_through_short(1, 0, true, &command_data);
         let fields = parse_fields(&data);
@@ -628,7 +626,10 @@ mod tests {
             bf.field_device_address,
             Some(vec![0x26, 0x12, 0x34, 0x00, 0x01])
         );
-        assert!(bf.device_status.is_none(), "request frame has no device_status");
+        assert!(
+            bf.device_status.is_none(),
+            "request frame has no device_status"
+        );
     }
 
     // ── NAK ───────────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -37,6 +37,7 @@ const AVP_USER_NAME: u32 = 1;
 const AVP_SESSION_ID: u32 = 263;
 const AVP_ORIGIN_HOST: u32 = 264;
 const AVP_RESULT_CODE: u32 = 268;
+#[expect(dead_code, reason = "reserved for future AVP extraction")]
 const AVP_AUTH_SESSION_STATE: u32 = 277;
 const AVP_ORIGIN_REALM: u32 = 296;
 
@@ -51,6 +52,10 @@ const AVP_FLAG_VENDOR: u8 = 0x80;
 
 #[derive(Debug, Clone)]
 struct DiameterMessage {
+    #[expect(
+        dead_code,
+        reason = "parsed for wire fidelity even if not surfaced yet"
+    )]
     version: u8,
     message_length: u32,
     command_flags: u8,
@@ -111,9 +116,15 @@ fn parse_diameter(data: &[u8]) -> Option<DiameterMessage> {
         hop_by_hop_id,
         end_to_end_id,
         avp_user_name: avps.get(&AVP_USER_NAME).and_then(|b| decode_utf8_string(b)),
-        avp_session_id: avps.get(&AVP_SESSION_ID).and_then(|b| decode_utf8_string(b)),
-        avp_origin_host: avps.get(&AVP_ORIGIN_HOST).and_then(|b| decode_utf8_string(b)),
-        avp_origin_realm: avps.get(&AVP_ORIGIN_REALM).and_then(|b| decode_utf8_string(b)),
+        avp_session_id: avps
+            .get(&AVP_SESSION_ID)
+            .and_then(|b| decode_utf8_string(b)),
+        avp_origin_host: avps
+            .get(&AVP_ORIGIN_HOST)
+            .and_then(|b| decode_utf8_string(b)),
+        avp_origin_realm: avps
+            .get(&AVP_ORIGIN_REALM)
+            .and_then(|b| decode_utf8_string(b)),
         avp_result_code: avps.get(&AVP_RESULT_CODE).and_then(|b| {
             if b.len() >= 4 {
                 Some(u32::from_be_bytes(b[..4].try_into().unwrap()))
@@ -189,6 +200,7 @@ fn command_operation(cmd: u32, is_request: bool) -> String {
 
 #[derive(Debug)]
 struct PendingRequest {
+    #[expect(dead_code, reason = "reserved for richer request/answer summaries")]
     operation: String,
 }
 
@@ -478,40 +490,61 @@ impl DiameterDecoder {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use chrono::{TimeZone, Utc};
     use super::*;
     use crate::bronze::BronzeEventFamily;
     use crate::engine::StreamChunk;
     use crate::registry::PacketContext;
+    use chrono::{TimeZone, Utc};
+    use std::net::{IpAddr, Ipv4Addr};
 
     fn ctx(sp: u16, dp: u16) -> PacketContext {
         PacketContext {
-            src_mac: [0u8; 6], dst_mac: [0u8; 6],
+            src_mac: [0u8; 6],
+            dst_mac: [0u8; 6],
             src_ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
             dst_ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            src_port: sp, dst_port: dp, vlan_id: None,
+            src_port: sp,
+            dst_port: dp,
+            vlan_id: None,
             timestamp: 1_700_000_000_000_000,
         }
     }
 
     fn chunk<'a>(payload: &'a [u8], context: PacketContext) -> StreamChunk<'a> {
         StreamChunk {
-            capture_id: "test", segment_hash: "seg",
-            interface_id: 0, frame_index: 0,
+            capture_id: "test",
+            segment_hash: "seg",
+            interface_id: 0,
+            frame_index: 0,
             timestamp: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
-            context, ethertype: 0x0800, ip_proto: Some(6), llc: None,
+            context,
+            ethertype: 0x0800,
+            ip_proto: Some(6),
+            llc: None,
             transport: TransportProtocol::Tcp,
-            payload, session_key: "sk".to_string(),
+            payload,
+            session_key: "sk".to_string(),
             captured_len: payload.len() as u64,
         }
     }
 
     fn get_tx(evs: &[BronzeEvent]) -> Option<&ProtocolTransaction> {
-        evs.iter().find_map(|e| if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family { Some(t) } else { None })
+        evs.iter().find_map(|e| {
+            if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family {
+                Some(t)
+            } else {
+                None
+            }
+        })
     }
     fn get_asset(evs: &[BronzeEvent]) -> Option<&AssetObservation> {
-        evs.iter().find_map(|e| if let BronzeEventFamily::AssetObservation(ref a) = e.family { Some(a) } else { None })
+        evs.iter().find_map(|e| {
+            if let BronzeEventFamily::AssetObservation(ref a) = e.family {
+                Some(a)
+            } else {
+                None
+            }
+        })
     }
 
     /// Build a 20-byte Diameter header. message_length and command_code are u24 BE;
@@ -519,9 +552,13 @@ mod tests {
     fn hdr(flags: u8, cmd: u32, app: u32, hbh: u32, e2e: u32, tlen: u32) -> Vec<u8> {
         let mut h = vec![
             DIAMETER_VERSION,
-            ((tlen >> 16) & 0xFF) as u8, ((tlen >> 8) & 0xFF) as u8, (tlen & 0xFF) as u8,
+            ((tlen >> 16) & 0xFF) as u8,
+            ((tlen >> 8) & 0xFF) as u8,
+            (tlen & 0xFF) as u8,
             flags,
-            ((cmd >> 16) & 0xFF) as u8, ((cmd >> 8) & 0xFF) as u8, (cmd & 0xFF) as u8,
+            ((cmd >> 16) & 0xFF) as u8,
+            ((cmd >> 8) & 0xFF) as u8,
+            (cmd & 0xFF) as u8,
         ];
         h.extend_from_slice(&app.to_be_bytes());
         h.extend_from_slice(&hbh.to_be_bytes());
@@ -543,23 +580,40 @@ mod tests {
         a
     }
 
-    fn avp_u32(code: u32, flags: u8, v: u32) -> Vec<u8> { avp(code, flags, &v.to_be_bytes()) }
+    fn avp_u32(code: u32, flags: u8, v: u32) -> Vec<u8> {
+        avp(code, flags, &v.to_be_bytes())
+    }
 
-    fn hl() -> u32 { DIAMETER_HEADER_LEN as u32 }
+    fn hl() -> u32 {
+        DIAMETER_HEADER_LEN as u32
+    }
 
     // ── 1: CER with Origin-Host AVP ──────────────────────────────────────────
 
     #[test]
     fn test_cer_with_origin_host() {
         let a = avp(AVP_ORIGIN_HOST, 0x40, b"dra1.example.com");
-        let mut pkt = hdr(FLAG_REQUEST, CMD_CAPABILITIES_EXCHANGE, 0, 0xABCDEF01, 0x12345678, hl() + a.len() as u32);
+        let mut pkt = hdr(
+            FLAG_REQUEST,
+            CMD_CAPABILITIES_EXCHANGE,
+            0,
+            0xABCDEF01,
+            0x12345678,
+            hl() + a.len() as u32,
+        );
         pkt.extend_from_slice(&a);
         let mut evs = Vec::new();
         DiameterDecoder::default().on_stream_chunk(&chunk(&pkt, ctx(49152, 3868)), &mut evs);
         let tx = get_tx(&evs).unwrap();
         assert_eq!(tx.operation, "diameter_capabilities_exchange_request");
-        assert_eq!(tx.attributes.get("avp_origin_host").map(String::as_str), Some("dra1.example.com"));
-        assert_eq!(tx.attributes.get("is_request").map(String::as_str), Some("true"));
+        assert_eq!(
+            tx.attributes.get("avp_origin_host").map(String::as_str),
+            Some("dra1.example.com")
+        );
+        assert_eq!(
+            tx.attributes.get("is_request").map(String::as_str),
+            Some("true")
+        );
     }
 
     // ── 2: CER + CEA pair → status "ok" on answer ────────────────────────────
@@ -568,14 +622,21 @@ mod tests {
     fn test_cer_cea_pair_status_ok() {
         let hbh = 0xDEAD_BEEFu32;
         let cer = hdr(FLAG_REQUEST, CMD_CAPABILITIES_EXCHANGE, 0, hbh, 1, hl());
-        let cea = hdr(0x00,         CMD_CAPABILITIES_EXCHANGE, 0, hbh, 1, hl());
+        let cea = hdr(0x00, CMD_CAPABILITIES_EXCHANGE, 0, hbh, 1, hl());
         let mut dec = DiameterDecoder::default();
         let mut evs = Vec::new();
         dec.on_stream_chunk(&chunk(&cer, ctx(49152, 3868)), &mut evs);
         dec.on_stream_chunk(&chunk(&cea, ctx(3868, 49152)), &mut evs);
-        let txns: Vec<_> = evs.iter().filter_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family { Some(t) } else { None }
-        }).collect();
+        let txns: Vec<_> = evs
+            .iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(txns.len(), 2);
         assert_eq!(txns[1].operation, "diameter_capabilities_exchange_answer");
         assert_eq!(txns[1].status, "ok");
@@ -590,7 +651,10 @@ mod tests {
         DiameterDecoder::default().on_stream_chunk(&chunk(&pkt, ctx(49152, 3868)), &mut evs);
         let tx = get_tx(&evs).unwrap();
         assert_eq!(tx.operation, "diameter_device_watchdog_request");
-        assert_eq!(tx.attributes.get("is_request").map(String::as_str), Some("true"));
+        assert_eq!(
+            tx.attributes.get("is_request").map(String::as_str),
+            Some("true")
+        );
     }
 
     // ── 4: Accounting answer with E flag + Result-Code 3001 ───────────────────
@@ -598,15 +662,28 @@ mod tests {
     #[test]
     fn test_accounting_answer_error_with_result_code() {
         let rc = avp_u32(AVP_RESULT_CODE, 0x40, 3001);
-        let mut pkt = hdr(FLAG_ERROR, CMD_ACCOUNTING, 3, 0xCAFEBABE, 2, hl() + rc.len() as u32);
+        let mut pkt = hdr(
+            FLAG_ERROR,
+            CMD_ACCOUNTING,
+            3,
+            0xCAFEBABE,
+            2,
+            hl() + rc.len() as u32,
+        );
         pkt.extend_from_slice(&rc);
         let mut evs = Vec::new();
         DiameterDecoder::default().on_stream_chunk(&chunk(&pkt, ctx(3868, 49153)), &mut evs);
         let tx = get_tx(&evs).unwrap();
         assert_eq!(tx.operation, "diameter_accounting_answer");
         assert_eq!(tx.status, "error");
-        assert_eq!(tx.attributes.get("avp_result_code").map(String::as_str), Some("3001"));
-        assert_eq!(tx.attributes.get("is_error").map(String::as_str), Some("true"));
+        assert_eq!(
+            tx.attributes.get("avp_result_code").map(String::as_str),
+            Some("3001")
+        );
+        assert_eq!(
+            tx.attributes.get("is_error").map(String::as_str),
+            Some("true")
+        );
     }
 
     // ── 5: Port 5868 TLS session marker ──────────────────────────────────────
@@ -619,7 +696,10 @@ mod tests {
         let tx = get_tx(&evs).unwrap();
         assert_eq!(tx.operation, "diameter_tls_session");
         assert_eq!(tx.status, "observed");
-        assert_eq!(get_asset(&evs).unwrap().role.as_deref(), Some("diameter_server"));
+        assert_eq!(
+            get_asset(&evs).unwrap().role.as_deref(),
+            Some("diameter_server")
+        );
     }
 
     // ── 6: Unknown command code ───────────────────────────────────────────────
@@ -638,13 +718,26 @@ mod tests {
     fn test_cer_asset_observation_identifiers() {
         let mut avps = avp(AVP_ORIGIN_HOST, 0x40, b"dra2.corp.net");
         avps.extend_from_slice(&avp(AVP_ORIGIN_REALM, 0x40, b"corp.net"));
-        let mut pkt = hdr(FLAG_REQUEST, CMD_CAPABILITIES_EXCHANGE, 0, 0x1111, 0x2222, hl() + avps.len() as u32);
+        let mut pkt = hdr(
+            FLAG_REQUEST,
+            CMD_CAPABILITIES_EXCHANGE,
+            0,
+            0x1111,
+            0x2222,
+            hl() + avps.len() as u32,
+        );
         pkt.extend_from_slice(&avps);
         let mut evs = Vec::new();
         DiameterDecoder::default().on_stream_chunk(&chunk(&pkt, ctx(49152, 3868)), &mut evs);
         let asset = get_asset(&evs).unwrap();
         assert_eq!(asset.role.as_deref(), Some("diameter_peer"));
-        assert_eq!(asset.identifiers.get("origin_host").map(String::as_str), Some("dra2.corp.net"));
-        assert_eq!(asset.identifiers.get("origin_realm").map(String::as_str), Some("corp.net"));
+        assert_eq!(
+            asset.identifiers.get("origin_host").map(String::as_str),
+            Some("dra2.corp.net")
+        );
+        assert_eq!(
+            asset.identifiers.get("origin_realm").map(String::as_str),
+            Some("corp.net")
+        );
     }
 }

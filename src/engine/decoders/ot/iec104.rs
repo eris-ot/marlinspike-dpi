@@ -13,8 +13,8 @@ use crate::bronze::{
 };
 use crate::dissectors::iec104::parse_iec104_frames;
 use crate::engine::{
-    artifact_event, build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder,
-    StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
+    parse_anomaly_event,
 };
 use crate::registry::{Iec104Fields, PacketContext};
 
@@ -181,7 +181,6 @@ impl SessionDecoder for Iec104DecoderWrapper {
     }
 }
 
-
 fn iec104_type_name(type_id: u8) -> &'static str {
     match type_id {
         1 => "single_point_information",
@@ -307,23 +306,23 @@ fn iec104_role_observations(
     };
 
     let mut src_identifiers = BTreeMap::from([("ip".to_string(), context.src_ip.to_string())]);
-    if src_role == "outstation" {
-        if let Some(common_address) = common_address {
-            src_identifiers.insert(
-                "iec104_common_address".to_string(),
-                common_address.to_string(),
-            );
-        }
+    if src_role == "outstation"
+        && let Some(common_address) = common_address
+    {
+        src_identifiers.insert(
+            "iec104_common_address".to_string(),
+            common_address.to_string(),
+        );
     }
 
     let mut dst_identifiers = BTreeMap::from([("ip".to_string(), context.dst_ip.to_string())]);
-    if dst_role == "outstation" {
-        if let Some(common_address) = common_address {
-            dst_identifiers.insert(
-                "iec104_common_address".to_string(),
-                common_address.to_string(),
-            );
-        }
+    if dst_role == "outstation"
+        && let Some(common_address) = common_address
+    {
+        dst_identifiers.insert(
+            "iec104_common_address".to_string(),
+            common_address.to_string(),
+        );
     }
 
     vec![
@@ -428,7 +427,7 @@ fn iec104_bronze_fields(
 
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "iec104",
-    factory: || Box::new(Iec104DecoderWrapper::default()),
+    factory: || Box::new(Iec104DecoderWrapper),
 });
 
 #[cfg(test)]
@@ -502,7 +501,11 @@ mod tests {
     }
 
     fn iec104_fields(tx: &ProtocolTransaction) -> &Iec104BronzeFields {
-        match tx.protocol_fields.as_ref().expect("protocol_fields must be Some") {
+        match tx
+            .protocol_fields
+            .as_ref()
+            .expect("protocol_fields must be Some")
+        {
             ProtocolFields::Iec104(f) => f,
             other => panic!("expected Iec104 variant, got {:?}", other),
         }
@@ -556,8 +559,7 @@ mod tests {
     // C_SC_NA_1 = 45, cot=6 (activation) to outstation port 2404
     fn i_frame_single_command() -> Vec<u8> {
         vec![
-            0x68, 0x0E,
-            0x00, 0x00, // N(S)=0
+            0x68, 0x0E, 0x00, 0x00, // N(S)=0
             0x00, 0x00, // N(R)=0
             0x2D, // type_id = 45 (C_SC_NA_1)
             0x01, // VSQ
@@ -574,12 +576,15 @@ mod tests {
     #[test]
     fn i_frame_typed_fields_send_receive_sequence_and_asdu_type() {
         let payload = i_frame_single_point();
-        let mut dec = Iec104DecoderWrapper::default();
+        let mut dec = Iec104DecoderWrapper;
         let mut out = Vec::new();
         dec.on_stream_chunk(&make_chunk(&payload, ctx_outstation_to_master()), &mut out);
 
         let txns = txns(&out);
-        assert!(!txns.is_empty(), "expected at least one ProtocolTransaction");
+        assert!(
+            !txns.is_empty(),
+            "expected at least one ProtocolTransaction"
+        );
         let f = iec104_fields(txns[0]);
 
         assert_eq!(f.apci_type, "i_frame");
@@ -587,19 +592,25 @@ mod tests {
         assert_eq!(f.receive_sequence, Some(5));
         assert_eq!(f.u_function, None);
         assert_eq!(f.asdu_type_id, Some(1));
-        assert_eq!(f.asdu_type_name.as_deref(), Some("single_point_information"));
+        assert_eq!(
+            f.asdu_type_name.as_deref(),
+            Some("single_point_information")
+        );
     }
 
     /// S-frame yields apci_type=s_frame, N(R) set, send_sequence None.
     #[test]
     fn s_frame_typed_fields_receive_sequence_only() {
         let payload = s_frame();
-        let mut dec = Iec104DecoderWrapper::default();
+        let mut dec = Iec104DecoderWrapper;
         let mut out = Vec::new();
         dec.on_stream_chunk(&make_chunk(&payload, ctx_outstation_to_master()), &mut out);
 
         let txns = txns(&out);
-        assert!(!txns.is_empty(), "expected at least one ProtocolTransaction");
+        assert!(
+            !txns.is_empty(),
+            "expected at least one ProtocolTransaction"
+        );
         let f = iec104_fields(txns[0]);
 
         assert_eq!(f.apci_type, "s_frame");
@@ -612,12 +623,15 @@ mod tests {
     #[test]
     fn u_frame_startdt_act_typed_fields() {
         let payload = u_frame_startdt_act();
-        let mut dec = Iec104DecoderWrapper::default();
+        let mut dec = Iec104DecoderWrapper;
         let mut out = Vec::new();
         dec.on_stream_chunk(&make_chunk(&payload, ctx_master_to_outstation()), &mut out);
 
         let txns = txns(&out);
-        assert!(!txns.is_empty(), "expected at least one ProtocolTransaction");
+        assert!(
+            !txns.is_empty(),
+            "expected at least one ProtocolTransaction"
+        );
         let f = iec104_fields(txns[0]);
 
         assert_eq!(f.apci_type, "u_frame");
@@ -630,12 +644,15 @@ mod tests {
     #[test]
     fn u_frame_testfr_act_direction_request() {
         let payload = u_frame_testfr_act();
-        let mut dec = Iec104DecoderWrapper::default();
+        let mut dec = Iec104DecoderWrapper;
         let mut out = Vec::new();
         dec.on_stream_chunk(&make_chunk(&payload, ctx_master_to_outstation()), &mut out);
 
         let txns = txns(&out);
-        assert!(!txns.is_empty(), "expected at least one ProtocolTransaction");
+        assert!(
+            !txns.is_empty(),
+            "expected at least one ProtocolTransaction"
+        );
         let f = iec104_fields(txns[0]);
 
         assert_eq!(f.u_function.as_deref(), Some("testfr_act"));
@@ -647,12 +664,15 @@ mod tests {
     #[test]
     fn c_sc_na_1_control_direction_and_cot_activation() {
         let payload = i_frame_single_command();
-        let mut dec = Iec104DecoderWrapper::default();
+        let mut dec = Iec104DecoderWrapper;
         let mut out = Vec::new();
         dec.on_stream_chunk(&make_chunk(&payload, ctx_master_to_outstation()), &mut out);
 
         let txns = txns(&out);
-        assert!(!txns.is_empty(), "expected at least one ProtocolTransaction");
+        assert!(
+            !txns.is_empty(),
+            "expected at least one ProtocolTransaction"
+        );
         let f = iec104_fields(txns[0]);
 
         assert_eq!(f.asdu_type_id, Some(45));
@@ -667,7 +687,7 @@ mod tests {
     #[test]
     fn attributes_map_still_populated_alongside_typed_fields() {
         let payload = i_frame_single_point();
-        let mut dec = Iec104DecoderWrapper::default();
+        let mut dec = Iec104DecoderWrapper;
         let mut out = Vec::new();
         dec.on_stream_chunk(&make_chunk(&payload, ctx_outstation_to_master()), &mut out);
 
@@ -678,12 +698,30 @@ mod tests {
         // Typed surface present.
         assert!(tx.protocol_fields.is_some());
         // Legacy surface still present.
-        assert!(tx.attributes.contains_key("frame_type"), "frame_type missing from attributes");
-        assert!(tx.attributes.contains_key("type_id"), "type_id missing from attributes");
-        assert!(tx.attributes.contains_key("type_name"), "type_name missing from attributes");
-        assert!(tx.attributes.contains_key("cause"), "cause missing from attributes");
-        assert!(tx.attributes.contains_key("common_address"), "common_address missing from attributes");
-        assert_eq!(tx.attributes.get("frame_type").map(String::as_str), Some("i"));
+        assert!(
+            tx.attributes.contains_key("frame_type"),
+            "frame_type missing from attributes"
+        );
+        assert!(
+            tx.attributes.contains_key("type_id"),
+            "type_id missing from attributes"
+        );
+        assert!(
+            tx.attributes.contains_key("type_name"),
+            "type_name missing from attributes"
+        );
+        assert!(
+            tx.attributes.contains_key("cause"),
+            "cause missing from attributes"
+        );
+        assert!(
+            tx.attributes.contains_key("common_address"),
+            "common_address missing from attributes"
+        );
+        assert_eq!(
+            tx.attributes.get("frame_type").map(String::as_str),
+            Some("i")
+        );
         assert_eq!(tx.attributes.get("type_id").map(String::as_str), Some("1"));
     }
 
@@ -691,14 +729,17 @@ mod tests {
     #[test]
     fn m_sp_na_1_type_name_in_typed_fields() {
         let payload = i_frame_single_point();
-        let mut dec = Iec104DecoderWrapper::default();
+        let mut dec = Iec104DecoderWrapper;
         let mut out = Vec::new();
         dec.on_stream_chunk(&make_chunk(&payload, ctx_outstation_to_master()), &mut out);
 
         let txns = txns(&out);
         let f = iec104_fields(txns[0]);
         assert_eq!(f.asdu_type_id, Some(1));
-        assert_eq!(f.asdu_type_name.as_deref(), Some("single_point_information"));
+        assert_eq!(
+            f.asdu_type_name.as_deref(),
+            Some("single_point_information")
+        );
         assert_eq!(f.cause_of_transmission, Some(3));
         assert_eq!(f.cause_of_transmission_name.as_deref(), Some("spontaneous"));
     }

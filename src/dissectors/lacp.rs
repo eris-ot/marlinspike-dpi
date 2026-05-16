@@ -98,9 +98,7 @@ impl LacpDissector {
         // Collector TLV (optional): starts after partner.
         let mut max_delay = None;
         let collector_offset = partner_offset + 2 + partner_len;
-        if collector_offset + 4 <= data.len()
-            && data[collector_offset] == 0x03
-        {
+        if collector_offset + 4 <= data.len() && data[collector_offset] == 0x03 {
             let coll_len = data[collector_offset + 1] as usize;
             if coll_len >= 4 && collector_offset + 2 + 2 <= data.len() {
                 max_delay = Some(u16::from_be_bytes([
@@ -223,10 +221,12 @@ mod tests {
         assert_eq!(fields.actor.key, 100);
         assert_eq!(fields.actor.port, 1);
         assert!(fields.actor.state_flags.contains(&"activity".to_string()));
-        assert!(fields
-            .actor
-            .state_flags
-            .contains(&"synchronization".to_string()));
+        assert!(
+            fields
+                .actor
+                .state_flags
+                .contains(&"synchronization".to_string())
+        );
 
         assert_eq!(fields.partner.system, "aa:bb:cc:dd:ee:ff");
         assert_eq!(fields.partner.key, 200);

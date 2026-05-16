@@ -11,7 +11,7 @@ Pre-written PR submissions for the major curated lists. Copy-paste-edit when you
 **Suggested entry (single line, list-formatted):**
 
 ```markdown
-- [marlinspike-dpi](https://github.com/eris-ot/marlinspike-dpi) - Pure-Rust passive deep packet inspection for OT/ICS and IT. Parses 40+ industrial protocols (Modbus, DNP3, IEC 61850 GOOSE+SV+MMS, S7comm, OPC UA, EtherNet/IP, HART-IP, Sparkplug B, IEEE C37.118, etc.) plus 30+ IT protocols (SMB2/3, Kerberos, LDAP, DNS, TLS, NetFlow). PCAP/PCAPNG → Bronze v2 / OCSF v1.4.0 / InfluxDB Line Protocol. Zero C dependencies. AGPL-3.0 + commercial.
+- [marlinspike-dpi](https://github.com/eris-ot/marlinspike-dpi) - Pure-Rust passive deep packet inspection for OT/ICS and IT. 44 OT/ICS protocols (34 with deep parse — Modbus, DNP3, IEC 61850 GOOSE+SV+MMS, S7comm, OPC UA, EtherNet/IP, HART-IP, Sparkplug B, IEEE C37.118, and more) plus 40+ IT protocols (SMB2/3, Kerberos, LDAP, DNS, TLS, NetFlow). PCAP/PCAPNG → Bronze v2 / OCSF v1.4.0 / InfluxDB Line Protocol. Zero C dependencies. AGPL-3.0 + commercial.
 ```
 
 **PR body draft:**
@@ -20,10 +20,10 @@ Pre-written PR submissions for the major curated lists. Copy-paste-edit when you
 >
 > It's a pure-Rust passive DPI engine focused on OT/ICS protocol depth. The differentiator vs. existing entries (Zeek, Suricata, Wireshark) is **OT depth at the application layer** — full PDU parsing with typed Value/Quality/Timestamp extraction for process historian ingest, not just port-based classification.
 >
-> - 40+ industrial protocols parsed deeply
+> - 44 OT/ICS protocols (34 parsed deeply); 5 shallow; 5 recognition-only
 > - 9 OT protocols (Modbus, DNP3, IEC 104, S7comm, OPC UA, EtherNet/IP, IEC 61850, HART-IP, Sparkplug B) emit typed `ProtocolFields` enum variants
 > - Three detection subsystems: frame-integrity inspector, ICMP threat detector, stateful L2 monitor (ARP spoofing, VLAN hopping, STP root manipulation, rogue DHCP)
-> - 850 tests, zero ignored
+> - 880+ tests, zero ignored
 > - Embeddable as a Rust library, CLI binary, or C FFI surface
 > - Outputs Bronze v2 (canonical schema), OCSF v1.4.0 (SIEM ingest), InfluxDB Line Protocol (historian ingest)
 >
@@ -51,7 +51,7 @@ Pre-written PR submissions for the major curated lists. Copy-paste-edit when you
 
 > Adding marlinspike-dpi to the networking section.
 >
-> Pure-Rust passive DPI engine — zero C dependencies (no libpcap, no bindgen, no C FFI in the input path). 850 tests. The whole stack from PCAP parsing to CRC-32 validation is safe Rust.
+> Pure-Rust passive DPI engine — zero C dependencies (no libpcap, no bindgen, no C FFI in the input path). 880+ tests. The whole stack from PCAP parsing to CRC-32 validation is safe Rust.
 >
 > Distinctive Rust-ecosystem-relevant features:
 > - Uses the `inventory` crate for decoder self-registration (link-time collection — adding a new protocol is one new file with one `submit!` block, no central wiring)

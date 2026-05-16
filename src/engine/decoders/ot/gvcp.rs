@@ -9,67 +9,65 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // GVCP command codes (GigE Vision Standard 2.x §14)
 
-const CMD_DISCOVERY:     u16 = 0x0002;
-const ACK_DISCOVERY:     u16 = 0x0003;
-const CMD_FORCEIP:       u16 = 0x0004;
-const ACK_FORCEIP:       u16 = 0x0005;
-const CMD_PACKETRESEND:  u16 = 0x0040;
-const CMD_READREG:       u16 = 0x0080;
-const ACK_READREG:       u16 = 0x0081;
-const CMD_WRITEREG:      u16 = 0x0082;
-const ACK_WRITEREG:      u16 = 0x0083;
-const CMD_READMEM:       u16 = 0x0084;
-const ACK_READMEM:       u16 = 0x0085;
-const CMD_WRITEMEM:      u16 = 0x0086;
-const ACK_WRITEMEM:      u16 = 0x0087;
-const CMD_EVENT:         u16 = 0x0090;
-const CMD_ACTION:        u16 = 0x00C0;
+const CMD_DISCOVERY: u16 = 0x0002;
+const ACK_DISCOVERY: u16 = 0x0003;
+const CMD_FORCEIP: u16 = 0x0004;
+const ACK_FORCEIP: u16 = 0x0005;
+const CMD_PACKETRESEND: u16 = 0x0040;
+const CMD_READREG: u16 = 0x0080;
+const ACK_READREG: u16 = 0x0081;
+const CMD_WRITEREG: u16 = 0x0082;
+const ACK_WRITEREG: u16 = 0x0083;
+const CMD_READMEM: u16 = 0x0084;
+const ACK_READMEM: u16 = 0x0085;
+const CMD_WRITEMEM: u16 = 0x0086;
+const ACK_WRITEMEM: u16 = 0x0087;
+const CMD_EVENT: u16 = 0x0090;
+const CMD_ACTION: u16 = 0x00C0;
 
 const GVCP_KEY_CODE: u8 = 0x42; // sentinel: byte 0 of every command packet
-const HEADER_LEN:    usize = 8; // minimum wire size
+const HEADER_LEN: usize = 8; // minimum wire size
 
 // DISCOVERY_ACK payload (§16.2): 56-byte network/device state block precedes the string fields.
-const DISC_STR_OFFSET:       usize = 56;
-const DISC_MANUFACTURER_OFF: usize = DISC_STR_OFFSET;        // 32 bytes
-const DISC_MODEL_OFF:        usize = DISC_STR_OFFSET + 32;   // 32 bytes
-const DISC_VERSION_OFF:      usize = DISC_STR_OFFSET + 64;   // 32 bytes
-const DISC_MFR_INFO_OFF:     usize = DISC_STR_OFFSET + 96;   // 48 bytes
-const DISC_SERIAL_OFF:       usize = DISC_STR_OFFSET + 144;  // 16 bytes
-const DISC_USERNAME_OFF:     usize = DISC_STR_OFFSET + 160;  // 16 bytes
+const DISC_STR_OFFSET: usize = 56;
+const DISC_MANUFACTURER_OFF: usize = DISC_STR_OFFSET; // 32 bytes
+const DISC_MODEL_OFF: usize = DISC_STR_OFFSET + 32; // 32 bytes
+const DISC_VERSION_OFF: usize = DISC_STR_OFFSET + 64; // 32 bytes
+const DISC_MFR_INFO_OFF: usize = DISC_STR_OFFSET + 96; // 48 bytes
+const DISC_SERIAL_OFF: usize = DISC_STR_OFFSET + 144; // 16 bytes
+const DISC_USERNAME_OFF: usize = DISC_STR_OFFSET + 160; // 16 bytes
 
 const DISC_ACK_PAYLOAD_FULL: usize = DISC_USERNAME_OFF + 16; // 176 bytes total
 
-
 #[derive(Debug)]
 struct GvcpCommand {
-    flags:      u8,
-    command:    u16,
-    length:     u16,
+    flags: u8,
+    command: u16,
+    length: u16,
     request_id: u16,
 }
 
 #[derive(Debug)]
 struct GvcpAck {
-    status:      u16,
+    status: u16,
     acknowledge: u16,
-    length:      u16,
-    ack_id:      u16,
+    length: u16,
+    ack_id: u16,
 }
-
 
 fn parse_command(buf: &[u8]) -> Option<GvcpCommand> {
     if buf.len() < HEADER_LEN || buf[0] != GVCP_KEY_CODE {
         return None;
     }
     Some(GvcpCommand {
-        flags:      buf[1],
-        command:    u16::from_be_bytes([buf[2], buf[3]]),
-        length:     u16::from_be_bytes([buf[4], buf[5]]),
+        flags: buf[1],
+        command: u16::from_be_bytes([buf[2], buf[3]]),
+        length: u16::from_be_bytes([buf[4], buf[5]]),
         request_id: u16::from_be_bytes([buf[6], buf[7]]),
     })
 }
@@ -79,32 +77,32 @@ fn parse_ack(buf: &[u8]) -> Option<GvcpAck> {
         return None;
     }
     Some(GvcpAck {
-        status:      u16::from_be_bytes([buf[0], buf[1]]),
+        status: u16::from_be_bytes([buf[0], buf[1]]),
         acknowledge: u16::from_be_bytes([buf[2], buf[3]]),
-        length:      u16::from_be_bytes([buf[4], buf[5]]),
-        ack_id:      u16::from_be_bytes([buf[6], buf[7]]),
+        length: u16::from_be_bytes([buf[4], buf[5]]),
+        ack_id: u16::from_be_bytes([buf[6], buf[7]]),
     })
 }
 
 /// Map a GVCP command/ack code to an operation slug.
 fn command_to_operation(code: u16) -> String {
     match code {
-        CMD_DISCOVERY    => "gvcp_discovery".to_string(),
-        ACK_DISCOVERY    => "gvcp_discovery_ack".to_string(),
-        CMD_FORCEIP      => "gvcp_forceip".to_string(),
-        ACK_FORCEIP      => "gvcp_forceip_ack".to_string(),
+        CMD_DISCOVERY => "gvcp_discovery".to_string(),
+        ACK_DISCOVERY => "gvcp_discovery_ack".to_string(),
+        CMD_FORCEIP => "gvcp_forceip".to_string(),
+        ACK_FORCEIP => "gvcp_forceip_ack".to_string(),
         CMD_PACKETRESEND => "gvcp_packetresend".to_string(),
-        CMD_READREG      => "gvcp_readreg".to_string(),
-        ACK_READREG      => "gvcp_readreg_ack".to_string(),
-        CMD_WRITEREG     => "gvcp_writereg".to_string(),
-        ACK_WRITEREG     => "gvcp_writereg_ack".to_string(),
-        CMD_READMEM      => "gvcp_readmem".to_string(),
-        ACK_READMEM      => "gvcp_readmem_ack".to_string(),
-        CMD_WRITEMEM     => "gvcp_writemem".to_string(),
-        ACK_WRITEMEM     => "gvcp_writemem_ack".to_string(),
-        CMD_EVENT        => "gvcp_event".to_string(),
-        CMD_ACTION       => "gvcp_action".to_string(),
-        other            => format!("gvcp_unknown_0x{other:04x}"),
+        CMD_READREG => "gvcp_readreg".to_string(),
+        ACK_READREG => "gvcp_readreg_ack".to_string(),
+        CMD_WRITEREG => "gvcp_writereg".to_string(),
+        ACK_WRITEREG => "gvcp_writereg_ack".to_string(),
+        CMD_READMEM => "gvcp_readmem".to_string(),
+        ACK_READMEM => "gvcp_readmem_ack".to_string(),
+        CMD_WRITEMEM => "gvcp_writemem".to_string(),
+        ACK_WRITEMEM => "gvcp_writemem_ack".to_string(),
+        CMD_EVENT => "gvcp_event".to_string(),
+        CMD_ACTION => "gvcp_action".to_string(),
+        other => format!("gvcp_unknown_0x{other:04x}"),
     }
 }
 
@@ -118,7 +116,6 @@ fn trim_nul(bytes: &[u8]) -> String {
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     String::from_utf8_lossy(&bytes[..end]).trim().to_string()
 }
-
 
 #[derive(Default)]
 pub(crate) struct GvcpDecoder;
@@ -169,12 +166,7 @@ impl SessionDecoder for GvcpDecoder {
 }
 
 impl GvcpDecoder {
-    fn handle_command(
-        &mut self,
-        chunk: &StreamChunk<'_>,
-        buf: &[u8],
-        out: &mut Vec<BronzeEvent>,
-    ) {
+    fn handle_command(&mut self, chunk: &StreamChunk<'_>, buf: &[u8], out: &mut Vec<BronzeEvent>) {
         let cmd = match parse_command(buf) {
             Some(c) => c,
             None => return,
@@ -233,12 +225,7 @@ impl GvcpDecoder {
         ));
     }
 
-    fn handle_ack(
-        &mut self,
-        chunk: &StreamChunk<'_>,
-        buf: &[u8],
-        out: &mut Vec<BronzeEvent>,
-    ) {
+    fn handle_ack(&mut self, chunk: &StreamChunk<'_>, buf: &[u8], out: &mut Vec<BronzeEvent>) {
         // If byte 0 is not 0x42 but this doesn't look like a valid ack either,
         // emit a medium-severity anomaly (likely key_code corruption or wrong
         // protocol speaking on port 3956).
@@ -348,11 +335,11 @@ impl GvcpDecoder {
         // width with NUL bytes. `trim_nul` slices at the first 0x00 so the
         // resulting String contains only the printable device-supplied text.
         let manufacturer = trim_nul(&payload[DISC_MANUFACTURER_OFF..DISC_MANUFACTURER_OFF + 32]);
-        let model        = trim_nul(&payload[DISC_MODEL_OFF..DISC_MODEL_OFF + 32]);
-        let version      = trim_nul(&payload[DISC_VERSION_OFF..DISC_VERSION_OFF + 32]);
-        let mfr_info     = trim_nul(&payload[DISC_MFR_INFO_OFF..DISC_MFR_INFO_OFF + 48]);
-        let serial       = trim_nul(&payload[DISC_SERIAL_OFF..DISC_SERIAL_OFF + 16]);
-        let username     = trim_nul(&payload[DISC_USERNAME_OFF..DISC_USERNAME_OFF + 16]);
+        let model = trim_nul(&payload[DISC_MODEL_OFF..DISC_MODEL_OFF + 32]);
+        let version = trim_nul(&payload[DISC_VERSION_OFF..DISC_VERSION_OFF + 32]);
+        let mfr_info = trim_nul(&payload[DISC_MFR_INFO_OFF..DISC_MFR_INFO_OFF + 48]);
+        let serial = trim_nul(&payload[DISC_SERIAL_OFF..DISC_SERIAL_OFF + 16]);
+        let username = trim_nul(&payload[DISC_USERNAME_OFF..DISC_USERNAME_OFF + 16]);
 
         let asset_key = chunk.context.src_ip.to_string();
 
@@ -377,9 +364,17 @@ impl GvcpDecoder {
             BronzeEventFamily::AssetObservation(AssetObservation {
                 asset_key,
                 role: Some("gige_vision_camera".to_string()),
-                vendor: if manufacturer.is_empty() { None } else { Some(manufacturer) },
+                vendor: if manufacturer.is_empty() {
+                    None
+                } else {
+                    Some(manufacturer)
+                },
                 model: if model.is_empty() { None } else { Some(model) },
-                firmware: if version.is_empty() { None } else { Some(version) },
+                firmware: if version.is_empty() {
+                    None
+                } else {
+                    Some(version)
+                },
                 hostnames,
                 protocols: vec!["gvcp".to_string()],
                 identifiers,
@@ -388,12 +383,10 @@ impl GvcpDecoder {
     }
 }
 
-
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "gvcp",
-    factory: || Box::new(GvcpDecoder::default()),
+    factory: || Box::new(GvcpDecoder),
 });
-
 
 #[cfg(test)]
 mod tests {
@@ -408,8 +401,8 @@ mod tests {
 
     fn make_context() -> PacketContext {
         PacketContext {
-            src_ip:  IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10)),
-            dst_ip:  IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)),
+            src_ip: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10)),
+            dst_ip: IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)),
             src_port: 49152,
             dst_port: 3956,
             src_mac: [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
@@ -422,18 +415,18 @@ mod tests {
     fn feed(dec: &mut GvcpDecoder, payload: &[u8], out: &mut Vec<BronzeEvent>) {
         let context = make_context();
         let chunk = StreamChunk {
-            capture_id:   "cap-test",
+            capture_id: "cap-test",
             segment_hash: "seg",
             interface_id: 0,
-            frame_index:  1,
-            timestamp:    Utc::now(),
+            frame_index: 1,
+            timestamp: Utc::now(),
             context,
-            ethertype:    0x0800,
-            ip_proto:     Some(17),
-            llc:          None,
-            transport:    TransportProtocol::Udp,
+            ethertype: 0x0800,
+            ip_proto: Some(17),
+            llc: None,
+            transport: TransportProtocol::Udp,
             payload,
-            session_key:  "192.168.1.10:49152-255.255.255.255:3956".to_string(),
+            session_key: "192.168.1.10:49152-255.255.255.255:3956".to_string(),
             captured_len: payload.len() as u64,
         };
         dec.on_datagram(&chunk, out);
@@ -468,7 +461,7 @@ mod tests {
     // 1. DISCOVERY_CMD → operation = gvcp_discovery, request_id matches
     #[test]
     fn test_discovery_cmd() {
-        let mut dec = GvcpDecoder::default();
+        let mut dec = GvcpDecoder;
         let mut out = Vec::new();
         let pkt = cmd_header(0x01, CMD_DISCOVERY, 0, 42);
         feed(&mut dec, &pkt, &mut out);
@@ -486,7 +479,7 @@ mod tests {
     // 2. DISCOVERY_ACK with full payload → AssetObservation vendor/model parsed
     #[test]
     fn test_discovery_ack_asset_observation() {
-        let mut dec = GvcpDecoder::default();
+        let mut dec = GvcpDecoder;
         let mut out = Vec::new();
 
         // Build a 176-byte payload (the minimum spec-defined block).
@@ -494,30 +487,46 @@ mod tests {
         // We zero-fill the 56-byte header block and fill the strings.
         let mut payload = vec![0u8; 56]; // network/device state block
         payload.extend_from_slice(&padded("ACME Vision", 32)); // manufacturer_name
-        payload.extend_from_slice(&padded("C1500", 32));       // model_name
-        payload.extend_from_slice(&padded("2.3.1", 32));       // device_version
-        payload.extend_from_slice(&padded("Industrial", 48));  // manufacturer_info
-        payload.extend_from_slice(&padded("SN-0042", 16));     // serial_number
-        payload.extend_from_slice(&padded("LineScan01", 16));  // user_defined_name
+        payload.extend_from_slice(&padded("C1500", 32)); // model_name
+        payload.extend_from_slice(&padded("2.3.1", 32)); // device_version
+        payload.extend_from_slice(&padded("Industrial", 48)); // manufacturer_info
+        payload.extend_from_slice(&padded("SN-0042", 16)); // serial_number
+        payload.extend_from_slice(&padded("LineScan01", 16)); // user_defined_name
 
-        assert_eq!(payload.len(), DISC_ACK_PAYLOAD_FULL, "payload must be exactly {DISC_ACK_PAYLOAD_FULL} bytes");
+        assert_eq!(
+            payload.len(),
+            DISC_ACK_PAYLOAD_FULL,
+            "payload must be exactly {DISC_ACK_PAYLOAD_FULL} bytes"
+        );
 
         let mut pkt = ack_header(0x0000, ACK_DISCOVERY, payload.len() as u16, 7);
         pkt.extend_from_slice(&payload);
         feed(&mut dec, &pkt, &mut out);
 
         // Expect: ProtocolTransaction + AssetObservation.
-        assert_eq!(out.len(), 2, "expected ProtocolTransaction + AssetObservation");
+        assert_eq!(
+            out.len(),
+            2,
+            "expected ProtocolTransaction + AssetObservation"
+        );
 
-        let txn_ev = out.iter().find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
+        let txn_ev = out
+            .iter()
+            .find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
             .expect("missing ProtocolTransaction");
-        let BronzeEventFamily::ProtocolTransaction(ref txn) = txn_ev.family else { unreachable!() };
+        let BronzeEventFamily::ProtocolTransaction(ref txn) = txn_ev.family else {
+            unreachable!()
+        };
         assert_eq!(txn.operation, "gvcp_discovery_ack");
         assert_eq!(txn.status, "ok");
 
-        let asset_ev = out.iter().find(|e| matches!(e.family, BronzeEventFamily::AssetObservation(_)))
+        let asset_ev = out
+            .iter()
+            .find(|e| matches!(e.family, BronzeEventFamily::AssetObservation(_)))
             .expect("missing AssetObservation");
-        let BronzeEventFamily::AssetObservation(ref asset) = asset_ev.family else { unreachable!() };
+        let BronzeEventFamily::AssetObservation(ref asset) = asset_ev.family else {
+            unreachable!()
+        };
         assert_eq!(asset.role.as_deref(), Some("gige_vision_camera"));
         assert_eq!(asset.vendor.as_deref(), Some("ACME Vision"));
         assert_eq!(asset.model.as_deref(), Some("C1500"));
@@ -530,7 +539,7 @@ mod tests {
     // 3. READREG_CMD → operation = gvcp_readreg
     #[test]
     fn test_readreg_cmd() {
-        let mut dec = GvcpDecoder::default();
+        let mut dec = GvcpDecoder;
         let mut out = Vec::new();
         // READREG payload: list of register addresses (u32 each); 4 bytes = 1 register.
         let mut pkt = cmd_header(0x01, CMD_READREG, 4, 99);
@@ -549,7 +558,7 @@ mod tests {
     // 4. WRITEREG_ACK status=0x8002 → status = "gvcp_status_0x8002"
     #[test]
     fn test_writereg_ack_error_status() {
-        let mut dec = GvcpDecoder::default();
+        let mut dec = GvcpDecoder;
         let mut out = Vec::new();
         let pkt = ack_header(0x8002, ACK_WRITEREG, 0, 55);
         feed(&mut dec, &pkt, &mut out);
@@ -565,7 +574,7 @@ mod tests {
     // 5. Unknown command 0xFFFF → gvcp_unknown_0xffff + ParseAnomaly severity=low
     #[test]
     fn test_unknown_command_anomaly() {
-        let mut dec = GvcpDecoder::default();
+        let mut dec = GvcpDecoder;
         let mut out = Vec::new();
         let pkt = cmd_header(0x00, 0xFFFF, 0, 1);
         feed(&mut dec, &pkt, &mut out);
@@ -573,22 +582,34 @@ mod tests {
         // Expect: ParseAnomaly then ProtocolTransaction (order from handle_command).
         assert_eq!(out.len(), 2, "expected ParseAnomaly + ProtocolTransaction");
 
-        let anomaly_ev = out.iter().find(|e| matches!(e.family, BronzeEventFamily::ParseAnomaly(_)))
+        let anomaly_ev = out
+            .iter()
+            .find(|e| matches!(e.family, BronzeEventFamily::ParseAnomaly(_)))
             .expect("missing ParseAnomaly");
-        let BronzeEventFamily::ParseAnomaly(ref anomaly) = anomaly_ev.family else { unreachable!() };
+        let BronzeEventFamily::ParseAnomaly(ref anomaly) = anomaly_ev.family else {
+            unreachable!()
+        };
         assert_eq!(anomaly.severity, "low");
-        assert!(anomaly.reason.contains("0xffff"), "reason: {}", anomaly.reason);
+        assert!(
+            anomaly.reason.contains("0xffff"),
+            "reason: {}",
+            anomaly.reason
+        );
 
-        let txn_ev = out.iter().find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
+        let txn_ev = out
+            .iter()
+            .find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
             .expect("missing ProtocolTransaction");
-        let BronzeEventFamily::ProtocolTransaction(ref txn) = txn_ev.family else { unreachable!() };
+        let BronzeEventFamily::ProtocolTransaction(ref txn) = txn_ev.family else {
+            unreachable!()
+        };
         assert_eq!(txn.operation, "gvcp_unknown_0xffff");
     }
 
     // 6. Frame < 8 bytes → medium ParseAnomaly, no transaction
     #[test]
     fn test_truncated_frame_anomaly() {
-        let mut dec = GvcpDecoder::default();
+        let mut dec = GvcpDecoder;
         let mut out = Vec::new();
         let pkt = vec![0x42, 0x01, 0x00]; // only 3 bytes
         feed(&mut dec, &pkt, &mut out);

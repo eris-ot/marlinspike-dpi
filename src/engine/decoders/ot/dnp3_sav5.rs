@@ -20,13 +20,11 @@
 
 use std::collections::BTreeMap;
 
-use chrono::Utc;
-
 use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ---------------------------------------------------------------------------
@@ -144,9 +142,7 @@ impl SessionDecoder for Dnp3Sav5Decoder {
             BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                 operation: operation.to_string(),
                 status: "observed".to_string(),
-                request_summary: Some(format!(
-                    "{operation} src={src_addr} dst={dest_addr}"
-                )),
+                request_summary: Some(format!("{operation} src={src_addr} dst={dest_addr}")),
                 response_summary: None,
                 object_refs: vec![format!("dnp3:g120v{primary_var}")],
                 values: Vec::new(),
@@ -168,9 +164,7 @@ impl SessionDecoder for Dnp3Sav5Decoder {
                 firmware: None,
                 hostnames: Vec::new(),
                 protocols: vec!["dnp3_sav5".to_string()],
-                identifiers: BTreeMap::from([
-                    ("dnp3_addr".to_string(), src_addr.to_string()),
-                ]),
+                identifiers: BTreeMap::from([("dnp3_addr".to_string(), src_addr.to_string())]),
             }),
         ));
 
@@ -239,7 +233,7 @@ fn g120_variation_name(var: u8) -> &'static str {
 
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "dnp3_sav5",
-    factory: || Box::new(Dnp3Sav5Decoder::default()),
+    factory: || Box::new(Dnp3Sav5Decoder),
 });
 
 // ---------------------------------------------------------------------------
@@ -250,6 +244,8 @@ inventory::submit!(crate::engine::decoders::DecoderRegistration {
 mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr};
+
+    use chrono::Utc;
 
     use crate::engine::StreamChunk;
     use crate::registry::PacketContext;
@@ -324,14 +320,18 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn test_g120v1_challenge_emits_transaction_and_asset() {
-        let mut decoder = Dnp3Sav5Decoder::default();
+        let mut decoder = Dnp3Sav5Decoder;
         // dest=1, src=2; g120v1 object header followed by qualifier 0x50
         let frame = dnp3_frame(1, 2, &[0x78, 0x01, 0x50]);
         let mut out = Vec::new();
         decoder.on_stream_chunk(&chunk(&frame), &mut out);
 
         // Must emit at least ProtocolTransaction + AssetObservation
-        assert!(out.len() >= 2, "expected at least 2 events, got {}", out.len());
+        assert!(
+            out.len() >= 2,
+            "expected at least 2 events, got {}",
+            out.len()
+        );
 
         let tx = out.iter().find_map(|e| {
             if let BronzeEventFamily::ProtocolTransaction(ref tx) = e.family {
@@ -343,9 +343,18 @@ mod tests {
         let tx = tx.expect("ProtocolTransaction not found");
         assert_eq!(tx.operation, "dnp3_sav5_challenge");
         assert_eq!(tx.status, "observed");
-        assert_eq!(tx.attributes.get("dnp3_source_addr").map(String::as_str), Some("2"));
-        assert_eq!(tx.attributes.get("dnp3_dest_addr").map(String::as_str), Some("1"));
-        assert_eq!(tx.attributes.get("g120_variation").map(String::as_str), Some("1"));
+        assert_eq!(
+            tx.attributes.get("dnp3_source_addr").map(String::as_str),
+            Some("2")
+        );
+        assert_eq!(
+            tx.attributes.get("dnp3_dest_addr").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            tx.attributes.get("g120_variation").map(String::as_str),
+            Some("1")
+        );
 
         let asset = out.iter().find_map(|e| {
             if let BronzeEventFamily::AssetObservation(ref a) = e.family {
@@ -356,12 +365,16 @@ mod tests {
         });
         let asset = asset.expect("AssetObservation not found");
         assert_eq!(asset.role.as_deref(), Some("dnp3_sav5_capable"));
-        assert_eq!(asset.identifiers.get("dnp3_addr").map(String::as_str), Some("2"));
+        assert_eq!(
+            asset.identifiers.get("dnp3_addr").map(String::as_str),
+            Some("2")
+        );
 
         // No ParseAnomaly on a clean challenge
-        let anomaly_count = out.iter().filter(|e| {
-            matches!(e.family, BronzeEventFamily::ParseAnomaly(_))
-        }).count();
+        let anomaly_count = out
+            .iter()
+            .filter(|e| matches!(e.family, BronzeEventFamily::ParseAnomaly(_)))
+            .count();
         assert_eq!(anomaly_count, 0);
     }
 
@@ -370,7 +383,7 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn test_g120v2_reply() {
-        let mut decoder = Dnp3Sav5Decoder::default();
+        let mut decoder = Dnp3Sav5Decoder;
         let frame = dnp3_frame(3, 4, &[0x78, 0x02, 0x50]);
         let mut out = Vec::new();
         decoder.on_stream_chunk(&chunk(&frame), &mut out);
@@ -384,8 +397,14 @@ mod tests {
         });
         let tx = tx.expect("ProtocolTransaction not found");
         assert_eq!(tx.operation, "dnp3_sav5_reply");
-        assert_eq!(tx.attributes.get("dnp3_source_addr").map(String::as_str), Some("4"));
-        assert_eq!(tx.attributes.get("dnp3_dest_addr").map(String::as_str), Some("3"));
+        assert_eq!(
+            tx.attributes.get("dnp3_source_addr").map(String::as_str),
+            Some("4")
+        );
+        assert_eq!(
+            tx.attributes.get("dnp3_dest_addr").map(String::as_str),
+            Some("3")
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -393,7 +412,7 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn test_g120v7_auth_error_emits_high_anomaly() {
-        let mut decoder = Dnp3Sav5Decoder::default();
+        let mut decoder = Dnp3Sav5Decoder;
         let frame = dnp3_frame(10, 20, &[0x78, 0x07, 0x50]);
         let mut out = Vec::new();
         decoder.on_stream_chunk(&chunk(&frame), &mut out);
@@ -429,7 +448,7 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn test_non_sav5_frame_emits_no_events() {
-        let mut decoder = Dnp3Sav5Decoder::default();
+        let mut decoder = Dnp3Sav5Decoder;
         // g30v1 = group 30, variation 1 (Analog Input); object header 0x1E 0x01
         let frame = dnp3_frame(5, 6, &[0x1E, 0x01, 0x00, 0x00, 0x01, 0x00]);
         let mut out = Vec::new();
@@ -446,14 +465,14 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn test_corrupted_link_header_emits_low_anomaly() {
-        let mut decoder = Dnp3Sav5Decoder::default();
+        let mut decoder = Dnp3Sav5Decoder;
         // Valid start bytes but length=0x02 (below minimum of 5)
         let frame = vec![
             0x05, 0x64, 0x02, 0xC4, // start, start, bad_length, control
-            0x01, 0x00,              // dest addr LE
-            0x02, 0x00,              // src addr LE
-            0x00, 0x00,              // link CRC
-            0x78, 0x01,              // g120v1 (should not be reached)
+            0x01, 0x00, // dest addr LE
+            0x02, 0x00, // src addr LE
+            0x00, 0x00, // link CRC
+            0x78, 0x01, // g120v1 (should not be reached)
         ];
         let mut out = Vec::new();
         decoder.on_stream_chunk(&chunk(&frame), &mut out);
@@ -476,7 +495,7 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn test_multiple_variations_in_one_frame() {
-        let mut decoder = Dnp3Sav5Decoder::default();
+        let mut decoder = Dnp3Sav5Decoder;
         // Frame containing g120v1 then g120v9 (MAC)
         let frame = dnp3_frame(7, 8, &[0x78, 0x01, 0x50, 0x78, 0x09, 0x50]);
         let mut out = Vec::new();
@@ -492,7 +511,10 @@ mod tests {
         let tx = tx.expect("ProtocolTransaction not found");
         // Primary operation is the first variation
         assert_eq!(tx.operation, "dnp3_sav5_challenge");
-        let variations_seen = tx.attributes.get("variations_seen").expect("variations_seen missing");
+        let variations_seen = tx
+            .attributes
+            .get("variations_seen")
+            .expect("variations_seen missing");
         assert!(
             variations_seen.contains("dnp3_sav5_challenge"),
             "variations_seen missing challenge: {variations_seen}"
@@ -508,7 +530,7 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn test_short_frame_ignored() {
-        let mut decoder = Dnp3Sav5Decoder::default();
+        let mut decoder = Dnp3Sav5Decoder;
         let frame = vec![0x05, 0x64, 0x10, 0xC4]; // only 4 bytes
         let mut out = Vec::new();
         decoder.on_stream_chunk(&chunk(&frame), &mut out);

@@ -40,6 +40,7 @@ fn build_pcapng(packets: &[Vec<u8>]) -> Vec<u8> {
     data
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ethernet_ipv4_tcp(
     src_mac: [u8; 6],
     dst_mac: [u8; 6],

@@ -8,6 +8,7 @@
 //! Both port 445 and port 139 use a 4-byte NetBIOS Session Service header:
 //!   - byte 0: message type (0x00 = Session Message)
 //!   - bytes 1..3: length u24 BE
+//!
 //! This decoder strips that wrapper before parsing the SMB2 fixed header.
 //!
 //! # Compound requests
@@ -33,7 +34,7 @@ use crate::bronze::{
     TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── SMB2 wire constants ───────────────────────────────────────────────────────
@@ -117,7 +118,9 @@ struct PendingKey {
 
 #[derive(Debug)]
 struct PendingRequest {
+    #[expect(dead_code, reason = "reserved for richer audit/event wording")]
     operation: String,
+    #[expect(dead_code, reason = "reserved for richer tree correlation")]
     tree_id: u32,
     file_name: Option<String>,
 }
@@ -170,6 +173,7 @@ impl SessionState {
 
 // ── Decoder ───────────────────────────────────────────────────────────────────
 
+#[derive(Default)]
 pub(crate) struct Smb2Decoder {
     /// MessageId-keyed pending request map (bounded to 1024 entries).
     pending: HashMap<PendingKey, PendingRequest>,
@@ -178,16 +182,6 @@ pub(crate) struct Smb2Decoder {
     /// NetBIOS reassembly buffer per session_key.
     /// Holds incomplete NetBIOS+SMB2 bytes that haven't yet been fully received.
     buffers: HashMap<String, Vec<u8>>,
-}
-
-impl Default for Smb2Decoder {
-    fn default() -> Self {
-        Self {
-            pending: HashMap::new(),
-            sessions: HashMap::new(),
-            buffers: HashMap::new(),
-        }
-    }
 }
 
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
@@ -201,10 +195,7 @@ impl SessionDecoder for Smb2Decoder {
     }
 
     fn interest(&self) -> &'static [DecoderInterest] {
-        &[
-            DecoderInterest::TcpPort(445),
-            DecoderInterest::TcpPort(139),
-        ]
+        &[DecoderInterest::TcpPort(445), DecoderInterest::TcpPort(139)]
     }
 
     fn on_stream_chunk(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
@@ -241,12 +232,7 @@ impl SessionDecoder for Smb2Decoder {
 
 impl Smb2Decoder {
     /// Decode one complete SMB2 frame (after stripping the 4-byte NetBIOS header).
-    fn decode_frame(
-        &mut self,
-        chunk: &StreamChunk<'_>,
-        frame: &[u8],
-        out: &mut Vec<BronzeEvent>,
-    ) {
+    fn decode_frame(&mut self, chunk: &StreamChunk<'_>, frame: &[u8], out: &mut Vec<BronzeEvent>) {
         if frame.len() < 4 {
             return;
         }
@@ -309,7 +295,11 @@ impl Smb2Decoder {
             }
             if next_command < SMB2_HEADER_LEN {
                 // Malformed NextCommand — avoid infinite loop.
-                out.push(self.anomaly(chunk, "low", "smb2: invalid NextCommand offset (too small)"));
+                out.push(self.anomaly(
+                    chunk,
+                    "low",
+                    "smb2: invalid NextCommand offset (too small)",
+                ));
                 break;
             }
             offset += next_command;
@@ -317,12 +307,7 @@ impl Smb2Decoder {
     }
 
     /// Decode a single SMB2 PDU starting at byte 0 (ProtocolId).
-    fn decode_pdu(
-        &mut self,
-        chunk: &StreamChunk<'_>,
-        pdu: &[u8],
-        out: &mut Vec<BronzeEvent>,
-    ) {
+    fn decode_pdu(&mut self, chunk: &StreamChunk<'_>, pdu: &[u8], out: &mut Vec<BronzeEvent>) {
         // SMB2 fixed header layout (all LE unless noted):
         //  0..4   ProtocolId = \xFESMB
         //  4..6   StructureSize = 64
@@ -342,13 +327,11 @@ impl Smb2Decoder {
         let command = u16::from_le_bytes([pdu[12], pdu[13]]);
         let flags = u32::from_le_bytes([pdu[16], pdu[17], pdu[18], pdu[19]]);
         let message_id = u64::from_le_bytes([
-            pdu[24], pdu[25], pdu[26], pdu[27],
-            pdu[28], pdu[29], pdu[30], pdu[31],
+            pdu[24], pdu[25], pdu[26], pdu[27], pdu[28], pdu[29], pdu[30], pdu[31],
         ]);
         let tree_id = u32::from_le_bytes([pdu[36], pdu[37], pdu[38], pdu[39]]);
         let session_id = u64::from_le_bytes([
-            pdu[40], pdu[41], pdu[42], pdu[43],
-            pdu[44], pdu[45], pdu[46], pdu[47],
+            pdu[40], pdu[41], pdu[42], pdu[43], pdu[44], pdu[45], pdu[46], pdu[47],
         ]);
         let is_response = (flags & FLAGS_SERVER_TO_REDIR) != 0;
 
@@ -363,10 +346,17 @@ impl Smb2Decoder {
 
         // NULL session: session_id == 0 on a TREE_CONNECT or higher is suspicious.
         if session_id == 0
-            && is_response == false
-            && matches!(command, CMD_TREE_CONNECT | CMD_CREATE | CMD_READ | CMD_WRITE | CMD_IOCTL)
+            && !is_response
+            && matches!(
+                command,
+                CMD_TREE_CONNECT | CMD_CREATE | CMD_READ | CMD_WRITE | CMD_IOCTL
+            )
         {
-            out.push(self.anomaly(chunk, "medium", "smb2: NULL session (session_id=0) on data command — possible anonymous access"));
+            out.push(self.anomaly(
+                chunk,
+                "medium",
+                "smb2: NULL session (session_id=0) on data command — possible anonymous access",
+            ));
         }
 
         match command {
@@ -399,8 +389,15 @@ impl Smb2Decoder {
                 }
             }
             CMD_TREE_DISCONNECT => {
-                self.emit_simple(chunk, message_id, is_response, nt_status,
-                    "smb2_tree_disconnect_request", "smb2_tree_disconnect_response", out);
+                self.emit_simple(
+                    chunk,
+                    message_id,
+                    is_response,
+                    nt_status,
+                    "smb2_tree_disconnect_request",
+                    "smb2_tree_disconnect_response",
+                    out,
+                );
             }
             CMD_CREATE => {
                 if is_response {
@@ -439,7 +436,8 @@ impl Smb2Decoder {
             }
             other => {
                 out.push(self.anomaly(
-                    chunk, "low",
+                    chunk,
+                    "low",
                     &format!("smb2: unknown command 0x{other:04x}"),
                 ));
             }
@@ -482,12 +480,18 @@ impl Smb2Decoder {
             }
         }
 
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
-        self.pending.insert(key, PendingRequest {
-            operation: "smb2_negotiate_request".into(),
-            tree_id: 0,
-            file_name: None,
-        });
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
+        self.pending.insert(
+            key,
+            PendingRequest {
+                operation: "smb2_negotiate_request".into(),
+                tree_id: 0,
+                file_name: None,
+            },
+        );
 
         out.push(self.tx(chunk, "smb2_negotiate_request", "request_pending", attrs));
     }
@@ -505,7 +509,10 @@ impl Smb2Decoder {
         //  2..4  SecurityMode
         //  4..6  DialectRevision (the negotiated dialect)
         //  ...
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
         self.pending.remove(&key);
 
         let mut attrs = BTreeMap::new();
@@ -529,7 +536,10 @@ impl Smb2Decoder {
             } else {
                 chunk.context.dst_ip.to_string()
             };
-            let sess = self.sessions.entry(chunk.session_key.clone()).or_insert_with(SessionState::new);
+            let sess = self
+                .sessions
+                .entry(chunk.session_key.clone())
+                .or_insert_with(SessionState::new);
             if let Some(d) = negotiated_dialect {
                 sess.dialect = Some(d);
             }
@@ -584,22 +594,32 @@ impl Smb2Decoder {
             attrs.insert("security_blob_len".into(), sec_buf_len.to_string());
 
             let prev_sess = u64::from_le_bytes([
-                body[16], body[17], body[18], body[19],
-                body[20], body[21], body[22], body[23],
+                body[16], body[17], body[18], body[19], body[20], body[21], body[22], body[23],
             ]);
             if prev_sess != 0 {
                 attrs.insert("previous_session_id".into(), format!("0x{prev_sess:016x}"));
             }
         }
 
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
-        self.pending.insert(key, PendingRequest {
-            operation: "smb2_session_setup_request".into(),
-            tree_id: 0,
-            file_name: None,
-        });
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
+        self.pending.insert(
+            key,
+            PendingRequest {
+                operation: "smb2_session_setup_request".into(),
+                tree_id: 0,
+                file_name: None,
+            },
+        );
 
-        out.push(self.tx(chunk, "smb2_session_setup_request", "request_pending", attrs));
+        out.push(self.tx(
+            chunk,
+            "smb2_session_setup_request",
+            "request_pending",
+            attrs,
+        ));
     }
 
     fn on_session_setup_response(
@@ -610,7 +630,10 @@ impl Smb2Decoder {
         nt_status: u32,
         out: &mut Vec<BronzeEvent>,
     ) {
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
         self.pending.remove(&key);
 
         let status_str = nt_status_name(nt_status);
@@ -622,7 +645,8 @@ impl Smb2Decoder {
         // Credential probing: repeated LOGON_FAILURE is a brute-force signal.
         if nt_status == STATUS_LOGON_FAILURE {
             out.push(self.anomaly(
-                chunk, "medium",
+                chunk,
+                "medium",
                 "smb2: SESSION_SETUP STATUS_LOGON_FAILURE — possible credential probing",
             ));
         }
@@ -636,12 +660,18 @@ impl Smb2Decoder {
         message_id: u64,
         out: &mut Vec<BronzeEvent>,
     ) {
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
-        self.pending.insert(key, PendingRequest {
-            operation: "smb2_logoff_request".into(),
-            tree_id: 0,
-            file_name: None,
-        });
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
+        self.pending.insert(
+            key,
+            PendingRequest {
+                operation: "smb2_logoff_request".into(),
+                tree_id: 0,
+                file_name: None,
+            },
+        );
         let mut attrs = BTreeMap::new();
         attrs.insert("command".into(), "logoff".into());
         out.push(self.tx(chunk, "smb2_logoff_request", "request_pending", attrs));
@@ -654,7 +684,10 @@ impl Smb2Decoder {
         nt_status: u32,
         out: &mut Vec<BronzeEvent>,
     ) {
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
         self.pending.remove(&key);
         let status_str = nt_status_name(nt_status);
         let mut attrs = BTreeMap::new();
@@ -695,12 +728,18 @@ impl Smb2Decoder {
             }
         }
 
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
-        self.pending.insert(key, PendingRequest {
-            operation: "smb2_tree_connect_request".into(),
-            tree_id: 0,
-            file_name: tree_path,
-        });
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
+        self.pending.insert(
+            key,
+            PendingRequest {
+                operation: "smb2_tree_connect_request".into(),
+                tree_id: 0,
+                file_name: tree_path,
+            },
+        );
 
         out.push(self.tx(chunk, "smb2_tree_connect_request", "request_pending", attrs));
     }
@@ -713,7 +752,10 @@ impl Smb2Decoder {
         tree_id: u32,
         out: &mut Vec<BronzeEvent>,
     ) {
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
         let req = self.pending.remove(&key);
 
         let status_str = nt_status_name(nt_status);
@@ -724,18 +766,20 @@ impl Smb2Decoder {
         attrs.insert("tree_id".into(), format!("0x{tree_id:08x}"));
 
         if nt_status == STATUS_SUCCESS {
-            if let Some(r) = &req {
-                if let Some(ref path) = r.file_name {
-                    attrs.insert("tree_path".into(), path.clone());
-                    let sess = self.sessions
-                        .entry(chunk.session_key.clone())
-                        .or_insert_with(SessionState::new);
-                    sess.set_tree_path(tree_id, path.clone());
-                }
+            if let Some(r) = &req
+                && let Some(ref path) = r.file_name
+            {
+                attrs.insert("tree_path".into(), path.clone());
+                let sess = self
+                    .sessions
+                    .entry(chunk.session_key.clone())
+                    .or_insert_with(SessionState::new);
+                sess.set_tree_path(tree_id, path.clone());
             }
         } else {
             out.push(self.anomaly(
-                chunk, "medium",
+                chunk,
+                "medium",
                 &format!("smb2: TREE_CONNECT failed: {status_str}"),
             ));
         }
@@ -771,7 +815,11 @@ impl Smb2Decoder {
         attrs.insert("direction".into(), "request".into());
 
         // Annotate with tree path if known.
-        if let Some(path) = self.sessions.get(&chunk.session_key).and_then(|s| s.tree_path(tree_id)) {
+        if let Some(path) = self
+            .sessions
+            .get(&chunk.session_key)
+            .and_then(|s| s.tree_path(tree_id))
+        {
             attrs.insert("tree_path".into(), path.to_string());
         }
 
@@ -796,12 +844,18 @@ impl Smb2Decoder {
             }
         }
 
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
-        self.pending.insert(key, PendingRequest {
-            operation: "smb2_create_request".into(),
-            tree_id,
-            file_name: file_name.clone(),
-        });
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
+        self.pending.insert(
+            key,
+            PendingRequest {
+                operation: "smb2_create_request".into(),
+                tree_id,
+                file_name: file_name.clone(),
+            },
+        );
 
         out.push(self.tx(chunk, "smb2_create_request", "request_pending", attrs));
     }
@@ -822,7 +876,10 @@ impl Smb2Decoder {
         //  8..24  CreationTime, LastAccessTime, LastWriteTime, ChangeTime (each u64)
         //  ...
         //  60..76 FileId [16 bytes] (Persistent: 8 bytes, Volatile: 8 bytes)
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
         let req = self.pending.remove(&key);
 
         let status_str = nt_status_name(nt_status);
@@ -838,15 +895,16 @@ impl Smb2Decoder {
                 let mut file_id = [0u8; 16];
                 file_id.copy_from_slice(file_id_bytes);
 
-                if let Some(r) = &req {
-                    if let Some(ref name) = r.file_name {
-                        // Remember FileId → filename.
-                        let sess = self.sessions
-                            .entry(chunk.session_key.clone())
-                            .or_insert_with(SessionState::new);
-                        sess.set_file_name(file_id, name.clone());
-                        attrs.insert("file_name".into(), name.clone());
-                    }
+                if let Some(r) = &req
+                    && let Some(ref name) = r.file_name
+                {
+                    // Remember FileId → filename.
+                    let sess = self
+                        .sessions
+                        .entry(chunk.session_key.clone())
+                        .or_insert_with(SessionState::new);
+                    sess.set_file_name(file_id, name.clone());
+                    attrs.insert("file_name".into(), name.clone());
                 }
 
                 let file_id_hex = hex::encode(file_id_bytes);
@@ -879,17 +937,27 @@ impl Smb2Decoder {
             file_id.copy_from_slice(file_id_bytes);
             attrs.insert("file_id".into(), hex::encode(file_id_bytes));
 
-            if let Some(name) = self.sessions.get(&chunk.session_key).and_then(|s| s.file_name(&file_id)) {
+            if let Some(name) = self
+                .sessions
+                .get(&chunk.session_key)
+                .and_then(|s| s.file_name(&file_id))
+            {
                 attrs.insert("file_name".into(), name.to_string());
             }
         }
 
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
-        self.pending.insert(key, PendingRequest {
-            operation: "smb2_close_request".into(),
-            tree_id: 0,
-            file_name: None,
-        });
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
+        self.pending.insert(
+            key,
+            PendingRequest {
+                operation: "smb2_close_request".into(),
+                tree_id: 0,
+                file_name: None,
+            },
+        );
 
         out.push(self.tx(chunk, "smb2_close_request", "request_pending", attrs));
     }
@@ -901,7 +969,10 @@ impl Smb2Decoder {
         nt_status: u32,
         out: &mut Vec<BronzeEvent>,
     ) {
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
         self.pending.remove(&key);
         let status_str = nt_status_name(nt_status);
         let mut attrs = BTreeMap::new();
@@ -931,8 +1002,7 @@ impl Smb2Decoder {
         if body.len() >= 32 {
             let length = u32::from_le_bytes([body[4], body[5], body[6], body[7]]);
             let offset = u64::from_le_bytes([
-                body[8], body[9], body[10], body[11],
-                body[12], body[13], body[14], body[15],
+                body[8], body[9], body[10], body[11], body[12], body[13], body[14], body[15],
             ]);
             let file_id_bytes = &body[16..32];
             let mut file_id = [0u8; 16];
@@ -942,17 +1012,27 @@ impl Smb2Decoder {
             attrs.insert("read_offset".into(), offset.to_string());
             attrs.insert("file_id".into(), hex::encode(file_id_bytes));
 
-            if let Some(name) = self.sessions.get(&chunk.session_key).and_then(|s| s.file_name(&file_id)) {
+            if let Some(name) = self
+                .sessions
+                .get(&chunk.session_key)
+                .and_then(|s| s.file_name(&file_id))
+            {
                 attrs.insert("file_name".into(), name.to_string());
             }
         }
 
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
-        self.pending.insert(key, PendingRequest {
-            operation: "smb2_read_request".into(),
-            tree_id: 0,
-            file_name: None,
-        });
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
+        self.pending.insert(
+            key,
+            PendingRequest {
+                operation: "smb2_read_request".into(),
+                tree_id: 0,
+                file_name: None,
+            },
+        );
 
         out.push(self.tx(chunk, "smb2_read_request", "request_pending", attrs));
     }
@@ -964,7 +1044,10 @@ impl Smb2Decoder {
         nt_status: u32,
         out: &mut Vec<BronzeEvent>,
     ) {
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
         self.pending.remove(&key);
         let status_str = nt_status_name(nt_status);
         let mut attrs = BTreeMap::new();
@@ -993,8 +1076,7 @@ impl Smb2Decoder {
         if body.len() >= 32 {
             let length = u32::from_le_bytes([body[4], body[5], body[6], body[7]]);
             let offset = u64::from_le_bytes([
-                body[8], body[9], body[10], body[11],
-                body[12], body[13], body[14], body[15],
+                body[8], body[9], body[10], body[11], body[12], body[13], body[14], body[15],
             ]);
             let file_id_bytes = &body[16..32];
             let mut file_id = [0u8; 16];
@@ -1004,17 +1086,27 @@ impl Smb2Decoder {
             attrs.insert("write_offset".into(), offset.to_string());
             attrs.insert("file_id".into(), hex::encode(file_id_bytes));
 
-            if let Some(name) = self.sessions.get(&chunk.session_key).and_then(|s| s.file_name(&file_id)) {
+            if let Some(name) = self
+                .sessions
+                .get(&chunk.session_key)
+                .and_then(|s| s.file_name(&file_id))
+            {
                 attrs.insert("file_name".into(), name.to_string());
             }
         }
 
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
-        self.pending.insert(key, PendingRequest {
-            operation: "smb2_write_request".into(),
-            tree_id: 0,
-            file_name: None,
-        });
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
+        self.pending.insert(
+            key,
+            PendingRequest {
+                operation: "smb2_write_request".into(),
+                tree_id: 0,
+                file_name: None,
+            },
+        );
 
         out.push(self.tx(chunk, "smb2_write_request", "request_pending", attrs));
     }
@@ -1026,7 +1118,10 @@ impl Smb2Decoder {
         nt_status: u32,
         out: &mut Vec<BronzeEvent>,
     ) {
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
         self.pending.remove(&key);
         let status_str = nt_status_name(nt_status);
         let mut attrs = BTreeMap::new();
@@ -1053,7 +1148,11 @@ impl Smb2Decoder {
         attrs.insert("command".into(), "ioctl".into());
         attrs.insert("direction".into(), "request".into());
 
-        if let Some(path) = self.sessions.get(&chunk.session_key).and_then(|s| s.tree_path(tree_id)) {
+        if let Some(path) = self
+            .sessions
+            .get(&chunk.session_key)
+            .and_then(|s| s.tree_path(tree_id))
+        {
             attrs.insert("tree_path".into(), path.to_string());
         }
 
@@ -1068,7 +1167,11 @@ impl Smb2Decoder {
             attrs.insert("ctl_code".into(), format!("0x{ctl_code:08x}"));
             attrs.insert("ctl_code_name".into(), fsctl_name(ctl_code).to_string());
 
-            if let Some(name) = self.sessions.get(&chunk.session_key).and_then(|s| s.file_name(&file_id)) {
+            if let Some(name) = self
+                .sessions
+                .get(&chunk.session_key)
+                .and_then(|s| s.file_name(&file_id))
+            {
                 attrs.insert("file_name".into(), name.to_string());
                 file_name_for_pipe = Some(name.to_string());
             }
@@ -1081,12 +1184,18 @@ impl Smb2Decoder {
             out.push(self.anomaly(chunk, severity, reason));
         }
 
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
-        self.pending.insert(key, PendingRequest {
-            operation: "smb2_ioctl_request".into(),
-            tree_id,
-            file_name: None,
-        });
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
+        self.pending.insert(
+            key,
+            PendingRequest {
+                operation: "smb2_ioctl_request".into(),
+                tree_id,
+                file_name: None,
+            },
+        );
 
         out.push(self.tx(chunk, "smb2_ioctl_request", "request_pending", attrs));
     }
@@ -1099,7 +1208,10 @@ impl Smb2Decoder {
         nt_status: u32,
         out: &mut Vec<BronzeEvent>,
     ) {
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
         self.pending.remove(&key);
 
         let status_str = nt_status_name(nt_status);
@@ -1118,6 +1230,7 @@ impl Smb2Decoder {
     }
 
     /// Emit paired request/response events for simple commands (TREE_DISCONNECT, etc.).
+    #[allow(clippy::too_many_arguments)]
     fn emit_simple(
         &mut self,
         chunk: &StreamChunk<'_>,
@@ -1128,7 +1241,10 @@ impl Smb2Decoder {
         resp_op: &'static str,
         out: &mut Vec<BronzeEvent>,
     ) {
-        let key = PendingKey { session_key: chunk.session_key.clone(), message_id };
+        let key = PendingKey {
+            session_key: chunk.session_key.clone(),
+            message_id,
+        };
         if is_response {
             self.pending.remove(&key);
             let status_str = nt_status_name(nt_status);
@@ -1136,11 +1252,14 @@ impl Smb2Decoder {
             attrs.insert("nt_status".into(), status_str.clone());
             out.push(self.tx(chunk, resp_op, &status_str, attrs));
         } else {
-            self.pending.insert(key, PendingRequest {
-                operation: req_op.into(),
-                tree_id: 0,
-                file_name: None,
-            });
+            self.pending.insert(
+                key,
+                PendingRequest {
+                    operation: req_op.into(),
+                    tree_id: 0,
+                    file_name: None,
+                },
+            );
             out.push(self.tx(chunk, req_op, "request_pending", BTreeMap::new()));
         }
     }
@@ -1265,25 +1384,46 @@ fn classify_pipe_transceive(pipe_name: &str) -> (&'static str, &'static str) {
     // Case-insensitive comparison against well-known pipe names.
     let lower = pipe_name.to_ascii_lowercase();
     if lower.ends_with("svcctl") {
-        return ("high", "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\svcctl — SCM access (classic lateral-movement vector)");
+        return (
+            "high",
+            "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\svcctl — SCM access (classic lateral-movement vector)",
+        );
     }
     if lower.ends_with("samr") {
-        return ("high", "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\samr — SAM remote access");
+        return (
+            "high",
+            "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\samr — SAM remote access",
+        );
     }
     if lower.ends_with("atsvc") {
-        return ("high", "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\atsvc — Task Scheduler remote access");
+        return (
+            "high",
+            "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\atsvc — Task Scheduler remote access",
+        );
     }
     if lower.ends_with("drsuapi") {
-        return ("high", "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\drsuapi — AD replication/DCSync");
+        return (
+            "high",
+            "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\drsuapi — AD replication/DCSync",
+        );
     }
     if lower.ends_with("lsarpc") || lower.ends_with("lsass") {
-        return ("medium", "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\lsarpc — LSA remote procedure call");
+        return (
+            "medium",
+            "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\lsarpc — LSA remote procedure call",
+        );
     }
     if lower.ends_with("winreg") {
-        return ("medium", "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\winreg — remote registry access");
+        return (
+            "medium",
+            "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\winreg — remote registry access",
+        );
     }
     if lower.ends_with("spoolss") {
-        return ("medium", "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\spoolss — print spooler (PrintNightmare surface)");
+        return (
+            "medium",
+            "smb2: FSCTL_PIPE_TRANSCEIVE on \\PIPE\\spoolss — print spooler (PrintNightmare surface)",
+        );
     }
     ("medium", "smb2: FSCTL_PIPE_TRANSCEIVE — named pipe I/O")
 }
@@ -1301,8 +1441,8 @@ mod tests {
     use crate::bronze::BronzeEventFamily;
     use crate::engine::StreamChunk;
     use crate::registry::PacketContext;
-    use std::net::{IpAddr, Ipv4Addr};
     use chrono::Utc;
+    use std::net::{IpAddr, Ipv4Addr};
 
     // ── Frame builders ────────────────────────────────────────────────────────
 
@@ -1319,7 +1459,11 @@ mod tests {
         }
     }
 
-    fn chunk_with_session<'a>(payload: &'a [u8], context: PacketContext, session: &str) -> StreamChunk<'a> {
+    fn chunk_with_session<'a>(
+        payload: &'a [u8],
+        context: PacketContext,
+        session: &str,
+    ) -> StreamChunk<'a> {
         StreamChunk {
             capture_id: "test",
             segment_hash: "seg",
@@ -1338,27 +1482,50 @@ mod tests {
     }
 
     fn get_txns(evs: &[BronzeEvent]) -> Vec<&ProtocolTransaction> {
-        evs.iter().filter_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family { Some(t) } else { None }
-        }).collect()
+        evs.iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn get_anomalies(evs: &[BronzeEvent]) -> Vec<&crate::bronze::ParseAnomaly> {
-        evs.iter().filter_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(ref a) = e.family { Some(a) } else { None }
-        }).collect()
+        evs.iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::ParseAnomaly(ref a) = e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn get_assets(evs: &[BronzeEvent]) -> Vec<&AssetObservation> {
-        evs.iter().filter_map(|e| {
-            if let BronzeEventFamily::AssetObservation(ref a) = e.family { Some(a) } else { None }
-        }).collect()
+        evs.iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::AssetObservation(ref a) = e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Build a 4-byte NetBIOS Session Service header (type=0x00, length=u24 BE).
     fn nb_header(payload_len: usize) -> Vec<u8> {
         let len = payload_len as u32;
-        vec![0x00, ((len >> 16) & 0xFF) as u8, ((len >> 8) & 0xFF) as u8, (len & 0xFF) as u8]
+        vec![
+            0x00,
+            ((len >> 16) & 0xFF) as u8,
+            ((len >> 8) & 0xFF) as u8,
+            (len & 0xFF) as u8,
+        ]
     }
 
     /// Build a minimal SMB2 fixed header (64 bytes).
@@ -1367,10 +1534,17 @@ mod tests {
     /// - `flags`: header flags (bit 0 = ServerToRedir / response direction)
     /// - `message_id`: MessageId (LE u64)
     /// - `nt_status`: only meaningful on responses (placed at bytes 8..12)
-    fn smb2_hdr(command: u16, flags: u32, message_id: u64, nt_status: u32, tree_id: u32, session_id: u64) -> Vec<u8> {
+    fn smb2_hdr(
+        command: u16,
+        flags: u32,
+        message_id: u64,
+        nt_status: u32,
+        tree_id: u32,
+        session_id: u64,
+    ) -> Vec<u8> {
         let mut h = vec![0u8; 64];
         h[0..4].copy_from_slice(&SMB2_SIGNATURE);
-        h[4..6].copy_from_slice(&64u16.to_le_bytes());   // StructureSize
+        h[4..6].copy_from_slice(&64u16.to_le_bytes()); // StructureSize
         // bytes 6..8: CreditCharge (0)
         h[8..12].copy_from_slice(&nt_status.to_le_bytes()); // Status/Reserved
         h[12..14].copy_from_slice(&command.to_le_bytes());
@@ -1384,7 +1558,12 @@ mod tests {
     }
 
     /// Wrap SMB2 bytes in NetBIOS framing and deliver to decoder.
-    fn feed(dec: &mut Smb2Decoder, smb2_bytes: &[u8], context: PacketContext, session: &str) -> Vec<BronzeEvent> {
+    fn feed(
+        dec: &mut Smb2Decoder,
+        smb2_bytes: &[u8],
+        context: PacketContext,
+        session: &str,
+    ) -> Vec<BronzeEvent> {
         let mut framed = nb_header(smb2_bytes.len());
         framed.extend_from_slice(smb2_bytes);
         let mut out = Vec::new();
@@ -1401,7 +1580,7 @@ mod tests {
         // ClientGuid=[0;16], Dialects=[0x0300, 0x0311]
         let mut body = vec![0u8; 36];
         body[0..2].copy_from_slice(&36u16.to_le_bytes()); // StructureSize
-        body[2..4].copy_from_slice(&2u16.to_le_bytes());  // DialectCount
+        body[2..4].copy_from_slice(&2u16.to_le_bytes()); // DialectCount
         // ClientGuid at bytes 12..28 (all zeros)
         body[28..30].copy_from_slice(&0x0300u16.to_le_bytes());
         body[30..32].copy_from_slice(&0x0311u16.to_le_bytes());
@@ -1413,7 +1592,10 @@ mod tests {
         let txns = get_txns(&evs);
         assert_eq!(txns.len(), 1);
         assert_eq!(txns[0].operation, "smb2_negotiate_request");
-        let dialects = txns[0].attributes.get("dialects_offered").expect("dialects_offered");
+        let dialects = txns[0]
+            .attributes
+            .get("dialects_offered")
+            .expect("dialects_offered");
         assert!(dialects.contains("0x0300"), "expected 0x0300 in {dialects}");
         assert!(dialects.contains("0x0311"), "expected 0x0311 in {dialects}");
     }
@@ -1428,7 +1610,14 @@ mod tests {
         body[0..2].copy_from_slice(&65u16.to_le_bytes());
         body[4..6].copy_from_slice(&0x0311u16.to_le_bytes()); // DialectRevision
 
-        let mut pdu = smb2_hdr(CMD_NEGOTIATE, FLAGS_SERVER_TO_REDIR, 1, STATUS_SUCCESS, 0, 0);
+        let mut pdu = smb2_hdr(
+            CMD_NEGOTIATE,
+            FLAGS_SERVER_TO_REDIR,
+            1,
+            STATUS_SUCCESS,
+            0,
+            0,
+        );
         pdu.extend_from_slice(&body);
 
         let evs = feed(&mut dec, &pdu, ctx(445, 55000), "s2");
@@ -1437,12 +1626,24 @@ mod tests {
         assert_eq!(txns.len(), 1);
         assert_eq!(txns[0].operation, "smb2_negotiate_response");
         assert_eq!(txns[0].status, "ok");
-        assert_eq!(txns[0].attributes.get("negotiated_dialect").map(String::as_str), Some("0x0311"));
+        assert_eq!(
+            txns[0]
+                .attributes
+                .get("negotiated_dialect")
+                .map(String::as_str),
+            Some("0x0311")
+        );
 
         assert_eq!(assets.len(), 1);
         assert_eq!(assets[0].role.as_deref(), Some("smb_server"));
         assert!(assets[0].protocols.contains(&"smb2".to_string()));
-        assert_eq!(assets[0].identifiers.get("smb2_dialect").map(String::as_str), Some("0x0311"));
+        assert_eq!(
+            assets[0]
+                .identifiers
+                .get("smb2_dialect")
+                .map(String::as_str),
+            Some("0x0311")
+        );
     }
 
     // ── Test 3: SESSION_SETUP request notes security blob length ─────────────
@@ -1461,7 +1662,13 @@ mod tests {
         let evs = feed(&mut dec, &pdu, ctx(55000, 445), "s3");
         let txns = get_txns(&evs);
         assert_eq!(txns[0].operation, "smb2_session_setup_request");
-        assert_eq!(txns[0].attributes.get("security_blob_len").map(String::as_str), Some("256"));
+        assert_eq!(
+            txns[0]
+                .attributes
+                .get("security_blob_len")
+                .map(String::as_str),
+            Some("256")
+        );
     }
 
     // ── Test 4: SESSION_SETUP LOGON_FAILURE → medium anomaly ─────────────────
@@ -1470,7 +1677,14 @@ mod tests {
     fn test_session_setup_logon_failure_anomaly() {
         let mut dec = Smb2Decoder::default();
         let body = vec![0u8; 9]; // minimal response body
-        let mut pdu = smb2_hdr(CMD_SESSION_SETUP, FLAGS_SERVER_TO_REDIR, 2, STATUS_LOGON_FAILURE, 0, 0);
+        let mut pdu = smb2_hdr(
+            CMD_SESSION_SETUP,
+            FLAGS_SERVER_TO_REDIR,
+            2,
+            STATUS_LOGON_FAILURE,
+            0,
+            0,
+        );
         pdu.extend_from_slice(&body);
 
         let evs = feed(&mut dec, &pdu, ctx(445, 55000), "s4");
@@ -1488,7 +1702,8 @@ mod tests {
         let mut dec = Smb2Decoder::default();
         // UNC path = "\\10.0.0.2\share" encoded in UTF-16LE
         let unc = r"\\10.0.0.2\share";
-        let unc_utf16: Vec<u8> = unc.encode_utf16()
+        let unc_utf16: Vec<u8> = unc
+            .encode_utf16()
             .flat_map(|c| c.to_le_bytes().to_vec())
             .collect();
 
@@ -1521,7 +1736,14 @@ mod tests {
     #[test]
     fn test_tree_connect_access_denied_anomaly() {
         let mut dec = Smb2Decoder::default();
-        let pdu = smb2_hdr(CMD_TREE_CONNECT, FLAGS_SERVER_TO_REDIR, 3, STATUS_ACCESS_DENIED, 0, 0);
+        let pdu = smb2_hdr(
+            CMD_TREE_CONNECT,
+            FLAGS_SERVER_TO_REDIR,
+            3,
+            STATUS_ACCESS_DENIED,
+            0,
+            0,
+        );
         let evs = feed(&mut dec, &pdu, ctx(445, 55000), "s5");
         let anoms = get_anomalies(&evs);
         assert!(!anoms.is_empty(), "expected anomaly");
@@ -1536,7 +1758,8 @@ mod tests {
     fn test_create_request_filename_and_disposition() {
         let mut dec = Smb2Decoder::default();
         let filename = "malware.exe";
-        let name_utf16: Vec<u8> = filename.encode_utf16()
+        let name_utf16: Vec<u8> = filename
+            .encode_utf16()
             .flat_map(|c| c.to_le_bytes().to_vec())
             .collect();
 
@@ -1577,7 +1800,8 @@ mod tests {
         let mut dec = Smb2Decoder::default();
         let sess = "s7";
         let filename = "document.docx";
-        let name_utf16: Vec<u8> = filename.encode_utf16()
+        let name_utf16: Vec<u8> = filename
+            .encode_utf16()
             .flat_map(|c| c.to_le_bytes().to_vec())
             .collect();
 
@@ -1630,7 +1854,8 @@ mod tests {
 
         // First register the filename via CREATE so the FileId maps to the pipe name.
         let pipe_name = PIPE_SVCCTL;
-        let name_utf16: Vec<u8> = pipe_name.encode_utf16()
+        let name_utf16: Vec<u8> = pipe_name
+            .encode_utf16()
             .flat_map(|c| c.to_le_bytes().to_vec())
             .collect();
         let name_offset: u16 = (SMB2_HEADER_LEN + 48) as u16;
@@ -1663,13 +1888,25 @@ mod tests {
 
         let anoms = get_anomalies(&ioctl_evs);
         let high_anoms: Vec<_> = anoms.iter().filter(|a| a.severity == "high").collect();
-        assert!(!high_anoms.is_empty(), "expected high anomaly for svcctl pipe transceive");
-        assert!(high_anoms[0].reason.contains("svcctl") || high_anoms[0].reason.contains("SCM"),
-            "reason should mention svcctl: {}", high_anoms[0].reason);
+        assert!(
+            !high_anoms.is_empty(),
+            "expected high anomaly for svcctl pipe transceive"
+        );
+        assert!(
+            high_anoms[0].reason.contains("svcctl") || high_anoms[0].reason.contains("SCM"),
+            "reason should mention svcctl: {}",
+            high_anoms[0].reason
+        );
 
         let txns = get_txns(&ioctl_evs);
-        assert!(txns.iter().any(|t| t.operation == "smb2_ioctl_request"), "should emit ioctl tx");
-        let ioctl_tx = txns.iter().find(|t| t.operation == "smb2_ioctl_request").unwrap();
+        assert!(
+            txns.iter().any(|t| t.operation == "smb2_ioctl_request"),
+            "should emit ioctl tx"
+        );
+        let ioctl_tx = txns
+            .iter()
+            .find(|t| t.operation == "smb2_ioctl_request")
+            .unwrap();
         assert_eq!(
             ioctl_tx.attributes.get("ctl_code_name").map(String::as_str),
             Some("FSCTL_PIPE_TRANSCEIVE")
@@ -1690,7 +1927,10 @@ mod tests {
         let evs = feed(&mut dec, &pdu, ctx(55000, 445), "s9");
         let txns = get_txns(&evs);
         assert!(txns.iter().any(|t| t.operation == "smb2_ioctl_request"));
-        let tx = txns.iter().find(|t| t.operation == "smb2_ioctl_request").unwrap();
+        let tx = txns
+            .iter()
+            .find(|t| t.operation == "smb2_ioctl_request")
+            .unwrap();
         assert_eq!(
             tx.attributes.get("ctl_code_name").map(String::as_str),
             Some("FSCTL_DFS_GET_REFERRALS")
@@ -1759,20 +1999,26 @@ mod tests {
         let resp_b_evs = feed(&mut dec, &resp_b, ctx(445, 55001), "sessB");
 
         // Session A should still have its pending entry (B didn't consume it).
-        assert!(dec.pending.contains_key(&PendingKey {
-            session_key: "sessA".to_string(),
-            message_id: 100,
-        }), "session A pending should remain after session B response");
+        assert!(
+            dec.pending.contains_key(&PendingKey {
+                session_key: "sessA".to_string(),
+                message_id: 100,
+            }),
+            "session A pending should remain after session B response"
+        );
 
         // Now send the response for session A.
         let mut resp_a = smb2_hdr(CMD_LOGOFF, FLAGS_SERVER_TO_REDIR, 100, STATUS_SUCCESS, 0, 1);
         resp_a.extend_from_slice(&body);
         feed(&mut dec, &resp_a, ctx(445, 55000), "sessA");
 
-        assert!(!dec.pending.contains_key(&PendingKey {
-            session_key: "sessA".to_string(),
-            message_id: 100,
-        }), "session A pending should be consumed after its own response");
+        assert!(
+            !dec.pending.contains_key(&PendingKey {
+                session_key: "sessA".to_string(),
+                message_id: 100,
+            }),
+            "session A pending should be consumed after its own response"
+        );
 
         // Suppress unused variable warning.
         let _ = resp_b_evs;
@@ -1839,7 +2085,12 @@ mod tests {
 
         let evs = feed(&mut dec, &compound, ctx(55000, 445), "s16");
         let txns = get_txns(&evs);
-        assert_eq!(txns.len(), 2, "compound frame should yield 2 transactions, got {}", txns.len());
+        assert_eq!(
+            txns.len(),
+            2,
+            "compound frame should yield 2 transactions, got {}",
+            txns.len()
+        );
         assert!(txns.iter().any(|t| t.operation == "smb2_negotiate_request"));
         assert!(txns.iter().any(|t| t.operation == "smb2_logoff_request"));
     }
@@ -1872,8 +2123,11 @@ mod tests {
         let anoms = get_anomalies(&evs);
         assert!(!anoms.is_empty(), "expected unknown-command anomaly");
         assert_eq!(anoms[0].severity, "low");
-        assert!(anoms[0].reason.contains("0x00ff") || anoms[0].reason.contains("0x00FF"),
-            "reason should contain the unknown command code: {}", anoms[0].reason);
+        assert!(
+            anoms[0].reason.contains("0x00ff") || anoms[0].reason.contains("0x00FF"),
+            "reason should contain the unknown command code: {}",
+            anoms[0].reason
+        );
     }
 
     // ── Test 19: STATUS_ACCESS_DENIED name ───────────────────────────────────
@@ -1918,7 +2172,10 @@ mod tests {
 
         let evs = feed(&mut dec, &transform_hdr, ctx(55000, 445), "s21");
         let anoms = get_anomalies(&evs);
-        assert!(!anoms.is_empty(), "expected anomaly for SMB3 encrypted transform");
+        assert!(
+            !anoms.is_empty(),
+            "expected anomaly for SMB3 encrypted transform"
+        );
     }
 
     // ── Test 22: TREE_CONNECT success then CREATE annotates share path ────────
@@ -1931,7 +2188,8 @@ mod tests {
 
         // TREE_CONNECT request with UNC path.
         let unc = r"\\fileserver\c$";
-        let unc_utf16: Vec<u8> = unc.encode_utf16()
+        let unc_utf16: Vec<u8> = unc
+            .encode_utf16()
             .flat_map(|c| c.to_le_bytes().to_vec())
             .collect();
         let path_offset: u16 = (SMB2_HEADER_LEN + 8) as u16;
@@ -1945,12 +2203,20 @@ mod tests {
         feed(&mut dec, &tc_req, ctx(55000, 445), sess);
 
         // TREE_CONNECT response — the server echoes back the tree_id.
-        let tc_resp = smb2_hdr(CMD_TREE_CONNECT, FLAGS_SERVER_TO_REDIR, 30, STATUS_SUCCESS, tree_id, 1);
+        let tc_resp = smb2_hdr(
+            CMD_TREE_CONNECT,
+            FLAGS_SERVER_TO_REDIR,
+            30,
+            STATUS_SUCCESS,
+            tree_id,
+            1,
+        );
         feed(&mut dec, &tc_resp, ctx(445, 55000), sess);
 
         // CREATE request on the same tree.
         let filename = "secret.txt";
-        let name_utf16: Vec<u8> = filename.encode_utf16()
+        let name_utf16: Vec<u8> = filename
+            .encode_utf16()
             .flat_map(|c| c.to_le_bytes().to_vec())
             .collect();
         let name_offset: u16 = (SMB2_HEADER_LEN + 48) as u16;
@@ -1965,7 +2231,9 @@ mod tests {
         let cr_evs = feed(&mut dec, &cr_req, ctx(55000, 445), sess);
 
         let txns = get_txns(&cr_evs);
-        let create_tx = txns.iter().find(|t| t.operation == "smb2_create_request")
+        let create_tx = txns
+            .iter()
+            .find(|t| t.operation == "smb2_create_request")
             .expect("smb2_create_request not found");
         assert_eq!(
             create_tx.attributes.get("tree_path").map(String::as_str),
@@ -1991,7 +2259,10 @@ mod tests {
 
         let evs = feed(&mut dec, &pdu, ctx(55000, 445), "s23");
         let txns = get_txns(&evs);
-        let ioctl = txns.iter().find(|t| t.operation == "smb2_ioctl_request").unwrap();
+        let ioctl = txns
+            .iter()
+            .find(|t| t.operation == "smb2_ioctl_request")
+            .unwrap();
         assert_eq!(
             ioctl.attributes.get("ctl_code_name").map(String::as_str),
             Some("FSCTL_VALIDATE_NEGOTIATE_INFO")
@@ -2014,10 +2285,18 @@ mod tests {
         combined.extend_from_slice(&pdu2);
 
         let mut out = Vec::new();
-        dec.on_stream_chunk(&chunk_with_session(&combined, ctx(55000, 445), sess), &mut out);
+        dec.on_stream_chunk(
+            &chunk_with_session(&combined, ctx(55000, 445), sess),
+            &mut out,
+        );
 
         let txns = get_txns(&out);
-        assert_eq!(txns.len(), 2, "two NB-framed PDUs should yield 2 transactions, got {}", txns.len());
+        assert_eq!(
+            txns.len(),
+            2,
+            "two NB-framed PDUs should yield 2 transactions, got {}",
+            txns.len()
+        );
     }
 
     // ── Test 25: STATUS_OBJECT_NAME_NOT_FOUND naming ─────────────────────────

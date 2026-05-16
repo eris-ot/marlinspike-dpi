@@ -45,7 +45,7 @@ use crate::bronze::{
     BronzeEvent, BronzeEventFamily, ProtocolTransaction, TopologyObservation, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── Type constants ────────────────────────────────────────────────────────────
@@ -102,7 +102,10 @@ fn record_type_name(rt: u8) -> &'static str {
 
 /// Returns true for record types that represent join/interest (adding membership).
 fn is_join_record_type(rt: u8) -> bool {
-    matches!(rt, RT_MODE_IS_INCLUDE | RT_CHANGE_TO_INCLUDE | RT_ALLOW_NEW_SOURCES)
+    matches!(
+        rt,
+        RT_MODE_IS_INCLUDE | RT_CHANGE_TO_INCLUDE | RT_ALLOW_NEW_SOURCES
+    )
 }
 
 fn ip_from_u32(addr: u32) -> String {
@@ -160,7 +163,12 @@ impl SessionDecoder for IgmpDecoder {
         }
 
         if data.len() < MIN_V1V2_LEN {
-            out.push(anomaly(chunk, "low", "IGMP datagram shorter than 8-byte minimum", data));
+            out.push(anomaly(
+                chunk,
+                "low",
+                "IGMP datagram shorter than 8-byte minimum",
+                data,
+            ));
             return;
         }
 
@@ -234,7 +242,10 @@ impl IgmpDecoder {
             a.insert("version".to_string(), "3".to_string());
             a.insert("query_kind".to_string(), kind.to_string());
             a.insert("group_address".to_string(), group_str.clone());
-            a.insert("max_resp_code_decisec".to_string(), max_resp_decoded.to_string());
+            a.insert(
+                "max_resp_code_decisec".to_string(),
+                max_resp_decoded.to_string(),
+            );
             a.insert("s_flag".to_string(), s_flag.to_string());
             a.insert("qrv".to_string(), qrv.to_string());
             a.insert("qqic".to_string(), qqic.to_string());
@@ -258,7 +269,10 @@ impl IgmpDecoder {
             a.insert("version".to_string(), ver.to_string());
             a.insert("query_kind".to_string(), kind.to_string());
             a.insert("group_address".to_string(), group_str.clone());
-            a.insert("max_resp_time_decisec".to_string(), max_resp_time.to_string());
+            a.insert(
+                "max_resp_time_decisec".to_string(),
+                max_resp_time.to_string(),
+            );
 
             (kind, ver, a)
         };
@@ -337,7 +351,10 @@ impl IgmpDecoder {
         let mut attrs: BTreeMap<String, String> = BTreeMap::new();
         attrs.insert("version".to_string(), "2".to_string());
         attrs.insert("group_address".to_string(), group_str.clone());
-        attrs.insert("max_resp_time_decisec".to_string(), max_resp_time.to_string());
+        attrs.insert(
+            "max_resp_time_decisec".to_string(),
+            max_resp_time.to_string(),
+        );
 
         let envelope = mk_envelope(chunk);
         out.push(new_event(
@@ -466,10 +483,7 @@ impl IgmpDecoder {
         attrs.insert("version".to_string(), "3".to_string());
         attrs.insert("record_count".to_string(), records.len().to_string());
         for (rt_name, count) in &rt_counts {
-            attrs.insert(
-                format!("record_type_{rt_name}_count"),
-                count.to_string(),
-            );
+            attrs.insert(format!("record_type_{rt_name}_count"), count.to_string());
         }
 
         let envelope = mk_envelope(chunk);
@@ -479,10 +493,7 @@ impl IgmpDecoder {
             BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                 operation: "igmp_v3_membership_report".to_string(),
                 status: "observed".to_string(),
-                request_summary: Some(format!(
-                    "IGMPv3 Report records={}",
-                    records.len()
-                )),
+                request_summary: Some(format!("IGMPv3 Report records={}", records.len())),
                 response_summary: None,
                 object_refs: group_refs,
                 values: vec![],
@@ -560,7 +571,9 @@ mod tests {
 
     use chrono::Utc;
 
-    use crate::bronze::{BronzeEventFamily, ParseAnomaly, ProtocolTransaction, TopologyObservation};
+    use crate::bronze::{
+        BronzeEventFamily, ParseAnomaly, ProtocolTransaction, TopologyObservation,
+    };
     use crate::engine::{DecoderInterest, SessionDecoder, StreamChunk};
     use crate::registry::PacketContext;
 
@@ -653,8 +666,14 @@ mod tests {
         assert_eq!(txs.len(), 1);
         let tx = txs[0];
         assert_eq!(tx.operation, "igmp_membership_query");
-        assert_eq!(tx.attributes.get("query_kind").map(String::as_str), Some("general"));
-        assert_eq!(tx.attributes.get("group_address").map(String::as_str), Some("0.0.0.0"));
+        assert_eq!(
+            tx.attributes.get("query_kind").map(String::as_str),
+            Some("general")
+        );
+        assert_eq!(
+            tx.attributes.get("group_address").map(String::as_str),
+            Some("0.0.0.0")
+        );
         assert_eq!(tx.attributes.get("version").map(String::as_str), Some("2"));
     }
 
@@ -671,7 +690,10 @@ mod tests {
         assert_eq!(txs.len(), 1);
         let tx = txs[0];
         assert_eq!(tx.operation, "igmp_membership_query");
-        assert_eq!(tx.attributes.get("query_kind").map(String::as_str), Some("group_specific"));
+        assert_eq!(
+            tx.attributes.get("query_kind").map(String::as_str),
+            Some("group_specific")
+        );
         assert_eq!(
             tx.attributes.get("group_address").map(String::as_str),
             Some("239.1.2.3")
@@ -737,7 +759,8 @@ mod tests {
         let mut pkt = vec![
             TYPE_MEMBERSHIP_QUERY, // type
             0x14,                  // max-resp-code = 20 (MSB clear → value is 20)
-            0x00, 0x00,            // checksum
+            0x00,
+            0x00, // checksum
         ];
         pkt.extend_from_slice(&group); // group address
         pkt.push(0x05); // reserved(4)|S=0|QRV=5
@@ -759,11 +782,16 @@ mod tests {
             tx.attributes.get("query_kind").map(String::as_str),
             Some("group_and_source_specific")
         );
-        assert_eq!(tx.attributes.get("source_count").map(String::as_str), Some("2"));
+        assert_eq!(
+            tx.attributes.get("source_count").map(String::as_str),
+            Some("2")
+        );
         assert_eq!(tx.attributes.get("qrv").map(String::as_str), Some("5"));
         assert_eq!(tx.attributes.get("qqic").map(String::as_str), Some("10"));
         assert_eq!(
-            tx.attributes.get("max_resp_code_decisec").map(String::as_str),
+            tx.attributes
+                .get("max_resp_code_decisec")
+                .map(String::as_str),
             Some("20")
         );
         let sources = tx.attributes.get("source_addresses").unwrap();
@@ -781,14 +809,16 @@ mod tests {
         // Report header: type(1) + reserved(1) + checksum(2) + reserved(2) + num_records(2)
         let mut pkt: Vec<u8> = vec![
             TYPE_V3_MEMBERSHIP_REPORT,
-            0x00,       // reserved
-            0x00, 0x00, // checksum
-            0x00, 0x00, // reserved
+            0x00, // reserved
+            0x00,
+            0x00, // checksum
+            0x00,
+            0x00, // reserved
         ];
         pkt.extend_from_slice(&1u16.to_be_bytes()); // num_records = 1
         // Group record
         pkt.push(RT_MODE_IS_INCLUDE); // record type
-        pkt.push(0x00);               // aux_data_len = 0
+        pkt.push(0x00); // aux_data_len = 0
         pkt.extend_from_slice(&1u16.to_be_bytes()); // num_sources = 1
         pkt.extend_from_slice(&group);
         pkt.extend_from_slice(&src);
@@ -801,7 +831,10 @@ mod tests {
         assert_eq!(txs.len(), 1);
         let tx = txs[0];
         assert_eq!(tx.operation, "igmp_v3_membership_report");
-        assert_eq!(tx.attributes.get("record_count").map(String::as_str), Some("1"));
+        assert_eq!(
+            tx.attributes.get("record_count").map(String::as_str),
+            Some("1")
+        );
         assert_eq!(
             tx.attributes
                 .get("record_type_mode_is_include_count")
@@ -824,12 +857,7 @@ mod tests {
         let group1: [u8; 4] = [239, 1, 1, 1];
         let group2: [u8; 4] = [239, 2, 2, 2];
 
-        let mut pkt: Vec<u8> = vec![
-            TYPE_V3_MEMBERSHIP_REPORT,
-            0x00,
-            0x00, 0x00,
-            0x00, 0x00,
-        ];
+        let mut pkt: Vec<u8> = vec![TYPE_V3_MEMBERSHIP_REPORT, 0x00, 0x00, 0x00, 0x00, 0x00];
         pkt.extend_from_slice(&2u16.to_be_bytes()); // 2 records
 
         // Record 1: CHANGE_TO_INCLUDE, no sources
@@ -851,7 +879,10 @@ mod tests {
         let txs = get_tx(&out);
         assert_eq!(txs.len(), 1);
         let tx = txs[0];
-        assert_eq!(tx.attributes.get("record_count").map(String::as_str), Some("2"));
+        assert_eq!(
+            tx.attributes.get("record_count").map(String::as_str),
+            Some("2")
+        );
         assert_eq!(
             tx.attributes
                 .get("record_type_change_to_include_count")
@@ -880,12 +911,7 @@ mod tests {
     fn v3_report_exclude_no_topology_join() {
         let group: [u8; 4] = [239, 7, 7, 7];
 
-        let mut pkt: Vec<u8> = vec![
-            TYPE_V3_MEMBERSHIP_REPORT,
-            0x00,
-            0x00, 0x00,
-            0x00, 0x00,
-        ];
+        let mut pkt: Vec<u8> = vec![TYPE_V3_MEMBERSHIP_REPORT, 0x00, 0x00, 0x00, 0x00, 0x00];
         pkt.extend_from_slice(&1u16.to_be_bytes()); // 1 record
         pkt.push(RT_MODE_IS_EXCLUDE);
         pkt.push(0x00);
@@ -928,11 +954,16 @@ mod tests {
         let pkt = vec![
             TYPE_MEMBERSHIP_QUERY,
             byte,
-            0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, // group = 0.0.0.0 (general)
-            0x00,                   // S=0, QRV=0
-            0x00,                   // QQIC=0
-            0x00, 0x00,             // num_sources=0
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00, // group = 0.0.0.0 (general)
+            0x00, // S=0, QRV=0
+            0x00, // QQIC=0
+            0x00,
+            0x00, // num_sources=0
         ];
 
         let mut dec = IgmpDecoder;

@@ -17,7 +17,7 @@ use std::net::IpAddr;
 use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
-use crate::engine::{build_envelope, new_event, DecoderInterest, SessionDecoder, StreamChunk};
+use crate::engine::{DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event};
 
 const MAGIC_PATTERNS: &[&[u8]] = &[b"PINETMGR", b"PISystem", b"PI-API", b"AFServer"];
 const MAGIC_SEARCH_LIMIT: usize = 256;
@@ -57,14 +57,22 @@ fn find_version(haystack: &[u8], limit: usize) -> Option<String> {
         while pos < window.len() && window[pos].is_ascii_digit() {
             pos += 1;
         }
-        if pos == patch_start { continue; }
-        return std::str::from_utf8(&window[start..pos]).ok().map(str::to_string);
+        if pos == patch_start {
+            continue;
+        }
+        return std::str::from_utf8(&window[start..pos])
+            .ok()
+            .map(str::to_string);
     }
     None
 }
 
 fn connector_kind(port: u16) -> &'static str {
-    if port == 5450 { "pi_net_manager" } else { "pi_connector" }
+    if port == 5450 {
+        "pi_net_manager"
+    } else {
+        "pi_connector"
+    }
 }
 
 /// Returns `(server_port, server_ip)` — the well-known PI port side of the flow.
@@ -117,32 +125,50 @@ impl SessionDecoder for OsiPiDecoder {
 
         // ProtocolTransaction: one per session, only when a magic string is present.
         // Undocumented protocol — do not manufacture signals from port alone.
-        if self.seen_sessions.contains(&chunk.session_key) { return; }
-        let Some(magic) = find_magic(chunk.payload, MAGIC_SEARCH_LIMIT) else { return };
+        if self.seen_sessions.contains(&chunk.session_key) {
+            return;
+        }
+        let Some(magic) = find_magic(chunk.payload, MAGIC_SEARCH_LIMIT) else {
+            return;
+        };
         self.seen_sessions.insert(chunk.session_key.clone());
 
         let mut attributes = BTreeMap::from([
             ("port".to_string(), port.to_string()),
             ("magic_seen".to_string(), magic.to_string()),
-            ("connector_kind".to_string(), connector_kind(port).to_string()),
+            (
+                "connector_kind".to_string(),
+                connector_kind(port).to_string(),
+            ),
         ]);
         if let Some(v) = find_version(chunk.payload, VERSION_SEARCH_LIMIT) {
             attributes.insert("version_string".to_string(), v);
         }
 
         let envelope = build_envelope(
-            &chunk.context, chunk.interface_id, chunk.frame_index, chunk.timestamp,
-            chunk.segment_hash, TransportProtocol::Tcp, Some("osi_pi"),
-            chunk.captured_len, chunk.session_key.clone(),
+            &chunk.context,
+            chunk.interface_id,
+            chunk.frame_index,
+            chunk.timestamp,
+            chunk.segment_hash,
+            TransportProtocol::Tcp,
+            Some("osi_pi"),
+            chunk.captured_len,
+            chunk.session_key.clone(),
         );
         out.push(new_event(
-            chunk.capture_id.to_string(), envelope,
+            chunk.capture_id.to_string(),
+            envelope,
             BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                 operation: "pi_session_observed".to_string(),
                 status: "observed".to_string(),
                 request_summary: Some(format!("OSIsoft PI session on port {port}")),
-                response_summary: None, object_refs: Vec::new(), values: Vec::new(),
-                attributes, modbus: None, protocol_fields: None,
+                response_summary: None,
+                object_refs: Vec::new(),
+                values: Vec::new(),
+                attributes,
+                modbus: None,
+                protocol_fields: None,
             }),
         ));
     }
@@ -150,17 +176,26 @@ impl SessionDecoder for OsiPiDecoder {
 
 fn pi_asset_observation(chunk: &StreamChunk<'_>, server_ip: &str, port: u16) -> BronzeEvent {
     let envelope = build_envelope(
-        &chunk.context, chunk.interface_id, chunk.frame_index, chunk.timestamp,
-        chunk.segment_hash, TransportProtocol::Tcp, Some("osi_pi"),
-        chunk.captured_len, chunk.session_key.clone(),
+        &chunk.context,
+        chunk.interface_id,
+        chunk.frame_index,
+        chunk.timestamp,
+        chunk.segment_hash,
+        TransportProtocol::Tcp,
+        Some("osi_pi"),
+        chunk.captured_len,
+        chunk.session_key.clone(),
     );
     new_event(
-        chunk.capture_id.to_string(), envelope,
+        chunk.capture_id.to_string(),
+        envelope,
         BronzeEventFamily::AssetObservation(AssetObservation {
             asset_key: server_ip.to_string(),
             role: Some("osisoft_pi_server".to_string()),
             vendor: Some("OSIsoft".to_string()),
-            model: None, firmware: None, hostnames: Vec::new(),
+            model: None,
+            firmware: None,
+            hostnames: Vec::new(),
             protocols: vec!["osi_pi".to_string()],
             identifiers: BTreeMap::from([("port".to_string(), port.to_string())]),
         }),
@@ -188,34 +223,53 @@ mod tests {
 
     fn ctx(src_ip: [u8; 4], src_port: u16, dst_ip: [u8; 4], dst_port: u16) -> PacketContext {
         PacketContext {
-            src_mac: [0; 6], dst_mac: [0; 6],
+            src_mac: [0; 6],
+            dst_mac: [0; 6],
             src_ip: IpAddr::V4(Ipv4Addr::from(src_ip)),
             dst_ip: IpAddr::V4(Ipv4Addr::from(dst_ip)),
-            src_port, dst_port, vlan_id: None, timestamp: 0,
+            src_port,
+            dst_port,
+            vlan_id: None,
+            timestamp: 0,
         }
     }
 
     fn chunk<'a>(payload: &'a [u8], context: PacketContext, session: &str) -> StreamChunk<'a> {
         StreamChunk {
-            capture_id: "test-cap", segment_hash: "deadbeef",
-            interface_id: 0, frame_index: 0,
-            timestamp: Utc::now(), context,
-            ethertype: 0x0800, ip_proto: Some(6), llc: None,
-            transport: TransportProtocol::Tcp, payload,
-            session_key: session.to_string(), captured_len: payload.len() as u64,
+            capture_id: "test-cap",
+            segment_hash: "deadbeef",
+            interface_id: 0,
+            frame_index: 0,
+            timestamp: Utc::now(),
+            context,
+            ethertype: 0x0800,
+            ip_proto: Some(6),
+            llc: None,
+            transport: TransportProtocol::Tcp,
+            payload,
+            session_key: session.to_string(),
+            captured_len: payload.len() as u64,
         }
     }
 
     fn transactions(events: &[BronzeEvent]) -> Vec<&ProtocolTransaction> {
-        events.iter().filter_map(|e| match &e.family {
-            BronzeEventFamily::ProtocolTransaction(t) => Some(t), _ => None,
-        }).collect()
+        events
+            .iter()
+            .filter_map(|e| match &e.family {
+                BronzeEventFamily::ProtocolTransaction(t) => Some(t),
+                _ => None,
+            })
+            .collect()
     }
 
     fn asset_observations(events: &[BronzeEvent]) -> Vec<&AssetObservation> {
-        events.iter().filter_map(|e| match &e.family {
-            BronzeEventFamily::AssetObservation(a) => Some(a), _ => None,
-        }).collect()
+        events
+            .iter()
+            .filter_map(|e| match &e.family {
+                BronzeEventFamily::AssetObservation(a) => Some(a),
+                _ => None,
+            })
+            .collect()
     }
 
     // 1. port 5450 + "PINETMGR" → ProtocolTransaction
@@ -233,9 +287,18 @@ mod tests {
         assert_eq!(txns.len(), 1);
         assert_eq!(txns[0].operation, "pi_session_observed");
         assert_eq!(txns[0].status, "observed");
-        assert_eq!(txns[0].attributes.get("magic_seen").map(String::as_str), Some("PINETMGR"));
-        assert_eq!(txns[0].attributes.get("connector_kind").map(String::as_str), Some("pi_net_manager"));
-        assert_eq!(txns[0].attributes.get("port").map(String::as_str), Some("5450"));
+        assert_eq!(
+            txns[0].attributes.get("magic_seen").map(String::as_str),
+            Some("PINETMGR")
+        );
+        assert_eq!(
+            txns[0].attributes.get("connector_kind").map(String::as_str),
+            Some("pi_net_manager")
+        );
+        assert_eq!(
+            txns[0].attributes.get("port").map(String::as_str),
+            Some("5450")
+        );
     }
 
     // 2. port 5460 + "PISystem 3.4.430.460" → version captured
@@ -251,9 +314,18 @@ mod tests {
         let txns = transactions(&out);
         assert_eq!(txns.len(), 1);
         assert_eq!(txns[0].operation, "pi_session_observed");
-        assert_eq!(txns[0].attributes.get("magic_seen").map(String::as_str), Some("PISystem"));
-        assert_eq!(txns[0].attributes.get("version_string").map(String::as_str), Some("3.4.430.460"));
-        assert_eq!(txns[0].attributes.get("connector_kind").map(String::as_str), Some("pi_connector"));
+        assert_eq!(
+            txns[0].attributes.get("magic_seen").map(String::as_str),
+            Some("PISystem")
+        );
+        assert_eq!(
+            txns[0].attributes.get("version_string").map(String::as_str),
+            Some("3.4.430.460")
+        );
+        assert_eq!(
+            txns[0].attributes.get("connector_kind").map(String::as_str),
+            Some("pi_connector")
+        );
     }
 
     // 3. port 5450, no magic → no ProtocolTransaction; AssetObservation still emitted.
@@ -267,7 +339,10 @@ mod tests {
         let c = ctx([10, 0, 0, 30], 53000, [192, 168, 1, 102], 5450);
         dec.on_stream_chunk(&chunk(payload, c, "sess-c"), &mut out);
 
-        assert!(transactions(&out).is_empty(), "no ProtocolTransaction without magic bytes");
+        assert!(
+            transactions(&out).is_empty(),
+            "no ProtocolTransaction without magic bytes"
+        );
         let assets = asset_observations(&out);
         assert_eq!(assets.len(), 1, "AssetObservation emitted on port match");
         assert_eq!(assets[0].vendor.as_deref(), Some("OSIsoft"));
@@ -288,7 +363,11 @@ mod tests {
         dec.on_stream_chunk(&chunk(payload_b, c_b, "sess-d2"), &mut out);
 
         let assets = asset_observations(&out);
-        assert_eq!(assets.len(), 2, "each distinct PI server emits an AssetObservation");
+        assert_eq!(
+            assets.len(),
+            2,
+            "each distinct PI server emits an AssetObservation"
+        );
         let ips: Vec<&str> = assets.iter().map(|a| a.asset_key.as_str()).collect();
         assert!(ips.contains(&"192.168.1.10") && ips.contains(&"192.168.1.20"));
         for a in &assets {
@@ -313,8 +392,15 @@ mod tests {
         dec.on_stream_chunk(&chunk(payload2, c2, "sess-e"), &mut out);
 
         let txns = transactions(&out);
-        assert_eq!(txns.len(), 1, "ProtocolTransaction emitted exactly once per session");
-        assert_eq!(txns[0].attributes.get("magic_seen").map(String::as_str), Some("PINETMGR"));
+        assert_eq!(
+            txns.len(),
+            1,
+            "ProtocolTransaction emitted exactly once per session"
+        );
+        assert_eq!(
+            txns[0].attributes.get("magic_seen").map(String::as_str),
+            Some("PINETMGR")
+        );
     }
 
     // 6. "AFServer" magic on port 5461
@@ -329,8 +415,17 @@ mod tests {
 
         let txns = transactions(&out);
         assert_eq!(txns.len(), 1);
-        assert_eq!(txns[0].attributes.get("magic_seen").map(String::as_str), Some("AFServer"));
-        assert_eq!(txns[0].attributes.get("connector_kind").map(String::as_str), Some("pi_connector"));
-        assert_eq!(txns[0].attributes.get("port").map(String::as_str), Some("5461"));
+        assert_eq!(
+            txns[0].attributes.get("magic_seen").map(String::as_str),
+            Some("AFServer")
+        );
+        assert_eq!(
+            txns[0].attributes.get("connector_kind").map(String::as_str),
+            Some("pi_connector")
+        );
+        assert_eq!(
+            txns[0].attributes.get("port").map(String::as_str),
+            Some("5461")
+        );
     }
 }

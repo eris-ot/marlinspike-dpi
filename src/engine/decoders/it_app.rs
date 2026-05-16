@@ -18,12 +18,11 @@ use crate::dissectors::mqtt::MqttDissector;
 use crate::dissectors::snmp::SnmpDissector;
 use crate::engine::decoders::ot::normalize_operation_name;
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest,
-    SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 use crate::registry::{
-    format_mac, DhcpFields, DnsFields, HttpFields, MqttFields, PacketContext, ProtocolData,
-    ProtocolDissector, SnmpFields,
+    DhcpFields, DnsFields, HttpFields, MqttFields, PacketContext, ProtocolData, ProtocolDissector,
+    SnmpFields, format_mac,
 };
 
 #[derive(Default)]
@@ -92,9 +91,9 @@ impl SessionDecoder for DnsDecoder {
                             })
                             .collect(),
                         attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
+                        modbus: None,
+                        protocol_fields: None,
+                    }),
                 ));
                 if is_response {
                     use crate::registry::{DnsRecordData, DnsRecordType};
@@ -131,10 +130,10 @@ impl SessionDecoder for DnsDecoder {
                         // Collect A record bindings: hostname.local → IP
                         let mut hostname_ips: Vec<(String, String)> = Vec::new();
                         for rec in &records {
-                            if let DnsRecordData::A(ip) = &rec.data {
-                                if rec.name.ends_with(".local") {
-                                    hostname_ips.push((rec.name.clone(), ip.clone()));
-                                }
+                            if let DnsRecordData::A(ip) = &rec.data
+                                && rec.name.ends_with(".local")
+                            {
+                                hostname_ips.push((rec.name.clone(), ip.clone()));
                             }
                         }
 
@@ -164,31 +163,30 @@ impl SessionDecoder for DnsDecoder {
                         // first clean .local PTR name
                         if hostname_ips.is_empty() {
                             for rec in &records {
-                                if let DnsRecordData::Ptr(name) = &rec.data {
-                                    if name.ends_with(".local")
-                                        && !name.contains("._tcp.")
-                                        && !name.contains("._udp.")
-                                        && !rec.name.contains(".ip6.arpa")
-                                    {
-                                        out.push(new_event(
-                                            chunk.capture_id.to_string(),
-                                            envelope.clone(),
-                                            BronzeEventFamily::AssetObservation(AssetObservation {
-                                                asset_key: src_ip.clone(),
-                                                role: None,
-                                                vendor: None,
-                                                model: None,
-                                                firmware: None,
-                                                hostnames: vec![name.clone()],
-                                                protocols: vec!["mdns".to_string()],
-                                                identifiers: BTreeMap::from([(
-                                                    "ip".to_string(),
-                                                    src_ip.clone(),
-                                                )]),
-                                            }),
-                                        ));
-                                        break;
-                                    }
+                                if let DnsRecordData::Ptr(name) = &rec.data
+                                    && name.ends_with(".local")
+                                    && !name.contains("._tcp.")
+                                    && !name.contains("._udp.")
+                                    && !rec.name.contains(".ip6.arpa")
+                                {
+                                    out.push(new_event(
+                                        chunk.capture_id.to_string(),
+                                        envelope.clone(),
+                                        BronzeEventFamily::AssetObservation(AssetObservation {
+                                            asset_key: src_ip.clone(),
+                                            role: None,
+                                            vendor: None,
+                                            model: None,
+                                            firmware: None,
+                                            hostnames: vec![name.clone()],
+                                            protocols: vec!["mdns".to_string()],
+                                            identifiers: BTreeMap::from([(
+                                                "ip".to_string(),
+                                                src_ip.clone(),
+                                            )]),
+                                        }),
+                                    ));
+                                    break;
                                 }
                             }
                         }
@@ -204,25 +202,22 @@ impl SessionDecoder for DnsDecoder {
 
                         for rec in &records {
                             // Track which service types are advertised
-                            if rec.rtype == DnsRecordType::PTR {
-                                if let DnsRecordData::Ptr(instance) = &rec.data {
-                                    if rec.name.contains("._tcp.") || rec.name.contains("._udp.") {
-                                        service_types.push(rec.name.clone());
-                                    }
-                                    // Extract friendly name from service instance
-                                    // e.g. "Bathroom TV._airplay._tcp.local" → "Bathroom TV"
-                                    if let Some(name) = instance.split("._").next().filter(|n| {
-                                        !n.is_empty()
-                                            && n.len() > 2
-                                            && (n.contains(' ') || n.len() > 6)
-                                    }) {
-                                        // Skip UUID-style names
-                                        if !name.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
-                                        {
-                                            if mdns_device_name.is_none() {
-                                                mdns_device_name = Some(name.to_string());
-                                            }
-                                        }
+                            if rec.rtype == DnsRecordType::PTR
+                                && let DnsRecordData::Ptr(instance) = &rec.data
+                            {
+                                if rec.name.contains("._tcp.") || rec.name.contains("._udp.") {
+                                    service_types.push(rec.name.clone());
+                                }
+                                // Extract friendly name from service instance
+                                // e.g. "Bathroom TV._airplay._tcp.local" → "Bathroom TV"
+                                if let Some(name) = instance.split("._").next().filter(|n| {
+                                    !n.is_empty() && n.len() > 2 && (n.contains(' ') || n.len() > 6)
+                                }) {
+                                    // Skip UUID-style names
+                                    if !name.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+                                        && mdns_device_name.is_none()
+                                    {
+                                        mdns_device_name = Some(name.to_string());
                                     }
                                 }
                             }
@@ -334,36 +329,36 @@ impl SessionDecoder for DnsDecoder {
 
                         // Reverse PTR records (in-addr.arpa)
                         for rec in &records {
-                            if rec.name.ends_with(".in-addr.arpa") {
-                                if let DnsRecordData::Ptr(ptr_name) = &rec.data {
-                                    let octets: Vec<&str> = rec
-                                        .name
-                                        .trim_end_matches(".in-addr.arpa")
-                                        .split('.')
-                                        .collect();
-                                    if octets.len() == 4 {
-                                        let reversed_ip = format!(
-                                            "{}.{}.{}.{}",
-                                            octets[3], octets[2], octets[1], octets[0]
-                                        );
-                                        out.push(new_event(
-                                            chunk.capture_id.to_string(),
-                                            envelope.clone(),
-                                            BronzeEventFamily::AssetObservation(AssetObservation {
-                                                asset_key: reversed_ip.clone(),
-                                                role: None,
-                                                vendor: None,
-                                                model: None,
-                                                firmware: None,
-                                                hostnames: vec![ptr_name.clone()],
-                                                protocols: vec!["mdns".to_string()],
-                                                identifiers: BTreeMap::from([(
-                                                    "ip".to_string(),
-                                                    reversed_ip,
-                                                )]),
-                                            }),
-                                        ));
-                                    }
+                            if rec.name.ends_with(".in-addr.arpa")
+                                && let DnsRecordData::Ptr(ptr_name) = &rec.data
+                            {
+                                let octets: Vec<&str> = rec
+                                    .name
+                                    .trim_end_matches(".in-addr.arpa")
+                                    .split('.')
+                                    .collect();
+                                if octets.len() == 4 {
+                                    let reversed_ip = format!(
+                                        "{}.{}.{}.{}",
+                                        octets[3], octets[2], octets[1], octets[0]
+                                    );
+                                    out.push(new_event(
+                                        chunk.capture_id.to_string(),
+                                        envelope.clone(),
+                                        BronzeEventFamily::AssetObservation(AssetObservation {
+                                            asset_key: reversed_ip.clone(),
+                                            role: None,
+                                            vendor: None,
+                                            model: None,
+                                            firmware: None,
+                                            hostnames: vec![ptr_name.clone()],
+                                            protocols: vec!["mdns".to_string()],
+                                            identifiers: BTreeMap::from([(
+                                                "ip".to_string(),
+                                                reversed_ip,
+                                            )]),
+                                        }),
+                                    ));
                                 }
                             }
                         }
@@ -468,9 +463,9 @@ impl SessionDecoder for DhcpDecoder {
                             .collect(),
                         values: Vec::new(),
                         attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
+                        modbus: None,
+                        protocol_fields: None,
+                    }),
                 ));
 
                 let mut identifiers =
@@ -629,9 +624,9 @@ impl SessionDecoder for SnmpDecoder {
                             })
                             .collect(),
                         attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
+                        modbus: None,
+                        protocol_fields: None,
+                    }),
                 ));
 
                 if sys_name.is_some()
@@ -711,58 +706,56 @@ impl SessionDecoder for HttpDecoder {
         if chunk.payload.is_empty() {
             return;
         }
-        match self.dissector.parse(chunk.payload, &chunk.context) {
-            Some(ProtocolData::Http(HttpFields {
-                method,
-                host,
-                uri,
-                status_code,
-                content_type,
-                content_length,
-            })) => {
-                let mut attributes = BTreeMap::new();
-                attributes.insert("content_type".to_string(), content_type);
-                attributes.insert("content_length".to_string(), content_length.to_string());
-                if !host.is_empty() {
-                    attributes.insert("host".to_string(), host);
-                }
-                let is_request = !method.is_empty();
-                let operation = if is_request {
-                    method.clone()
-                } else {
-                    "response".to_string()
-                };
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    build_envelope(
-                        &chunk.context,
-                        chunk.interface_id,
-                        chunk.frame_index,
-                        chunk.timestamp,
-                        chunk.segment_hash,
-                        TransportProtocol::Tcp,
-                        Some("http"),
-                        chunk.captured_len,
-                        chunk.session_key.clone(),
-                    ),
-                    BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
-                        operation,
-                        status: if status_code > 0 {
-                            status_code.to_string()
-                        } else {
-                            "request".to_string()
-                        },
-                        request_summary: is_request.then_some(uri.clone()),
-                        response_summary: (status_code > 0).then_some(status_code.to_string()),
-                        object_refs: (!uri.is_empty()).then_some(uri).into_iter().collect(),
-                        values: Vec::new(),
-                        attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
-                ));
+        if let Some(ProtocolData::Http(HttpFields {
+            method,
+            host,
+            uri,
+            status_code,
+            content_type,
+            content_length,
+        })) = self.dissector.parse(chunk.payload, &chunk.context)
+        {
+            let mut attributes = BTreeMap::new();
+            attributes.insert("content_type".to_string(), content_type);
+            attributes.insert("content_length".to_string(), content_length.to_string());
+            if !host.is_empty() {
+                attributes.insert("host".to_string(), host);
             }
-            _ => {}
+            let is_request = !method.is_empty();
+            let operation = if is_request {
+                method.clone()
+            } else {
+                "response".to_string()
+            };
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                build_envelope(
+                    &chunk.context,
+                    chunk.interface_id,
+                    chunk.frame_index,
+                    chunk.timestamp,
+                    chunk.segment_hash,
+                    TransportProtocol::Tcp,
+                    Some("http"),
+                    chunk.captured_len,
+                    chunk.session_key.clone(),
+                ),
+                BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
+                    operation,
+                    status: if status_code > 0 {
+                        status_code.to_string()
+                    } else {
+                        "request".to_string()
+                    },
+                    request_summary: is_request.then_some(uri.clone()),
+                    response_summary: (status_code > 0).then_some(status_code.to_string()),
+                    object_refs: (!uri.is_empty()).then_some(uri).into_iter().collect(),
+                    values: Vec::new(),
+                    attributes,
+                    modbus: None,
+                    protocol_fields: None,
+                }),
+            ));
         }
     }
 }
@@ -812,9 +805,9 @@ impl SessionDecoder for TlsDecoder {
                 object_refs: tls.sni.clone().into_iter().collect(),
                 values: Vec::new(),
                 attributes,
-                        modbus: None,
-                                        protocol_fields: None,
-}),
+                modbus: None,
+                protocol_fields: None,
+            }),
         ));
         if let Some(sni) = tls.sni {
             out.push(new_event(
@@ -1074,17 +1067,15 @@ impl SessionDecoder for MqttDecoder {
                         object_refs,
                         values: vec![],
                         attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
+                        modbus: None,
+                        protocol_fields: None,
+                    }),
                 ));
 
                 // CONNECT packets identify the client device.
                 if packet_type == 1 {
-                    let mut identifiers = BTreeMap::from([(
-                        "ip".to_string(),
-                        chunk.context.src_ip.to_string(),
-                    )]);
+                    let mut identifiers =
+                        BTreeMap::from([("ip".to_string(), chunk.context.src_ip.to_string())]);
                     if let Some(ref cid) = client_id {
                         identifiers.insert("client_id".to_string(), cid.clone());
                     }
@@ -1106,24 +1097,23 @@ impl SessionDecoder for MqttDecoder {
 
                 // PUBLISH payloads fan out to registered MqttPayloadDecoders
                 // (Sparkplug B, future UADP / vendor schemas).
-                if packet_type == 3 {
-                    if let (Some(topic_str), Some(payload_bytes)) =
+                if packet_type == 3
+                    && let (Some(topic_str), Some(payload_bytes)) =
                         (topic.as_deref(), mqtt_payload.as_deref())
-                    {
-                        let ctx = build_mqtt_publish_context(
-                            chunk,
-                            topic_str,
-                            payload_bytes,
-                            client_id.as_deref(),
-                            qos.unwrap_or(0),
-                            retain.unwrap_or(false),
-                        );
-                        for decoder in self.payload_decoders.iter_mut() {
-                            let mut events = decoder.try_decode(&ctx);
-                            if !events.is_empty() {
-                                out.append(&mut events);
-                                break; // first decoder that claims the payload wins
-                            }
+                {
+                    let ctx = build_mqtt_publish_context(
+                        chunk,
+                        topic_str,
+                        payload_bytes,
+                        client_id.as_deref(),
+                        qos.unwrap_or(0),
+                        retain.unwrap_or(false),
+                    );
+                    for decoder in self.payload_decoders.iter_mut() {
+                        let mut events = decoder.try_decode(&ctx);
+                        if !events.is_empty() {
+                            out.append(&mut events);
+                            break; // first decoder that claims the payload wins
                         }
                     }
                 }
@@ -1199,8 +1189,6 @@ fn build_mqtt_publish_context<'a>(
         publisher_mac,
     }
 }
-
-
 
 // ── Inventory registration ──────────────────────────────────────
 inventory::submit!(crate::engine::decoders::DecoderRegistration {

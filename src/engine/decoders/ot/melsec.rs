@@ -16,11 +16,11 @@ use crate::bronze::{
     TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // Wire-format constants — all u16 values are little-endian throughout SLMP.
-const SUBHEADER_REQUEST: u16 = 0x0054;  // wire: [0x54, 0x00]
+const SUBHEADER_REQUEST: u16 = 0x0054; // wire: [0x54, 0x00]
 const SUBHEADER_RESPONSE: u16 = 0x00D4; // wire: [0xD4, 0x00]
 // Minimum frame: subheader(2)+serial(2)+reserved(2)+net(1)+pc(1)+io(2)+stn(1)+len(2) = 13.
 const MIN_FRAME_LEN: usize = 13;
@@ -95,8 +95,11 @@ impl SessionDecoder for MelsecDecoder {
                         object_refs: Vec::new(),
                         values: Vec::new(),
                         attributes: base_attrs(
-                            req.command, req.subcommand,
-                            req.serial_number, req.network_number, req.pc_number,
+                            req.command,
+                            req.subcommand,
+                            req.serial_number,
+                            req.network_number,
+                            req.pc_number,
                         ),
                         modbus: None,
                         protocol_fields: None,
@@ -244,8 +247,11 @@ impl MelsecDecoder {
             };
 
             let mut attrs = base_attrs(
-                req.command, req.subcommand,
-                req.serial_number, req.network_number, req.pc_number,
+                req.command,
+                req.subcommand,
+                req.serial_number,
+                req.network_number,
+                req.pc_number,
             );
             attrs.insert("end_code".to_string(), format!("0x{end_code:04x}"));
 
@@ -277,7 +283,12 @@ impl MelsecDecoder {
                 let src_ip = chunk.context.src_ip.to_string();
                 if self.observed_assets.insert(src_ip.clone()) {
                     let model = parse_cpu_model_name(payload);
-                    out.push(emit_asset_observation(req.capture_id, envelope, src_ip, model));
+                    out.push(emit_asset_observation(
+                        req.capture_id,
+                        envelope,
+                        src_ip,
+                        model,
+                    ));
                 }
             }
         } else {
@@ -440,7 +451,7 @@ mod tests {
         buf.push(net);
         buf.push(pc);
         buf.extend_from_slice(&0x03FFu16.to_le_bytes()); // module I/O
-        buf.push(0x00);                                   // station
+        buf.push(0x00); // station
         buf.extend_from_slice(&data_len.to_le_bytes());
         buf.extend_from_slice(&0x0010u16.to_le_bytes()); // monitoring timer
         buf.extend_from_slice(&cmd.to_le_bytes());
@@ -466,7 +477,12 @@ mod tests {
         buf
     }
 
-    fn make_chunk<'a>(payload: &'a [u8], src_port: u16, dst_port: u16, session: &str) -> StreamChunk<'a> {
+    fn make_chunk<'a>(
+        payload: &'a [u8],
+        src_port: u16,
+        dst_port: u16,
+        session: &str,
+    ) -> StreamChunk<'a> {
         StreamChunk {
             capture_id: "test_cap",
             segment_hash: "deadbeef",
@@ -501,7 +517,11 @@ mod tests {
         let mut out = Vec::new();
         let frame = make_request(0x0001, 0x00, 0xFF, 0x0401, 0x0001, &[]);
         dec.on_stream_chunk(&make_chunk(&frame, 55000, 5007, "sess-1"), &mut out);
-        assert!(out.is_empty(), "request alone must not emit; got {} events", out.len());
+        assert!(
+            out.is_empty(),
+            "request alone must not emit; got {} events",
+            out.len()
+        );
         assert_eq!(dec.pending.len(), 1);
     }
 
@@ -567,13 +587,20 @@ mod tests {
         dec.on_stream_chunk(&make_chunk(&resp, 5007, 55002, sess), &mut out);
 
         assert_eq!(out.len(), 2, "expected transaction + asset observation");
-        let obs_ev = out.iter().find(|e| matches!(e.family, BronzeEventFamily::AssetObservation(_)))
+        let obs_ev = out
+            .iter()
+            .find(|e| matches!(e.family, BronzeEventFamily::AssetObservation(_)))
             .expect("AssetObservation missing");
-        let BronzeEventFamily::AssetObservation(ref obs) = obs_ev.family else { unreachable!() };
+        let BronzeEventFamily::AssetObservation(ref obs) = obs_ev.family else {
+            unreachable!()
+        };
         assert_eq!(obs.vendor.as_deref(), Some("Mitsubishi"));
         assert_eq!(obs.role.as_deref(), Some("mitsubishi_plc"));
         let model = obs.model.as_deref().unwrap_or("");
-        assert!(model.starts_with("Q03UDV"), "expected 'Q03UDV...', got '{model}'");
+        assert!(
+            model.starts_with("Q03UDV"),
+            "expected 'Q03UDV...', got '{model}'"
+        );
     }
 
     // ── Test 5: Remote Run → operation="slmp_remote_run" ─────────────────────
@@ -612,16 +639,26 @@ mod tests {
             panic!("expected ParseAnomaly");
         };
         assert_eq!(a.severity, "low");
-        assert!(a.reason.contains("unknown") || a.reason.contains("0x9999"),
-            "reason should mention unknown command: {}", a.reason);
+        assert!(
+            a.reason.contains("unknown") || a.reason.contains("0x9999"),
+            "reason should mention unknown command: {}",
+            a.reason
+        );
 
         let resp = make_response(0x0006, 0x00, 0xFF, 0x0000, &[]);
         dec.on_stream_chunk(&make_chunk(&resp, 5007, 55004, sess), &mut out);
 
-        let txn_ev = out.iter().find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
+        let txn_ev = out
+            .iter()
+            .find(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
             .expect("ProtocolTransaction missing");
-        let BronzeEventFamily::ProtocolTransaction(ref txn) = txn_ev.family else { unreachable!() };
-        assert!(txn.operation.contains("unknown"),
-            "operation must contain 'unknown', got '{}'", txn.operation);
+        let BronzeEventFamily::ProtocolTransaction(ref txn) = txn_ev.family else {
+            unreachable!()
+        };
+        assert!(
+            txn.operation.contains("unknown"),
+            "operation must contain 'unknown', got '{}'",
+            txn.operation
+        );
     }
 }

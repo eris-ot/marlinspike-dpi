@@ -3,10 +3,10 @@ use std::collections::BTreeMap;
 use crate::bronze::{BronzeEvent, BronzeEventFamily, ProtocolTransaction};
 use crate::dissectors::profinet::ProfinetDissector;
 use crate::engine::{
-    artifact_event, build_envelope, new_event, parse_anomaly_event, DecoderInterest,
-    SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
+    parse_anomaly_event,
 };
-use crate::registry::{ProtocolData, ProtocolDissector, ProfinetFields};
+use crate::registry::{ProfinetFields, ProtocolData, ProtocolDissector};
 
 use super::normalize_operation_name;
 
@@ -86,9 +86,9 @@ impl SessionDecoder for ProfinetDecoderWrapper {
                         object_refs: vec![format!("profinet_frame:{frame_id:#06x}")],
                         values: Vec::new(),
                         attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
+                        modbus: None,
+                        protocol_fields: None,
+                    }),
                 ));
 
                 if !payload.is_empty() {

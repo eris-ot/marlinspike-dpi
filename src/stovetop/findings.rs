@@ -34,10 +34,7 @@ pub enum FindingKind {
         max_expected: usize,
     },
     /// Capture snapped the frame — captured bytes < original length.
-    TruncatedCapture {
-        captured_len: usize,
-        orig_len: u32,
-    },
+    TruncatedCapture { captured_len: usize, orig_len: u32 },
     /// Ethernet padding region contains non-zero bytes.
     NonZeroPadding {
         padding_offset: usize,
@@ -46,10 +43,7 @@ pub enum FindingKind {
         padding_hex: String,
     },
     /// Ethernet FCS present and invalid.
-    FcsInvalid {
-        expected: u32,
-        actual: u32,
-    },
+    FcsInvalid { expected: u32, actual: u32 },
     /// DNP3 DLL CRC mismatch.
     Dnp3CrcInvalid {
         block_offset: usize,
@@ -75,9 +69,7 @@ pub enum FindingKind {
         type_name: String,
     },
     /// ICMP unreachable flood indicator — many in a short window.
-    IcmpUnreachableFlood {
-        count: usize,
-    },
+    IcmpUnreachableFlood { count: usize },
 }
 
 /// A single finding from the stovetop inspector.
@@ -109,9 +101,7 @@ impl FrameFinding {
                 captured_len,
                 orig_len,
             } => {
-                format!(
-                    "truncated capture: {captured_len} bytes captured of {orig_len} original"
-                )
+                format!("truncated capture: {captured_len} bytes captured of {orig_len} original")
             }
             FindingKind::NonZeroPadding {
                 padding_offset,

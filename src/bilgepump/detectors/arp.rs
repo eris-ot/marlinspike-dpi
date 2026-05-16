@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use crate::bilgepump::alerts::{AlertKind, AlertSeverity, BilgepumpAlert};
 use crate::bilgepump::config::BilgepumpConfig;
 use crate::bilgepump::state::{BindingSource, MacIpBinding, RateCounter};
-use crate::registry::{format_mac, ArpFields};
+use crate::registry::{ArpFields, format_mac};
 
 /// Stateful ARP monitor.
 #[derive(Debug, Default)]
@@ -34,19 +34,18 @@ impl ArpDetector {
         let sender_mac_str = format_mac(&fields.sender_mac);
         let sender_ip_str = format!(
             "{}.{}.{}.{}",
-            fields.sender_ip[0], fields.sender_ip[1],
-            fields.sender_ip[2], fields.sender_ip[3]
+            fields.sender_ip[0], fields.sender_ip[1], fields.sender_ip[2], fields.sender_ip[3]
         );
 
         // Check if this is a blessed binding
-        let is_blessed = config.blessed_bindings.iter().any(|b| {
-            b.mac.eq_ignore_ascii_case(&sender_mac_str) && b.ip == sender_ip_str
-        });
+        let is_blessed = config
+            .blessed_bindings
+            .iter()
+            .any(|b| b.mac.eq_ignore_ascii_case(&sender_mac_str) && b.ip == sender_ip_str);
 
         // ARP reply (operation 2) or gratuitous ARP (operation 1 with sender=target)
         let is_reply = fields.operation == 2;
-        let is_gratuitous = fields.operation == 1
-            && fields.sender_ip == fields.target_ip;
+        let is_gratuitous = fields.operation == 1 && fields.sender_ip == fields.target_ip;
 
         // Gratuitous ARP detection
         if is_gratuitous {
@@ -78,22 +77,24 @@ impl ArpDetector {
         }
 
         // Binding change detection (ARP spoofing)
-        if let Some(existing) = self.ip_bindings.get(&fields.sender_ip) {
-            if existing.mac != fields.sender_mac && !is_blessed && !existing.blessed {
-                let ttl = chrono::Duration::seconds(config.arp_binding_ttl_secs as i64);
-                let binding_expired = (now - existing.last_seen) > ttl;
+        if let Some(existing) = self.ip_bindings.get(&fields.sender_ip)
+            && existing.mac != fields.sender_mac
+            && !is_blessed
+            && !existing.blessed
+        {
+            let ttl = chrono::Duration::seconds(config.arp_binding_ttl_secs as i64);
+            let binding_expired = (now - existing.last_seen) > ttl;
 
-                if !binding_expired {
-                    alerts.push(BilgepumpAlert {
-                        kind: AlertKind::ArpSpoofDetected {
-                            claimed_ip: sender_ip_str.clone(),
-                            new_mac: sender_mac_str.clone(),
-                            previous_mac: format_mac(&existing.mac),
-                        },
-                        severity: AlertSeverity::Critical,
-                        decoder: "bilgepump:arp_spoof",
-                    });
-                }
+            if !binding_expired {
+                alerts.push(BilgepumpAlert {
+                    kind: AlertKind::ArpSpoofDetected {
+                        claimed_ip: sender_ip_str.clone(),
+                        new_mac: sender_mac_str.clone(),
+                        previous_mac: format_mac(&existing.mac),
+                    },
+                    severity: AlertSeverity::Critical,
+                    decoder: "bilgepump:arp_spoof",
+                });
             }
         }
 
@@ -127,23 +128,15 @@ impl ArpDetector {
     }
 
     /// Record a DHCP-learned binding (higher trust than ARP).
-    pub fn record_dhcp_binding(
-        &mut self,
-        mac: [u8; 6],
-        ip: [u8; 4],
-        now: DateTime<Utc>,
-    ) {
-        let binding = self
-            .ip_bindings
-            .entry(ip)
-            .or_insert_with(|| MacIpBinding {
-                mac,
-                ip,
-                first_seen: now,
-                last_seen: now,
-                source: BindingSource::Dhcp,
-                blessed: false,
-            });
+    pub fn record_dhcp_binding(&mut self, mac: [u8; 6], ip: [u8; 4], now: DateTime<Utc>) {
+        let binding = self.ip_bindings.entry(ip).or_insert_with(|| MacIpBinding {
+            mac,
+            ip,
+            first_seen: now,
+            last_seen: now,
+            source: BindingSource::Dhcp,
+            blessed: false,
+        });
         binding.mac = mac;
         binding.last_seen = now;
         binding.source = BindingSource::Dhcp;
@@ -241,11 +234,13 @@ mod tests {
     fn blessed_binding_not_flagged() {
         let mut det = ArpDetector::default();
         let mut config = BilgepumpConfig::default();
-        config.blessed_bindings.push(crate::bilgepump::config::BlessedBinding {
-            mac: "aa:bb:cc:dd:ee:ff".to_string(),
-            ip: "10.0.0.1".to_string(),
-            description: None,
-        });
+        config
+            .blessed_bindings
+            .push(crate::bilgepump::config::BlessedBinding {
+                mac: "aa:bb:cc:dd:ee:ff".to_string(),
+                ip: "10.0.0.1".to_string(),
+                description: None,
+            });
         let t = now();
         let ip = [10, 0, 0, 1];
 

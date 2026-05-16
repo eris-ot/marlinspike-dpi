@@ -10,9 +10,7 @@
 use std::collections::BTreeMap;
 
 use crate::bronze::{BronzeEvent, BronzeEventFamily, ProtocolTransaction};
-use crate::engine::{
-    build_envelope, new_event, DecoderInterest, SessionDecoder, StreamChunk,
-};
+use crate::engine::{DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event};
 
 /// Helper to emit a single ProtocolTransaction recognition event.
 fn emit_recognition(
@@ -47,7 +45,7 @@ fn emit_recognition(
             values: Vec::new(),
             attributes,
             modbus: None,
-                                        protocol_fields: None,
+            protocol_fields: None,
         }),
     ));
 }
@@ -86,7 +84,6 @@ impl SessionDecoder for SmbRecognizer {
     }
 }
 
-
 // CC-Link IE Field — UDP 61450, often multicast (239.192.0.0/16).
 pub(crate) struct CcLinkRecognizer;
 
@@ -100,7 +97,13 @@ impl SessionDecoder for CcLinkRecognizer {
     }
 
     fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
-        emit_recognition(chunk, out, "cclink", "cclink_ie_traffic", "CC-Link IE Field traffic");
+        emit_recognition(
+            chunk,
+            out,
+            "cclink",
+            "cclink_ie_traffic",
+            "CC-Link IE Field traffic",
+        );
     }
 }
 
@@ -146,7 +149,13 @@ impl SessionDecoder for IoLinkRecognizer {
     }
 
     fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
-        emit_recognition(chunk, out, "iolink", "iolink_traffic", "IO-Link Wireless traffic");
+        emit_recognition(
+            chunk,
+            out,
+            "iolink",
+            "iolink_traffic",
+            "IO-Link Wireless traffic",
+        );
     }
 }
 

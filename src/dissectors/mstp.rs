@@ -90,8 +90,12 @@ impl MstpDissector {
             while offset + 16 <= data.len().min(msti_end) {
                 let msti_flags = data[offset];
                 let regional_root = format_bridge_id(&data[offset + 1..offset + 9]);
-                let internal_path_cost =
-                    u32::from_be_bytes([data[offset + 9], data[offset + 10], data[offset + 11], data[offset + 12]]);
+                let internal_path_cost = u32::from_be_bytes([
+                    data[offset + 9],
+                    data[offset + 10],
+                    data[offset + 11],
+                    data[offset + 12],
+                ]);
                 let bridge_priority = data[offset + 13];
                 let remaining_hops = data[offset + 15];
 
@@ -142,9 +146,7 @@ impl ProtocolDissector for MstpDissector {
             return false;
         }
         // Must be at least 38 bytes, protocol_id=0x0000, version >= 3.
-        data.len() >= 38
-            && u16::from_be_bytes([data[0], data[1]]) == 0x0000
-            && data[2] >= 3
+        data.len() >= 38 && u16::from_be_bytes([data[0], data[1]]) == 0x0000 && data[2] >= 3
     }
 
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {

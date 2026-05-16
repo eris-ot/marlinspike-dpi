@@ -8,7 +8,7 @@
 
 - **Input**: PCAP or PCAPNG byte streams. Ethernet linktype only.
 - **Output**: Bronze v2 events (JSON), OCSF v1.4.0 records (NDJSON), or InfluxDB Line Protocol — pick via `--format` CLI flag or library API.
-- **Coverage**: 50+ protocol dissectors. ~40 industrial control / OT protocols at deep parse. The remaining are common IT protocols (DNS, HTTP, TLS handshake, SMB2/3, Kerberos, LDAP, etc.).
+- **Coverage**: 44 OT/ICS protocols (34 with deep or full PDU parse, 5 shallow, 5 recognition-only) + 40+ IT/infrastructure protocols. See [parse-depth-matrix.md](./parse-depth-matrix.md) for per-protocol depth.
 - **Detection subsystems**: Stovetop (frame-level integrity — CRC, padding entropy, runt/oversized), ICMPeeker (ICMP threat detection — redirects, tunnels), Bilgepump (stateful L2 — ARP spoofing, VLAN hopping, STP root hijacking, rogue DHCP, identity conflicts).
 - **VQT extraction**: Process variable Value/Quality/Timestamp readings emitted as typed `ProcessReading` events for Sparkplug B, OPC UA, OPC UA PubSub, PCCC, Modbus, DNP3, IEC 104, IEC 61850 MMS, HART-IP, IEEE C37.118 synchrophasor.
 
@@ -97,7 +97,7 @@ A: No. Encrypted payloads are observed at the handshake / record layer and then 
 A: One new file in `src/engine/decoders/` (or `src/engine/decoders/ot/` for industrial protocols) with an `inventory::submit!` registration block. The engine collects every registration at startup — no central wiring to edit. See an existing decoder like `src/engine/decoders/diameter.rs` for the pattern.
 
 **Q: How does it compare to Zeek?**
-A: Different model — Zeek is a daemon with a scripting DSL for live behavioural detection. marlinspike-dpi is a library you embed in your Rust application. We have substantially deeper OT/ICS coverage (40+ industrial protocols vs. Zeek's ~4 mainstream ones) and built-in VQT extraction for process historians. Zeek is better for live IT-side behavioural detection with a Zeek-script-savvy team.
+A: Different model — Zeek is a daemon with a scripting DSL for live behavioural detection. marlinspike-dpi is a library you embed in your Rust application. We have substantially deeper OT/ICS coverage (44 OT protocols, 34 with deep parse, vs. Zeek's ~4 mainstream ones) and built-in VQT extraction for process historians. Zeek is better for live IT-side behavioural detection with a Zeek-script-savvy team.
 
 **Q: How does it compare to Suricata?**
 A: Different category — Suricata is a rule-based IDS. We're a structured-event parser. They can coexist; our events plus Suricata's alerts are complementary.

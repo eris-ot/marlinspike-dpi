@@ -17,7 +17,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 use crate::registry::format_mac;
 
@@ -180,7 +180,7 @@ impl SessionDecoder for SercosDecoder {
                 format!("sercos_{type_name}_first")
             };
             Some(op)
-        } else if count % PERIODIC_INTERVAL == 0 {
+        } else if count.is_multiple_of(PERIODIC_INTERVAL) {
             let op = if telegram_type > TTYPE_HOTPLUG {
                 format!("sercos_unknown_type_{telegram_type}_periodic")
             } else {
@@ -193,7 +193,7 @@ impl SessionDecoder for SercosDecoder {
 
         if let Some(op) = operation {
             let mut tx_attrs = attributes.clone();
-            if count % PERIODIC_INTERVAL == 0 {
+            if count.is_multiple_of(PERIODIC_INTERVAL) {
                 tx_attrs.insert("packet_count_observed".to_string(), count.to_string());
             }
             out.push(new_event(
@@ -244,9 +244,7 @@ impl SessionDecoder for SercosDecoder {
         if telegram_type == TTYPE_AT
             && !session.slave_macs_observed.contains(&chunk.context.src_mac)
         {
-            session
-                .slave_macs_observed
-                .insert(chunk.context.src_mac);
+            session.slave_macs_observed.insert(chunk.context.src_mac);
             out.push(new_event(
                 chunk.capture_id.to_string(),
                 envelope,
@@ -276,11 +274,11 @@ inventory::submit!(crate::engine::decoders::DecoderRegistration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr};
-    use chrono::Utc;
     use crate::bronze::BronzeEventFamily;
     use crate::engine::StreamChunk;
     use crate::registry::PacketContext;
+    use chrono::Utc;
+    use std::net::{IpAddr, Ipv4Addr};
 
     fn ctx(src_mac: [u8; 6]) -> PacketContext {
         PacketContext {
@@ -288,18 +286,27 @@ mod tests {
             dst_mac: [0xFF; 6],
             src_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             dst_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-            src_port: 0, dst_port: 0, vlan_id: None, timestamp: 0,
+            src_port: 0,
+            dst_port: 0,
+            vlan_id: None,
+            timestamp: 0,
         }
     }
 
     fn make_chunk<'a>(payload: &'a [u8], src_mac: [u8; 6], session: &str) -> StreamChunk<'a> {
         StreamChunk {
-            capture_id: "test", segment_hash: "aa",
-            interface_id: 0, frame_index: 1,
-            timestamp: Utc::now(), context: ctx(src_mac),
-            ethertype: 0x88CD, ip_proto: None, llc: None,
+            capture_id: "test",
+            segment_hash: "aa",
+            interface_id: 0,
+            frame_index: 1,
+            timestamp: Utc::now(),
+            context: ctx(src_mac),
+            ethertype: 0x88CD,
+            ip_proto: None,
+            llc: None,
             transport: TransportProtocol::Ethernet,
-            payload, session_key: session.to_string(),
+            payload,
+            session_key: session.to_string(),
             captured_len: payload.len() as u64,
         }
     }
@@ -314,21 +321,42 @@ mod tests {
     }
 
     fn txns(events: &[BronzeEvent]) -> Vec<&ProtocolTransaction> {
-        events.iter().filter_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family { Some(t) } else { None }
-        }).collect()
+        events
+            .iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn assets(events: &[BronzeEvent]) -> Vec<&AssetObservation> {
-        events.iter().filter_map(|e| {
-            if let BronzeEventFamily::AssetObservation(ref a) = e.family { Some(a) } else { None }
-        }).collect()
+        events
+            .iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::AssetObservation(ref a) = e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn anomalies(events: &[BronzeEvent]) -> Vec<&crate::bronze::ParseAnomaly> {
-        events.iter().filter_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(ref a) = e.family { Some(a) } else { None }
-        }).collect()
+        events
+            .iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::ParseAnomaly(ref a) = e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     // 1. MST — first sight: correct operation, mst_cycle_count, master AssetObservation.
@@ -453,7 +481,10 @@ mod tests {
         for _ in 2..1000 {
             let mut out = Vec::new();
             dec.on_datagram(&make_chunk(&frame, mac, "s7"), &mut out);
-            assert!(txns(&out).is_empty(), "no emission between first and 1000th");
+            assert!(
+                txns(&out).is_empty(),
+                "no emission between first and 1000th"
+            );
         }
 
         // Frame 1000 — periodic.
@@ -476,7 +507,11 @@ mod tests {
         let mut out1 = Vec::new();
         dec.on_datagram(&make_chunk(&synced, mac, "s8"), &mut out1);
         // No sync_lost yet.
-        assert!(!txns(&out1).iter().any(|t| t.operation == "sercos_sync_lost"));
+        assert!(
+            !txns(&out1)
+                .iter()
+                .any(|t| t.operation == "sercos_sync_lost")
+        );
 
         // Frame with sync_flag=false — transition triggers sync_lost.
         let unsynced = build_frame(TTYPE_MST, false, 11, 0, 0);

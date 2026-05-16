@@ -27,12 +27,31 @@
 //! preserved for compatibility even though the implementation now accepts both
 //! classic PCAP and PCAPNG input.
 
+#![cfg_attr(
+    test,
+    allow(
+        unused_imports,
+        unused_variables,
+        clippy::approx_constant,
+        clippy::bool_assert_comparison,
+        clippy::field_reassign_with_default,
+        clippy::identity_op,
+        clippy::let_and_return,
+        clippy::unusual_byte_groupings,
+        clippy::manual_repeat_n,
+        clippy::unnecessary_cast,
+        clippy::unnecessary_get_then_check,
+        clippy::vec_init_then_push,
+        clippy::useless_vec
+    )
+)]
+
+pub mod bilgepump;
 pub mod bronze;
 pub mod classify;
 pub mod corpus;
 pub mod dedup;
 pub mod dissectors;
-pub mod bilgepump;
 pub mod engine;
 pub mod icmpeeker;
 pub mod mqtt_payload;
@@ -52,11 +71,11 @@ pub use crate::bronze::{
     ModbusRegKind, OpcUaNodeId, PointIdentifier, PointValue, ProcessReading, RawQuality,
     SegmentCheckpoint, activity_records,
 };
+pub use crate::classify::{RegistryClassifier, name_to_protocol_id};
 pub use crate::corpus::{
     CorpusDirectory, CorpusManifest, CorpusManifestSummary, CorpusRoadmapPhase,
     CorpusValidationOptions, CorpusValidationSummary, FixtureResult, FixtureResultStatus,
     FixtureSpec, FixtureValidationObservation, ImplementationStatus, validate_corpus_manifest,
 };
-pub use crate::classify::{RegistryClassifier, name_to_protocol_id};
 pub use crate::engine::{BronzeSink, DpiEngine, DpiError, DpiSegmentOutput, SegmentMeta};
 pub use fathom_contracts::{Classifier, ProtocolId};

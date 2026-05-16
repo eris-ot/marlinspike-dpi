@@ -146,11 +146,11 @@ fn parse_hart_ip_frame(data: &[u8]) -> Option<HartIpFields> {
 
 fn parse_hart_body(message_type: u8, message_id: u8, body: &[u8]) -> HartIpBody {
     match (message_type, message_id) {
-        (0 | 1 | 2, 0) => {
+        (0..=2, 0) => {
             parse_session_initiate(body).unwrap_or_else(|| HartIpBody::Raw(body.to_vec()))
         }
-        (0 | 1 | 2, 1) => HartIpBody::SessionClose,
-        (0 | 1 | 2, 2) => HartIpBody::KeepAlive,
+        (0..=2, 1) => HartIpBody::SessionClose,
+        (0..=2, 2) => HartIpBody::KeepAlive,
         (3 | 15, _) => parse_error_body(body),
         (_, 3) => HartIpBody::PassThrough(parse_pass_through_body(body)),
         _ => HartIpBody::Raw(body.to_vec()),

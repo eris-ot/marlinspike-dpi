@@ -83,11 +83,11 @@ fn json_to_py(py: Python<'_>, value: serde_json::Value) -> PyResult<PyObject> {
 /// ```
 fn bronze_event_to_pydict(py: Python<'_>, event: &BronzeEvent) -> PyResult<Py<PyDict>> {
     // Serialise to JSON Value — clean and future-proof.
-    let mut root: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&serde_json::to_string(event).map_err(|e| {
-            PyIOError::new_err(format!("serialization error: {e}"))
-        })?)
-        .map_err(|e| PyIOError::new_err(format!("deserialization error: {e}")))?;
+    let mut root: serde_json::Map<String, serde_json::Value> = serde_json::from_str(
+        &serde_json::to_string(event)
+            .map_err(|e| PyIOError::new_err(format!("serialization error: {e}")))?,
+    )
+    .map_err(|e| PyIOError::new_err(format!("deserialization error: {e}")))?;
 
     // Pull out the original tagged-enum `family` value from the serialised
     // root before we overwrite the key with the plain string name.
@@ -95,7 +95,10 @@ fn bronze_event_to_pydict(py: Python<'_>, event: &BronzeEvent) -> PyResult<Py<Py
     let family_name = event.family_name().to_string();
 
     // Convenience shortcuts at the top level.
-    root.insert("family".into(), serde_json::Value::String(family_name.clone()));
+    root.insert(
+        "family".into(),
+        serde_json::Value::String(family_name.clone()),
+    );
 
     let protocol = event
         .protocol()
@@ -180,8 +183,8 @@ fn process_capture(
     capture_id: &str,
     batch_size: usize,
 ) -> PyResult<Py<PyList>> {
-    let bytes = std::fs::read(path)
-        .map_err(|e| PyIOError::new_err(format!("cannot read {path}: {e}")))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| PyIOError::new_err(format!("cannot read {path}: {e}")))?;
     run_engine_on_bytes(py, bytes, capture_id, batch_size)
 }
 
@@ -209,8 +212,8 @@ fn process_capture_streaming(
     capture_id: &str,
     batch_size: usize,
 ) -> PyResult<()> {
-    let bytes = std::fs::read(path)
-        .map_err(|e| PyIOError::new_err(format!("cannot read {path}: {e}")))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| PyIOError::new_err(format!("cannot read {path}: {e}")))?;
     let list = run_engine_on_bytes(py, bytes, capture_id, batch_size)?;
     let bound = list.bind(py);
     for item in bound.iter() {

@@ -16,7 +16,7 @@ use std::net::IpAddr;
 use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
-use crate::engine::{build_envelope, new_event, DecoderInterest, SessionDecoder, StreamChunk};
+use crate::engine::{DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event};
 
 const HSE_HEADER_MIN: usize = 4;
 const MAGIC_SEARCH_LIMIT: usize = 16;
@@ -110,7 +110,12 @@ impl FfHseDecoder {
         let asset_key = (server_ip_str.clone(), port);
         if !self.seen_assets.contains(&asset_key) {
             self.seen_assets.insert(asset_key);
-            out.push(hse_asset_observation(chunk, transport, &server_ip_str, port));
+            out.push(hse_asset_observation(
+                chunk,
+                transport,
+                &server_ip_str,
+                port,
+            ));
         }
 
         if self.seen_sessions.contains(&chunk.session_key) {
@@ -137,39 +142,68 @@ impl FfHseDecoder {
         }
 
         let env = build_envelope(
-            &chunk.context, chunk.interface_id, chunk.frame_index,
-            chunk.timestamp, chunk.segment_hash, transport, Some("ff_hse"),
-            chunk.captured_len, chunk.session_key.clone(),
+            &chunk.context,
+            chunk.interface_id,
+            chunk.frame_index,
+            chunk.timestamp,
+            chunk.segment_hash,
+            transport,
+            Some("ff_hse"),
+            chunk.captured_len,
+            chunk.session_key.clone(),
         );
         out.push(new_event(
-            chunk.capture_id.to_string(), env,
+            chunk.capture_id.to_string(),
+            env,
             BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                 operation: operation_for_port(port).to_string(),
                 status: "observed".to_string(),
                 request_summary: Some(format!("FF HSE {} on port {}", ff_function(port), port)),
-                response_summary: None, object_refs: Vec::new(), values: Vec::new(),
-                attributes, modbus: None, protocol_fields: None,
+                response_summary: None,
+                object_refs: Vec::new(),
+                values: Vec::new(),
+                attributes,
+                modbus: None,
+                protocol_fields: None,
             }),
         ));
     }
 }
 
-fn hse_asset_observation(chunk: &StreamChunk<'_>, transport: TransportProtocol, server_ip: &str, port: u16) -> BronzeEvent {
+fn hse_asset_observation(
+    chunk: &StreamChunk<'_>,
+    transport: TransportProtocol,
+    server_ip: &str,
+    port: u16,
+) -> BronzeEvent {
     let env = build_envelope(
-        &chunk.context, chunk.interface_id, chunk.frame_index,
-        chunk.timestamp, chunk.segment_hash, transport, Some("ff_hse"),
-        chunk.captured_len, chunk.session_key.clone(),
+        &chunk.context,
+        chunk.interface_id,
+        chunk.frame_index,
+        chunk.timestamp,
+        chunk.segment_hash,
+        transport,
+        Some("ff_hse"),
+        chunk.captured_len,
+        chunk.session_key.clone(),
     );
-    new_event(chunk.capture_id.to_string(), env, BronzeEventFamily::AssetObservation(AssetObservation {
-        asset_key: server_ip.to_string(),
-        role: Some("foundation_fieldbus_hse_node".to_string()),
-        vendor: None, model: None, firmware: None, hostnames: Vec::new(),
-        protocols: vec!["ff_hse".to_string()],
-        identifiers: BTreeMap::from([
-            ("port".to_string(), port.to_string()),
-            ("ff_function".to_string(), ff_function(port).to_string()),
-        ]),
-    }))
+    new_event(
+        chunk.capture_id.to_string(),
+        env,
+        BronzeEventFamily::AssetObservation(AssetObservation {
+            asset_key: server_ip.to_string(),
+            role: Some("foundation_fieldbus_hse_node".to_string()),
+            vendor: None,
+            model: None,
+            firmware: None,
+            hostnames: Vec::new(),
+            protocols: vec!["ff_hse".to_string()],
+            identifiers: BTreeMap::from([
+                ("port".to_string(), port.to_string()),
+                ("ff_function".to_string(), ff_function(port).to_string()),
+            ]),
+        }),
+    )
 }
 
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
@@ -189,10 +223,14 @@ mod tests {
 
     fn ctx(src_ip: [u8; 4], src_port: u16, dst_ip: [u8; 4], dst_port: u16) -> PacketContext {
         PacketContext {
-            src_mac: [0; 6], dst_mac: [0; 6],
+            src_mac: [0; 6],
+            dst_mac: [0; 6],
             src_ip: IpAddr::V4(Ipv4Addr::from(src_ip)),
             dst_ip: IpAddr::V4(Ipv4Addr::from(dst_ip)),
-            src_port, dst_port, vlan_id: None, timestamp: 0,
+            src_port,
+            dst_port,
+            vlan_id: None,
+            timestamp: 0,
         }
     }
 
@@ -202,13 +240,23 @@ mod tests {
         session: &str,
         transport: TransportProtocol,
     ) -> StreamChunk<'a> {
-        let ip_proto = if transport == TransportProtocol::Tcp { Some(6u8) } else { Some(17u8) };
+        let ip_proto = if transport == TransportProtocol::Tcp {
+            Some(6u8)
+        } else {
+            Some(17u8)
+        };
         StreamChunk {
-            capture_id: "test-cap", segment_hash: "deadbeef",
-            interface_id: 0, frame_index: 0,
+            capture_id: "test-cap",
+            segment_hash: "deadbeef",
+            interface_id: 0,
+            frame_index: 0,
             timestamp: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-            context, ethertype: 0x0800, ip_proto, llc: None,
-            transport, payload,
+            context,
+            ethertype: 0x0800,
+            ip_proto,
+            llc: None,
+            transport,
+            payload,
             session_key: session.to_string(),
             captured_len: payload.len() as u64,
         }
@@ -221,19 +269,32 @@ mod tests {
     }
 
     fn transactions(events: &[BronzeEvent]) -> Vec<&ProtocolTransaction> {
-        events.iter().filter_map(|e| match &e.family {
-            BronzeEventFamily::ProtocolTransaction(t) => Some(t), _ => None,
-        }).collect()
+        events
+            .iter()
+            .filter_map(|e| match &e.family {
+                BronzeEventFamily::ProtocolTransaction(t) => Some(t),
+                _ => None,
+            })
+            .collect()
     }
 
     fn asset_observations(events: &[BronzeEvent]) -> Vec<&AssetObservation> {
-        events.iter().filter_map(|e| match &e.family {
-            BronzeEventFamily::AssetObservation(a) => Some(a), _ => None,
-        }).collect()
+        events
+            .iter()
+            .filter_map(|e| match &e.family {
+                BronzeEventFamily::AssetObservation(a) => Some(a),
+                _ => None,
+            })
+            .collect()
     }
 
     fn hse_payload(version: u8, msg_type: u8, declared_len: u16, suffix: &[u8]) -> Vec<u8> {
-        let mut b = vec![version, msg_type, (declared_len >> 8) as u8, declared_len as u8];
+        let mut b = vec![
+            version,
+            msg_type,
+            (declared_len >> 8) as u8,
+            declared_len as u8,
+        ];
         b.extend_from_slice(suffix);
         b
     }
@@ -251,18 +312,48 @@ mod tests {
         assert_eq!(txns.len(), 1);
         assert_eq!(txns[0].operation, "ff_hse_annunciation");
         assert_eq!(txns[0].status, "observed");
-        assert_eq!(txns[0].attributes.get("port").map(String::as_str), Some("1089"));
-        assert_eq!(txns[0].attributes.get("transport").map(String::as_str), Some("tcp"));
-        assert_eq!(txns[0].attributes.get("version_byte").map(String::as_str), Some("1"));
-        assert_eq!(txns[0].attributes.get("message_type_byte").map(String::as_str), Some("2"));
-        assert_eq!(txns[0].attributes.get("declared_length").map(String::as_str), Some("16"));
+        assert_eq!(
+            txns[0].attributes.get("port").map(String::as_str),
+            Some("1089")
+        );
+        assert_eq!(
+            txns[0].attributes.get("transport").map(String::as_str),
+            Some("tcp")
+        );
+        assert_eq!(
+            txns[0].attributes.get("version_byte").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            txns[0]
+                .attributes
+                .get("message_type_byte")
+                .map(String::as_str),
+            Some("2")
+        );
+        assert_eq!(
+            txns[0]
+                .attributes
+                .get("declared_length")
+                .map(String::as_str),
+            Some("16")
+        );
 
         let assets = asset_observations(&out);
         assert_eq!(assets.len(), 1);
-        assert_eq!(assets[0].role.as_deref(), Some("foundation_fieldbus_hse_node"));
+        assert_eq!(
+            assets[0].role.as_deref(),
+            Some("foundation_fieldbus_hse_node")
+        );
         assert_eq!(assets[0].vendor, None);
-        assert_eq!(assets[0].identifiers.get("ff_function").map(String::as_str), Some("annunciation"));
-        assert_eq!(assets[0].identifiers.get("port").map(String::as_str), Some("1089"));
+        assert_eq!(
+            assets[0].identifiers.get("ff_function").map(String::as_str),
+            Some("annunciation")
+        );
+        assert_eq!(
+            assets[0].identifiers.get("port").map(String::as_str),
+            Some("1089")
+        );
     }
 
     #[test]
@@ -277,12 +368,21 @@ mod tests {
         let txns = transactions(&out);
         assert_eq!(txns.len(), 1);
         assert_eq!(txns[0].operation, "ff_hse_fms");
-        assert_eq!(txns[0].attributes.get("transport").map(String::as_str), Some("udp"));
-        assert_eq!(txns[0].attributes.get("port").map(String::as_str), Some("1090"));
+        assert_eq!(
+            txns[0].attributes.get("transport").map(String::as_str),
+            Some("udp")
+        );
+        assert_eq!(
+            txns[0].attributes.get("port").map(String::as_str),
+            Some("1090")
+        );
 
         let assets = asset_observations(&out);
         assert_eq!(assets.len(), 1);
-        assert_eq!(assets[0].identifiers.get("ff_function").map(String::as_str), Some("fms"));
+        assert_eq!(
+            assets[0].identifiers.get("ff_function").map(String::as_str),
+            Some("fms")
+        );
     }
 
     #[test]
@@ -319,7 +419,11 @@ mod tests {
         dec.on_stream_chunk(&tcp(&payload2, c2, "sess-4"), &mut out);
 
         let txns = transactions(&out);
-        assert_eq!(txns.len(), 1, "ProtocolTransaction emitted exactly once per session");
+        assert_eq!(
+            txns.len(),
+            1,
+            "ProtocolTransaction emitted exactly once per session"
+        );
         assert!(txns[0].attributes.get("magic_seen").is_none());
     }
 
@@ -335,7 +439,11 @@ mod tests {
         dec.on_stream_chunk(&tcp(&payload, c_b, "sess-5b"), &mut out);
 
         let assets = asset_observations(&out);
-        assert_eq!(assets.len(), 2, "one AssetObservation per distinct server IP");
+        assert_eq!(
+            assets.len(),
+            2,
+            "one AssetObservation per distinct server IP"
+        );
 
         let ips: Vec<&str> = assets.iter().map(|a| a.asset_key.as_str()).collect();
         assert!(ips.contains(&"192.168.10.1"));

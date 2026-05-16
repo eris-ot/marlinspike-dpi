@@ -29,13 +29,11 @@
 
 use std::collections::BTreeMap;
 
-use chrono::Utc;
-
 use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── Wire constants ────────────────────────────────────────────────────────────
@@ -98,7 +96,12 @@ fn read_u16_le(buf: &[u8], offset: usize) -> u16 {
 }
 
 fn read_u32_le(buf: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]])
+    u32::from_le_bytes([
+        buf[offset],
+        buf[offset + 1],
+        buf[offset + 2],
+        buf[offset + 3],
+    ])
 }
 
 fn parse_header(buf: &[u8]) -> Option<CspHeader> {
@@ -252,10 +255,7 @@ impl SessionDecoder for AbCspDecoder {
             "client_handle".to_string(),
             format!("0x{:08x}", hdr.client_handle),
         );
-        attributes.insert(
-            "transaction_id".to_string(),
-            hdr.transaction_id.to_string(),
-        );
+        attributes.insert("transaction_id".to_string(), hdr.transaction_id.to_string());
         attributes.insert("tns".to_string(), format!("0x{:04x}", hdr.tns));
 
         out.push(new_event(
@@ -285,33 +285,34 @@ impl SessionDecoder for AbCspDecoder {
         // assumption that register-session requests flow client→PLC. Passive
         // captures may see either direction first; emitting on any cmd=0x0001
         // with status=0 gives the best coverage without session-state tracking.
-        if hdr.command == CMD_REGISTER_SESSION && hdr.status == 0 {
-            if let Some(dst_ip) = envelope.dst_ip.clone() {
-                let mut identifiers = BTreeMap::new();
-                identifiers.insert(
-                    "csp_addr_hi".to_string(),
-                    format!("0x{:08x}", hdr.target_addr_hi),
-                );
-                identifiers.insert(
-                    "csp_addr_lo".to_string(),
-                    format!("0x{:08x}", hdr.target_addr_lo),
-                );
-                identifiers.insert("ip".to_string(), dst_ip.clone());
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    envelope,
-                    BronzeEventFamily::AssetObservation(AssetObservation {
-                        asset_key: dst_ip,
-                        role: Some("ab_csp_plc".to_string()),
-                        vendor: Some("Allen-Bradley".to_string()),
-                        model: None,
-                        firmware: None,
-                        hostnames: Vec::new(),
-                        protocols: vec!["ab_csp".to_string()],
-                        identifiers,
-                    }),
-                ));
-            }
+        if hdr.command == CMD_REGISTER_SESSION
+            && hdr.status == 0
+            && let Some(dst_ip) = envelope.dst_ip.clone()
+        {
+            let mut identifiers = BTreeMap::new();
+            identifiers.insert(
+                "csp_addr_hi".to_string(),
+                format!("0x{:08x}", hdr.target_addr_hi),
+            );
+            identifiers.insert(
+                "csp_addr_lo".to_string(),
+                format!("0x{:08x}", hdr.target_addr_lo),
+            );
+            identifiers.insert("ip".to_string(), dst_ip.clone());
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope,
+                BronzeEventFamily::AssetObservation(AssetObservation {
+                    asset_key: dst_ip,
+                    role: Some("ab_csp_plc".to_string()),
+                    vendor: Some("Allen-Bradley".to_string()),
+                    model: None,
+                    firmware: None,
+                    hostnames: Vec::new(),
+                    protocols: vec!["ab_csp".to_string()],
+                    identifiers,
+                }),
+            ));
         }
     }
 }
@@ -320,7 +321,7 @@ impl SessionDecoder for AbCspDecoder {
 
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "ab_csp",
-    factory: || Box::new(AbCspDecoder::default()),
+    factory: || Box::new(AbCspDecoder),
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -335,6 +336,7 @@ mod tests {
 
     /// Build a hand-crafted 28-byte CSP header. All reserved/unused bytes
     /// are zeroed. `packet_size` is set to `buf_total_len` unless overridden.
+    #[allow(clippy::too_many_arguments)]
     fn make_csp_frame(
         command: u16,
         status: u16,
@@ -402,11 +404,17 @@ mod tests {
     ///    operation="csp_register_session", status="ok", + AssetObservation.
     #[test]
     fn test_register_session_ok() {
-        let mut dec = AbCspDecoder::default();
+        let mut dec = AbCspDecoder;
         let mut out = Vec::new();
         let frame = make_csp_frame(
-            CMD_REGISTER_SESSION, 0, None,
-            0x01, 1, 0xDEAD0001, 0xBEEF0002, &[],
+            CMD_REGISTER_SESSION,
+            0,
+            None,
+            0x01,
+            1,
+            0xDEAD0001,
+            0xBEEF0002,
+            &[],
         );
         feed(&mut dec, &frame, &mut out);
 
@@ -441,13 +449,10 @@ mod tests {
     ///    operation="csp_pccc_request", status="ok".
     #[test]
     fn test_pccc_request_ok() {
-        let mut dec = AbCspDecoder::default();
+        let mut dec = AbCspDecoder;
         let mut out = Vec::new();
         let pccc_payload = [0x0F, 0x00, 0x01, 0x00, 0x01, 0x00]; // dummy PCCC bytes
-        let frame = make_csp_frame(
-            CMD_PCCC_REQUEST, 0, None,
-            0x06, 42, 0, 0, &pccc_payload,
-        );
+        let frame = make_csp_frame(CMD_PCCC_REQUEST, 0, None, 0x06, 42, 0, 0, &pccc_payload);
         feed(&mut dec, &frame, &mut out);
 
         let txns: Vec<_> = out
@@ -465,19 +470,19 @@ mod tests {
             .iter()
             .filter(|e| matches!(e.family, BronzeEventFamily::ParseAnomaly(_)))
             .collect();
-        assert!(anomalies.is_empty(), "no anomalies expected for valid PCCC request");
+        assert!(
+            anomalies.is_empty(),
+            "no anomalies expected for valid PCCC request"
+        );
     }
 
     /// 3. CSP PCCC Reply (cmd=0x0003, status=0x0010) →
     ///    operation="csp_pccc_reply", status="csp_status_0x0010".
     #[test]
     fn test_pccc_reply_error_status() {
-        let mut dec = AbCspDecoder::default();
+        let mut dec = AbCspDecoder;
         let mut out = Vec::new();
-        let frame = make_csp_frame(
-            CMD_PCCC_REPLY, 0x0010, None,
-            0x06, 42, 0, 0, &[],
-        );
+        let frame = make_csp_frame(CMD_PCCC_REPLY, 0x0010, None, 0x06, 42, 0, 0, &[]);
         feed(&mut dec, &frame, &mut out);
 
         let txns: Vec<_> = out
@@ -496,7 +501,7 @@ mod tests {
     ///    exactly one ParseAnomaly with severity="low".
     #[test]
     fn test_unknown_command_anomaly_low() {
-        let mut dec = AbCspDecoder::default();
+        let mut dec = AbCspDecoder;
         let mut out = Vec::new();
         let frame = make_csp_frame(0xFFFF, 0, None, 0x00, 1, 0, 0, &[]);
         feed(&mut dec, &frame, &mut out);
@@ -510,7 +515,11 @@ mod tests {
             panic!();
         };
         assert_eq!(a.severity, "low");
-        assert!(a.reason.contains("0xffff"), "reason should mention the code: {}", a.reason);
+        assert!(
+            a.reason.contains("0xffff"),
+            "reason should mention the code: {}",
+            a.reason
+        );
 
         let txns: Vec<_> = out
             .iter()
@@ -527,14 +536,19 @@ mod tests {
     ///    ParseAnomaly with severity="medium".
     #[test]
     fn test_packet_size_mismatch_medium_anomaly() {
-        let mut dec = AbCspDecoder::default();
+        let mut dec = AbCspDecoder;
         let mut out = Vec::new();
         // Build a 50-byte buffer but declare packet_size=200.
         let extra = vec![0u8; 50 - CSP_HEADER_LEN]; // 22 bytes of payload
         let frame = make_csp_frame(
-            CMD_PCCC_REQUEST, 0,
+            CMD_PCCC_REQUEST,
+            0,
             Some(200), // declared size intentionally wrong
-            0x06, 7, 0, 0, &extra,
+            0x06,
+            7,
+            0,
+            0,
+            &extra,
         );
         assert_eq!(frame.len(), 50);
         feed(&mut dec, &frame, &mut out);
@@ -543,7 +557,11 @@ mod tests {
             .iter()
             .filter(|e| matches!(e.family, BronzeEventFamily::ParseAnomaly(_)))
             .collect();
-        assert_eq!(anomalies.len(), 1, "expected exactly one medium ParseAnomaly");
+        assert_eq!(
+            anomalies.len(),
+            1,
+            "expected exactly one medium ParseAnomaly"
+        );
         let BronzeEventFamily::ParseAnomaly(ref a) = anomalies[0].family else {
             panic!();
         };
@@ -558,7 +576,7 @@ mod tests {
     /// Bonus: CSP Read With Offset (cmd=0x0007) → operation="csp_read".
     #[test]
     fn test_read_with_offset() {
-        let mut dec = AbCspDecoder::default();
+        let mut dec = AbCspDecoder;
         let mut out = Vec::new();
         let frame = make_csp_frame(CMD_READ_WITH_OFFSET, 0, None, 0x01, 5, 0, 0, &[]);
         feed(&mut dec, &frame, &mut out);
@@ -578,7 +596,7 @@ mod tests {
     /// Truncated below 28 bytes → medium anomaly, no transaction.
     #[test]
     fn test_truncated_frame_below_header() {
-        let mut dec = AbCspDecoder::default();
+        let mut dec = AbCspDecoder;
         let mut out = Vec::new();
         let short = vec![0x01, 0x00, 0x00, 0x00, 0x10, 0x00]; // 6 bytes — far too short
         feed(&mut dec, &short, &mut out);

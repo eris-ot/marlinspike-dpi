@@ -31,7 +31,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 use crate::registry::format_mac;
 
@@ -80,6 +80,7 @@ fn node_role(id: u8) -> &'static str {
 //
 // Offsets match EPSG DS 301 V1.5 Table 3 (IdentResponse payload).
 
+#[expect(dead_code, reason = "kept for follow-on POWERLINK parse helpers")]
 fn read_u16_le(buf: &[u8], off: usize) -> Option<u16> {
     buf.get(off..off + 2)
         .map(|b| u16::from_le_bytes([b[0], b[1]]))
@@ -363,14 +364,14 @@ fn decode_asnd(
     ));
 
     // Parse IdentResponse for AssetObservation.
-    if service_id == SVC_IDENT_RESPONSE {
-        if let Some(asset) = parse_ident_response(src_node, svc_payload, chunk) {
-            out.push(new_event(
-                chunk.capture_id.to_string(),
-                envelope,
-                BronzeEventFamily::AssetObservation(asset),
-            ));
-        }
+    if service_id == SVC_IDENT_RESPONSE
+        && let Some(asset) = parse_ident_response(src_node, svc_payload, chunk)
+    {
+        out.push(new_event(
+            chunk.capture_id.to_string(),
+            envelope,
+            BronzeEventFamily::AssetObservation(asset),
+        ));
     }
 }
 
@@ -433,7 +434,10 @@ fn parse_ident_response(
     identifiers.insert("powerlink_node_id".to_string(), src_node.to_string());
     identifiers.insert("vendor_id".to_string(), format!("{vendor_id:#010x}"));
     identifiers.insert("product_code".to_string(), format!("{product_code:#010x}"));
-    identifiers.insert("serial_number".to_string(), format!("{serial_number:#010x}"));
+    identifiers.insert(
+        "serial_number".to_string(),
+        format!("{serial_number:#010x}"),
+    );
 
     Some(AssetObservation {
         asset_key,
@@ -451,7 +455,7 @@ fn parse_ident_response(
 
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "powerlink",
-    factory: || Box::new(PowerlinkDecoder::default()),
+    factory: || Box::new(PowerlinkDecoder),
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -525,7 +529,7 @@ mod tests {
 
     #[test]
     fn soc_from_mn_to_broadcast() {
-        let mut dec = PowerlinkDecoder::default();
+        let mut dec = PowerlinkDecoder;
         let mut out = Vec::new();
 
         // byte 0: SoC (0x01), dst: 0xFF (broadcast), src: 0xF0 (MN)
@@ -551,7 +555,7 @@ mod tests {
 
     #[test]
     fn preq_from_mn_to_cn5() {
-        let mut dec = PowerlinkDecoder::default();
+        let mut dec = PowerlinkDecoder;
         let mut out = Vec::new();
 
         // byte 0: PReq (0x03), dst: 5 (CN), src: 0xF0 (MN)
@@ -577,7 +581,7 @@ mod tests {
 
     #[test]
     fn asnd_ident_response_asset_observation() {
-        let mut dec = PowerlinkDecoder::default();
+        let mut dec = PowerlinkDecoder;
         let mut out = Vec::new();
 
         // Build an ASnd IdentResponse frame.
@@ -660,7 +664,7 @@ mod tests {
 
     #[test]
     fn unknown_msgtype_emits_anomaly_low() {
-        let mut dec = PowerlinkDecoder::default();
+        let mut dec = PowerlinkDecoder;
         let mut out = Vec::new();
 
         let payload = [0xFFu8, NODE_BROADCAST, NODE_MANAGING, 0x00];
@@ -674,14 +678,17 @@ mod tests {
 
         let a = anomaly(&out[1]);
         assert_eq!(a.severity, "low");
-        assert!(a.reason.contains("0xff"), "anomaly reason should name the unknown type");
+        assert!(
+            a.reason.contains("0xff"),
+            "anomaly reason should name the unknown type"
+        );
     }
 
     // ── Test 5: Truncated 2-byte frame → ParseAnomaly(medium) ────────────────
 
     #[test]
     fn truncated_frame_emits_anomaly_medium() {
-        let mut dec = PowerlinkDecoder::default();
+        let mut dec = PowerlinkDecoder;
         let mut out = Vec::new();
 
         // Only 2 bytes — no source node field, cannot form a valid header.
@@ -689,7 +696,11 @@ mod tests {
         let ctx = make_context();
         dec.on_datagram(&make_chunk(&payload, &ctx), &mut out);
 
-        assert_eq!(out.len(), 1, "truncated frame should emit exactly one anomaly");
+        assert_eq!(
+            out.len(),
+            1,
+            "truncated frame should emit exactly one anomaly"
+        );
         let a = anomaly(&out[0]);
         assert_eq!(a.severity, "medium");
         assert!(a.reason.contains("3-byte header"));
@@ -699,10 +710,9 @@ mod tests {
 
     #[test]
     fn decoder_interest_is_ethertype_88ab() {
-        let dec = PowerlinkDecoder::default();
+        let dec = PowerlinkDecoder;
         assert!(
-            dec.interest()
-                .contains(&DecoderInterest::EtherType(0x88AB)),
+            dec.interest().contains(&DecoderInterest::EtherType(0x88AB)),
             "decoder must declare interest in EtherType 0x88AB"
         );
     }

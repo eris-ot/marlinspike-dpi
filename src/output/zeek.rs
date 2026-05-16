@@ -31,8 +31,8 @@ use std::collections::HashSet;
 use serde_json::{Map, Value, json};
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, EventEnvelope, ParseAnomaly,
-    ProtocolFields, ProtocolTransaction, TransportProtocol,
+    AssetObservation, BronzeEvent, BronzeEventFamily, EventEnvelope, ParseAnomaly, ProtocolFields,
+    ProtocolTransaction, TransportProtocol,
 };
 
 const SYSTEM_NAME: &str = "marlinspike-dpi";
@@ -101,18 +101,12 @@ fn id_fields(m: &mut Map<String, Value>, env: &EventEnvelope) {
         "id.orig_h".into(),
         json!(env.src_ip.as_deref().unwrap_or("-")),
     );
-    m.insert(
-        "id.orig_p".into(),
-        json!(env.src_port.unwrap_or(0)),
-    );
+    m.insert("id.orig_p".into(), json!(env.src_port.unwrap_or(0)));
     m.insert(
         "id.resp_h".into(),
         json!(env.dst_ip.as_deref().unwrap_or("-")),
     );
-    m.insert(
-        "id.resp_p".into(),
-        json!(env.dst_port.unwrap_or(0)),
-    );
+    m.insert("id.resp_p".into(), json!(env.dst_port.unwrap_or(0)));
 }
 
 fn transport_str(t: TransportProtocol) -> &'static str {
@@ -181,11 +175,21 @@ fn render_dns(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     m.insert("query".into(), json!(query));
     m.insert(
         "qtype_name".into(),
-        json!(tx.attributes.get("query_type").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("query_type")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "rcode_name".into(),
-        json!(tx.attributes.get("rcode").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("rcode")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     // answers: split "answers" attribute by comma, or collect from values
     let answers: Vec<Value> = tx
@@ -204,7 +208,12 @@ fn render_dns(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
         .get("ttls")
         .map(|t| {
             t.split(',')
-                .map(|s| s.trim().parse::<u64>().map(|n| json!(n)).unwrap_or(json!(0)))
+                .map(|s| {
+                    s.trim()
+                        .parse::<u64>()
+                        .map(|n| json!(n))
+                        .unwrap_or(json!(0))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -236,15 +245,31 @@ fn render_http(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     m.insert("status_code".into(), json!(status_code));
     m.insert(
         "status_msg".into(),
-        json!(tx.attributes.get("status_msg").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("status_msg")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "user_agent".into(),
-        json!(tx.attributes.get("user_agent").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("user_agent")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
-    m.insert("resp_mime_types".into(), json!(
-        tx.attributes.get("content_type").map(|s| s.as_str()).unwrap_or("-")
-    ));
+    m.insert(
+        "resp_mime_types".into(),
+        json!(
+            tx.attributes
+                .get("content_type")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
+    );
     Value::Object(m)
 }
 
@@ -254,22 +279,38 @@ fn render_ssl(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     let mut m = common_header("ssl", event);
     m.insert(
         "version".into(),
-        json!(tx.attributes.get("version").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("version")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "cipher".into(),
-        json!(tx.attributes.get("cipher").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("cipher")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "server_name".into(),
-        json!(tx.attributes.get("server_name")
-            .or_else(|| tx.attributes.get("sni"))
-            .map(|s| s.as_str())
-            .unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("server_name")
+                .or_else(|| tx.attributes.get("sni"))
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "established".into(),
-        json!(tx.status.to_ascii_lowercase().contains("ok") || tx.status.to_ascii_lowercase().contains("success")),
+        json!(
+            tx.status.to_ascii_lowercase().contains("ok")
+                || tx.status.to_ascii_lowercase().contains("success")
+        ),
     );
     Value::Object(m)
 }
@@ -280,25 +321,39 @@ fn render_ssh(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     let mut m = common_header("ssh", event);
     m.insert(
         "version".into(),
-        json!(tx.attributes.get("version").and_then(|s| s.parse::<u8>().ok()).unwrap_or(2)),
+        json!(
+            tx.attributes
+                .get("version")
+                .and_then(|s| s.parse::<u8>().ok())
+                .unwrap_or(2)
+        ),
     );
     m.insert(
         "auth_success".into(),
-        json!(tx.status.to_ascii_lowercase().contains("ok") || tx.status.to_ascii_lowercase().contains("success")),
+        json!(
+            tx.status.to_ascii_lowercase().contains("ok")
+                || tx.status.to_ascii_lowercase().contains("success")
+        ),
     );
     m.insert(
         "client".into(),
-        json!(tx.attributes.get("client_banner")
-            .or_else(|| tx.attributes.get("client"))
-            .map(|s| s.as_str())
-            .unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("client_banner")
+                .or_else(|| tx.attributes.get("client"))
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "server".into(),
-        json!(tx.attributes.get("server_banner")
-            .or_else(|| tx.attributes.get("server"))
-            .map(|s| s.as_str())
-            .unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("server_banner")
+                .or_else(|| tx.attributes.get("server"))
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     Value::Object(m)
 }
@@ -377,21 +432,13 @@ fn render_dnp3(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
 
     if let Some(ProtocolFields::Dnp3(df)) = &tx.protocol_fields {
         let (fc_request, fc_reply, iin) = if df.direction == "request" {
-            (
-                df.application_function_name.clone(),
-                "-".into(),
-                "-".into(),
-            )
+            (df.application_function_name.clone(), "-".into(), "-".into())
         } else {
             let iin_str = df
                 .iin_flags
                 .map(|i| format!("{i:#06x}"))
                 .unwrap_or_else(|| "-".into());
-            (
-                "-".into(),
-                df.application_function_name.clone(),
-                iin_str,
-            )
+            ("-".into(), df.application_function_name.clone(), iin_str)
         };
         m.insert("fc_request".into(), json!(fc_request));
         m.insert("fc_reply".into(), json!(fc_reply));
@@ -439,7 +486,12 @@ fn render_smb_mapping(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     m.insert("path".into(), json!(path));
     m.insert(
         "share_type".into(),
-        json!(tx.attributes.get("share_type").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("share_type")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert("native_file_system".into(), json!("-"));
     Value::Object(m)
@@ -457,14 +509,20 @@ fn render_smb_files(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     m.insert("name".into(), json!(name));
     m.insert(
         "size".into(),
-        json!(tx
-            .attributes
-            .get("file_size")
-            .and_then(|s| s.parse::<u64>().ok())),
+        json!(
+            tx.attributes
+                .get("file_size")
+                .and_then(|s| s.parse::<u64>().ok())
+        ),
     );
     m.insert(
         "times.modified".into(),
-        json!(tx.attributes.get("last_modified").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("last_modified")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     Value::Object(m)
 }
@@ -506,11 +564,21 @@ fn render_kerberos(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     );
     m.insert(
         "forwardable".into(),
-        json!(tx.attributes.get("forwardable").map(|s| s == "true").unwrap_or(false)),
+        json!(
+            tx.attributes
+                .get("forwardable")
+                .map(|s| s == "true")
+                .unwrap_or(false)
+        ),
     );
     m.insert(
         "renewable".into(),
-        json!(tx.attributes.get("renewable").map(|s| s == "true").unwrap_or(false)),
+        json!(
+            tx.attributes
+                .get("renewable")
+                .map(|s| s == "true")
+                .unwrap_or(false)
+        ),
     );
     Value::Object(m)
 }
@@ -529,19 +597,39 @@ fn render_ldap(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     m.insert("object".into(), json!(object));
     m.insert(
         "search_filter".into(),
-        json!(tx.attributes.get("filter").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("filter")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "search_base_object".into(),
-        json!(tx.attributes.get("base_dn").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("base_dn")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "result_code".into(),
-        json!(tx.attributes.get("result_code").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("result_code")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "diagnostic_message".into(),
-        json!(tx.attributes.get("error_message").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("error_message")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     Value::Object(m)
 }
@@ -552,39 +640,43 @@ fn render_dhcp(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     let mut m = common_header("dhcp", event);
     m.insert(
         "mac".into(),
-        json!(tx
-            .attributes
-            .get("client_mac")
-            .or_else(|| tx.attributes.get("mac"))
-            .map(|s| s.as_str())
-            .unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("client_mac")
+                .or_else(|| tx.attributes.get("mac"))
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "host_name".into(),
-        json!(tx
-            .attributes
-            .get("hostname")
-            .or_else(|| tx.attributes.get("host_name"))
-            .map(|s| s.as_str())
-            .unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("hostname")
+                .or_else(|| tx.attributes.get("host_name"))
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "requested_addr".into(),
-        json!(tx
-            .attributes
-            .get("requested_ip")
-            .or_else(|| tx.attributes.get("requested_addr"))
-            .map(|s| s.as_str())
-            .unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("requested_ip")
+                .or_else(|| tx.attributes.get("requested_addr"))
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "assigned_addr".into(),
-        json!(tx
-            .attributes
-            .get("assigned_ip")
-            .or_else(|| tx.attributes.get("yiaddr"))
-            .map(|s| s.as_str())
-            .unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("assigned_ip")
+                .or_else(|| tx.attributes.get("yiaddr"))
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert("msg_type".into(), json!(tx.operation));
     Value::Object(m)
@@ -596,35 +688,39 @@ fn render_ntp(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     let mut m = common_header("ntp", event);
     m.insert(
         "version".into(),
-        json!(tx
-            .attributes
-            .get("version")
-            .and_then(|s| s.parse::<u8>().ok())
-            .unwrap_or(4)),
+        json!(
+            tx.attributes
+                .get("version")
+                .and_then(|s| s.parse::<u8>().ok())
+                .unwrap_or(4)
+        ),
     );
     m.insert(
         "mode".into(),
-        json!(tx
-            .attributes
-            .get("mode")
-            .and_then(|s| s.parse::<u8>().ok())
-            .unwrap_or(0)),
+        json!(
+            tx.attributes
+                .get("mode")
+                .and_then(|s| s.parse::<u8>().ok())
+                .unwrap_or(0)
+        ),
     );
     m.insert(
         "stratum".into(),
-        json!(tx
-            .attributes
-            .get("stratum")
-            .and_then(|s| s.parse::<u8>().ok())
-            .unwrap_or(0)),
+        json!(
+            tx.attributes
+                .get("stratum")
+                .and_then(|s| s.parse::<u8>().ok())
+                .unwrap_or(0)
+        ),
     );
     m.insert(
         "poll".into(),
-        json!(tx
-            .attributes
-            .get("poll")
-            .and_then(|s| s.parse::<i8>().ok())
-            .unwrap_or(0)),
+        json!(
+            tx.attributes
+                .get("poll")
+                .and_then(|s| s.parse::<i8>().ok())
+                .unwrap_or(0)
+        ),
     );
     Value::Object(m)
 }
@@ -635,26 +731,40 @@ fn render_snmp(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     let mut m = common_header("snmp", event);
     m.insert(
         "version".into(),
-        json!(tx
-            .attributes
-            .get("version")
-            .map(|s| s.as_str())
-            .unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("version")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "community".into(),
-        json!(tx
-            .attributes
-            .get("community")
-            .map(|s| s.as_str())
-            .unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("community")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
-    m.insert("get_requests".into(), json!(
-        tx.attributes.get("get_requests").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0)
-    ));
-    m.insert("set_requests".into(), json!(
-        tx.attributes.get("set_requests").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0)
-    ));
+    m.insert(
+        "get_requests".into(),
+        json!(
+            tx.attributes
+                .get("get_requests")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0)
+        ),
+    );
+    m.insert(
+        "set_requests".into(),
+        json!(
+            tx.attributes
+                .get("set_requests")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0)
+        ),
+    );
     Value::Object(m)
 }
 
@@ -664,32 +774,41 @@ fn render_rdp(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
     let mut m = common_header("rdp", event);
     m.insert(
         "cookie".into(),
-        json!(tx
-            .attributes
-            .get("cookie")
-            .map(|s| s.as_str())
-            .unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("cookie")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
-    m.insert(
-        "result".into(),
-        json!(tx.status),
-    );
+    m.insert("result".into(), json!(tx.status));
     m.insert(
         "security_protocol".into(),
-        json!(tx
-            .attributes
-            .get("security_protocol")
-            .or_else(|| tx.attributes.get("protocol"))
-            .map(|s| s.as_str())
-            .unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("security_protocol")
+                .or_else(|| tx.attributes.get("protocol"))
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "keyboard_layout".into(),
-        json!(tx.attributes.get("keyboard_layout").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("keyboard_layout")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     m.insert(
         "client_build".into(),
-        json!(tx.attributes.get("client_build").map(|s| s.as_str()).unwrap_or("-")),
+        json!(
+            tx.attributes
+                .get("client_build")
+                .map(|s| s.as_str())
+                .unwrap_or("-")
+        ),
     );
     Value::Object(m)
 }
@@ -720,13 +839,12 @@ fn render_ics(event: &BronzeEvent, tx: &ProtocolTransaction) -> Value {
         m.insert("attributes".into(), Value::Object(attrs));
     }
     // Flatten typed protocol fields if present
-    if let Some(pf) = &tx.protocol_fields {
-        if let Ok(v) = serde_json::to_value(pf) {
-            if let Some(obj) = v.as_object() {
-                for (k, val) in obj {
-                    m.insert(format!("pf_{k}"), val.clone());
-                }
-            }
+    if let Some(pf) = &tx.protocol_fields
+        && let Ok(v) = serde_json::to_value(pf)
+        && let Some(obj) = v.as_object()
+    {
+        for (k, val) in obj {
+            m.insert(format!("pf_{k}"), val.clone());
         }
     }
     Value::Object(m)
@@ -802,7 +920,13 @@ fn render_weird(event: &BronzeEvent, an: &ParseAnomaly) -> Value {
 fn slugify_reason(reason: &str) -> String {
     reason
         .chars()
-        .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .take(32)
         .collect::<String>()
         .trim_matches('_')
@@ -969,11 +1093,11 @@ pub fn render_many(events: &[BronzeEvent]) -> String {
                 None
             };
 
-            if let Some(row) = tx_row {
-                if let Ok(s) = serde_json::to_string(&row) {
-                    out.push_str(&s);
-                    out.push('\n');
-                }
+            if let Some(row) = tx_row
+                && let Ok(s) = serde_json::to_string(&row)
+            {
+                out.push_str(&s);
+                out.push('\n');
             }
         } else if let Some(rendered) = render_event(event) {
             out.push_str(&rendered);
@@ -992,10 +1116,10 @@ mod tests {
 
     use super::*;
     use crate::bronze::{
-        AssetObservation, BRONZE_SCHEMA_VERSION, BronzeEvent, BronzeEventFamily,
-        Dnp3BronzeFields, EventEnvelope, ModbusBronzeFields, ModbusRegKind, ParseAnomaly,
-        PointIdentifier, PointValue, ProcessReading, ProtocolFields, ProtocolTransaction,
-        RawQuality, TransportProtocol,
+        AssetObservation, BRONZE_SCHEMA_VERSION, BronzeEvent, BronzeEventFamily, Dnp3BronzeFields,
+        EventEnvelope, ModbusBronzeFields, ModbusRegKind, ParseAnomaly, PointIdentifier,
+        PointValue, ProcessReading, ProtocolFields, ProtocolTransaction, RawQuality,
+        TransportProtocol,
     };
 
     fn envelope(proto: &str) -> EventEnvelope {
@@ -1142,7 +1266,8 @@ mod tests {
             tx.attributes.insert("host".into(), "example.com".into());
             tx.attributes.insert("status_code".into(), "200".into());
             tx.attributes.insert("status_msg".into(), "OK".into());
-            tx.attributes.insert("user_agent".into(), "curl/7.85".into());
+            tx.attributes
+                .insert("user_agent".into(), "curl/7.85".into());
         }
         let rendered = render_event(&ev).expect("rendered");
         let lines: Vec<&str> = rendered.lines().collect();

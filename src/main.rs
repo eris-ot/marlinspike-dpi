@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{BufWriter, Cursor, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use anyhow::{Context, Result};
@@ -69,7 +69,7 @@ struct OutputEnvelope<'a> {
     output: &'a DpiSegmentOutput,
 }
 
-fn capture_id_from_path(path: &PathBuf) -> String {
+fn capture_id_from_path(path: &Path) -> String {
     path.file_stem()
         .and_then(|stem| stem.to_str())
         .filter(|value| !value.is_empty())

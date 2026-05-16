@@ -363,10 +363,10 @@ fn derive_identity(strings: &[String], references: &[String]) -> IdentityHints {
                 hints.logical_node = Some(logical_node.to_string());
             }
         }
-        if hints.dataset.is_none() {
-            if let Some(dataset) = extract_dataset_hint(reference) {
-                hints.dataset = Some(dataset.to_string());
-            }
+        if hints.dataset.is_none()
+            && let Some(dataset) = extract_dataset_hint(reference)
+        {
+            hints.dataset = Some(dataset.to_string());
         }
     }
 
@@ -487,10 +487,10 @@ fn extract_visible_strings(data: &[u8]) -> Vec<String> {
 }
 
 fn push_visible_run(strings: &mut Vec<String>, run: &mut Vec<u8>) {
-    if run.len() >= MMS_VISIBLE_STRING_MIN {
-        if let Ok(value) = String::from_utf8(run.clone()) {
-            strings.push(value);
-        }
+    if run.len() >= MMS_VISIBLE_STRING_MIN
+        && let Ok(value) = String::from_utf8(run.clone())
+    {
+        strings.push(value);
     }
     run.clear();
 }
@@ -567,7 +567,7 @@ fn extract_goose_sequence_numbers(payload: &[u8]) -> (Option<u32>, Option<u32>, 
                 test = value[0] != 0x00;
                 i += 2 + len;
             }
-            0x89 if len >= 1 && len <= 4 => {
+            0x89 if (1..=4).contains(&len) => {
                 let mut v: u32 = 0;
                 for &b in value {
                     v = v << 8 | b as u32;
@@ -575,7 +575,7 @@ fn extract_goose_sequence_numbers(payload: &[u8]) -> (Option<u32>, Option<u32>, 
                 st_num = Some(v);
                 i += 2 + len;
             }
-            0x8A if len >= 1 && len <= 4 => {
+            0x8A if (1..=4).contains(&len) => {
                 let mut v: u32 = 0;
                 for &b in value {
                     v = v << 8 | b as u32;

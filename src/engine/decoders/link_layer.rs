@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use crate::bronze::{
-    AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction,
-    TopologyObservation, TransportProtocol,
+    AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TopologyObservation,
+    TransportProtocol,
 };
 use crate::dissectors::arp::ArpDissector;
 use crate::dissectors::cdp::CdpDissector;
@@ -22,11 +22,11 @@ use crate::dissectors::pvst::PvstDissector;
 use crate::dissectors::stp::StpDissector;
 use crate::dissectors::vtp::VtpDissector;
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 use crate::registry::{
-    format_mac, ArpFields, CdpFields, LacpFields, LldpFields, MrpFields,
-    PrpFields, ProtocolData, ProtocolDissector, PvstFields, StpFields, VtpFields,
+    ArpFields, CdpFields, LacpFields, LldpFields, MrpFields, ProtocolData, ProtocolDissector,
+    PrpFields, PvstFields, StpFields, VtpFields, format_mac,
 };
 
 #[derive(Default)]
@@ -455,75 +455,77 @@ impl SessionDecoder for VtpDecoder {
     }
 
     fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
-        match self.dissector.parse(chunk.payload, &chunk.context) {
-            Some(ProtocolData::Vtp(VtpFields {
-                version,
-                message_type: _,
-                message_type_name,
-                domain_name,
-                revision,
-                vlans,
-            })) => {
-                let envelope = build_envelope(
-                    &chunk.context,
-                    chunk.interface_id,
-                    chunk.frame_index,
-                    chunk.timestamp,
-                    chunk.segment_hash,
-                    TransportProtocol::Ethernet,
-                    Some("vtp"),
-                    chunk.captured_len,
-                    chunk.session_key.clone(),
-                );
+        if let Some(ProtocolData::Vtp(VtpFields {
+            version,
+            message_type: _,
+            message_type_name,
+            domain_name,
+            revision,
+            vlans,
+        })) = self.dissector.parse(chunk.payload, &chunk.context)
+        {
+            let envelope = build_envelope(
+                &chunk.context,
+                chunk.interface_id,
+                chunk.frame_index,
+                chunk.timestamp,
+                chunk.segment_hash,
+                TransportProtocol::Ethernet,
+                Some("vtp"),
+                chunk.captured_len,
+                chunk.session_key.clone(),
+            );
 
-                let mut attributes = BTreeMap::new();
-                attributes.insert("version".to_string(), version.to_string());
-                attributes.insert("domain_name".to_string(), domain_name.clone());
-                if let Some(rev) = revision {
-                    attributes.insert("revision".to_string(), rev.to_string());
-                }
-                if !vlans.is_empty() {
-                    attributes.insert(
-                        "vlans".to_string(),
-                        vlans.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(","),
-                    );
-                }
-
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    envelope.clone(),
-                    BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
-                        operation: message_type_name,
-                        status: "ok".to_string(),
-                        request_summary: Some(format!("VTP domain={domain_name}")),
-                        response_summary: None,
-                        object_refs: vec![domain_name.clone()],
-                        values: vec![],
-                        attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
-                ));
-
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    envelope,
-                    BronzeEventFamily::AssetObservation(AssetObservation {
-                        asset_key: format_mac(&chunk.context.src_mac),
-                        role: Some("switch".to_string()),
-                        vendor: Some("Cisco".to_string()),
-                        model: None,
-                        firmware: None,
-                        hostnames: vec![],
-                        protocols: vec!["vtp".to_string()],
-                        identifiers: BTreeMap::from([
-                            ("mac".to_string(), format_mac(&chunk.context.src_mac)),
-                            ("vtp_domain".to_string(), domain_name),
-                        ]),
-                    }),
-                ));
+            let mut attributes = BTreeMap::new();
+            attributes.insert("version".to_string(), version.to_string());
+            attributes.insert("domain_name".to_string(), domain_name.clone());
+            if let Some(rev) = revision {
+                attributes.insert("revision".to_string(), rev.to_string());
             }
-            _ => {}
+            if !vlans.is_empty() {
+                attributes.insert(
+                    "vlans".to_string(),
+                    vlans
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(","),
+                );
+            }
+
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
+                    operation: message_type_name,
+                    status: "ok".to_string(),
+                    request_summary: Some(format!("VTP domain={domain_name}")),
+                    response_summary: None,
+                    object_refs: vec![domain_name.clone()],
+                    values: vec![],
+                    attributes,
+                    modbus: None,
+                    protocol_fields: None,
+                }),
+            ));
+
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope,
+                BronzeEventFamily::AssetObservation(AssetObservation {
+                    asset_key: format_mac(&chunk.context.src_mac),
+                    role: Some("switch".to_string()),
+                    vendor: Some("Cisco".to_string()),
+                    model: None,
+                    firmware: None,
+                    hostnames: vec![],
+                    protocols: vec!["vtp".to_string()],
+                    identifiers: BTreeMap::from([
+                        ("mac".to_string(), format_mac(&chunk.context.src_mac)),
+                        ("vtp_domain".to_string(), domain_name),
+                    ]),
+                }),
+            ));
         }
     }
 }
@@ -545,75 +547,73 @@ impl SessionDecoder for MrpDecoder {
     }
 
     fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
-        match self.dissector.parse(chunk.payload, &chunk.context) {
-            Some(ProtocolData::Mrp(MrpFields {
-                version: _,
-                frame_type: _,
-                frame_type_name,
-                domain_uuid,
-                ring_state,
-                priority,
-                source_mac,
-            })) => {
-                let envelope = build_envelope(
-                    &chunk.context,
-                    chunk.interface_id,
-                    chunk.frame_index,
-                    chunk.timestamp,
-                    chunk.segment_hash,
-                    TransportProtocol::Ethernet,
-                    Some("mrp"),
-                    chunk.captured_len,
-                    chunk.session_key.clone(),
-                );
+        if let Some(ProtocolData::Mrp(MrpFields {
+            version: _,
+            frame_type: _,
+            frame_type_name,
+            domain_uuid,
+            ring_state,
+            priority,
+            source_mac,
+        })) = self.dissector.parse(chunk.payload, &chunk.context)
+        {
+            let envelope = build_envelope(
+                &chunk.context,
+                chunk.interface_id,
+                chunk.frame_index,
+                chunk.timestamp,
+                chunk.segment_hash,
+                TransportProtocol::Ethernet,
+                Some("mrp"),
+                chunk.captured_len,
+                chunk.session_key.clone(),
+            );
 
-                let mut metadata = BTreeMap::new();
-                if let Some(ref uuid) = domain_uuid {
-                    metadata.insert("domain_uuid".to_string(), uuid.clone());
-                }
-                if let Some(ref state) = ring_state {
-                    metadata.insert("ring_state".to_string(), state.clone());
-                }
-                if let Some(prio) = priority {
-                    metadata.insert("priority".to_string(), prio.to_string());
-                }
-
-                let local_id = source_mac
-                    .clone()
-                    .unwrap_or_else(|| format_mac(&chunk.context.src_mac));
-
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    envelope.clone(),
-                    BronzeEventFamily::TopologyObservation(TopologyObservation {
-                        observation_type: format!("mrp_{}", frame_type_name.to_lowercase()),
-                        local_id: local_id.clone(),
-                        remote_id: domain_uuid,
-                        description: ring_state.clone(),
-                        capabilities: vec!["mrp".to_string()],
-                        metadata,
-                    }),
-                ));
-
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    envelope,
-                    BronzeEventFamily::AssetObservation(AssetObservation {
-                        asset_key: local_id,
-                        role: Some("switch".to_string()),
-                        vendor: None,
-                        model: None,
-                        firmware: None,
-                        hostnames: vec![],
-                        protocols: vec!["mrp".to_string()],
-                        identifiers: BTreeMap::from([(
-                            "mac".to_string(),
-                            format_mac(&chunk.context.src_mac),
-                        )]),
-                    }),
-                ));
+            let mut metadata = BTreeMap::new();
+            if let Some(ref uuid) = domain_uuid {
+                metadata.insert("domain_uuid".to_string(), uuid.clone());
             }
-            _ => {}
+            if let Some(ref state) = ring_state {
+                metadata.insert("ring_state".to_string(), state.clone());
+            }
+            if let Some(prio) = priority {
+                metadata.insert("priority".to_string(), prio.to_string());
+            }
+
+            let local_id = source_mac
+                .clone()
+                .unwrap_or_else(|| format_mac(&chunk.context.src_mac));
+
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                BronzeEventFamily::TopologyObservation(TopologyObservation {
+                    observation_type: format!("mrp_{}", frame_type_name.to_lowercase()),
+                    local_id: local_id.clone(),
+                    remote_id: domain_uuid,
+                    description: ring_state.clone(),
+                    capabilities: vec!["mrp".to_string()],
+                    metadata,
+                }),
+            ));
+
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope,
+                BronzeEventFamily::AssetObservation(AssetObservation {
+                    asset_key: local_id,
+                    role: Some("switch".to_string()),
+                    vendor: None,
+                    model: None,
+                    firmware: None,
+                    hostnames: vec![],
+                    protocols: vec!["mrp".to_string()],
+                    identifiers: BTreeMap::from([(
+                        "mac".to_string(),
+                        format_mac(&chunk.context.src_mac),
+                    )]),
+                }),
+            ));
         }
     }
 }
@@ -657,14 +657,20 @@ impl SessionDecoder for MstpDecoder {
         );
 
         let mut metadata = BTreeMap::new();
-        metadata.insert("protocol_version".to_string(), fields.protocol_version.to_string());
+        metadata.insert(
+            "protocol_version".to_string(),
+            fields.protocol_version.to_string(),
+        );
         if let Some(ref name) = fields.config_name {
             metadata.insert("config_name".to_string(), name.clone());
         }
         if let Some(rev) = fields.revision_level {
             metadata.insert("revision_level".to_string(), rev.to_string());
         }
-        metadata.insert("msti_count".to_string(), fields.msti_records.len().to_string());
+        metadata.insert(
+            "msti_count".to_string(),
+            fields.msti_records.len().to_string(),
+        );
 
         out.push(new_event(
             chunk.capture_id.to_string(),
@@ -719,74 +725,72 @@ impl SessionDecoder for PvstDecoder {
     }
 
     fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
-        match self.dissector.parse(chunk.payload, &chunk.context) {
-            Some(ProtocolData::Pvst(PvstFields {
-                protocol_version,
-                bpdu_type: _,
-                flags: _,
-                root_id,
-                root_path_cost,
-                bridge_id,
-                port_id,
-                originating_vlan,
-            })) => {
-                let envelope = build_envelope(
-                    &chunk.context,
-                    chunk.interface_id,
-                    chunk.frame_index,
-                    chunk.timestamp,
-                    chunk.segment_hash,
-                    TransportProtocol::Ethernet,
-                    Some("pvst"),
-                    chunk.captured_len,
-                    chunk.session_key.clone(),
-                );
+        if let Some(ProtocolData::Pvst(PvstFields {
+            protocol_version,
+            bpdu_type: _,
+            flags: _,
+            root_id,
+            root_path_cost,
+            bridge_id,
+            port_id,
+            originating_vlan,
+        })) = self.dissector.parse(chunk.payload, &chunk.context)
+        {
+            let envelope = build_envelope(
+                &chunk.context,
+                chunk.interface_id,
+                chunk.frame_index,
+                chunk.timestamp,
+                chunk.segment_hash,
+                TransportProtocol::Ethernet,
+                Some("pvst"),
+                chunk.captured_len,
+                chunk.session_key.clone(),
+            );
 
-                let mut metadata = BTreeMap::new();
-                metadata.insert("protocol_version".to_string(), protocol_version.to_string());
-                metadata.insert("root_path_cost".to_string(), root_path_cost.to_string());
-                metadata.insert("port_id".to_string(), format!("{port_id:#06x}"));
-                if let Some(vlan) = originating_vlan {
-                    metadata.insert("originating_vlan".to_string(), vlan.to_string());
-                }
-
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    envelope.clone(),
-                    BronzeEventFamily::TopologyObservation(TopologyObservation {
-                        observation_type: "pvst_bpdu".to_string(),
-                        local_id: bridge_id.clone(),
-                        remote_id: Some(root_id),
-                        description: originating_vlan.map(|v| format!("VLAN {v}")),
-                        capabilities: vec!["pvst".to_string()],
-                        metadata,
-                    }),
-                ));
-
-                let mut identifiers = BTreeMap::from([
-                    ("mac".to_string(), format_mac(&chunk.context.src_mac)),
-                    ("bridge_id".to_string(), bridge_id.clone()),
-                ]);
-                if let Some(vlan) = originating_vlan {
-                    identifiers.insert("originating_vlan".to_string(), vlan.to_string());
-                }
-
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    envelope,
-                    BronzeEventFamily::AssetObservation(AssetObservation {
-                        asset_key: bridge_id,
-                        role: Some("switch".to_string()),
-                        vendor: Some("Cisco".to_string()),
-                        model: None,
-                        firmware: None,
-                        hostnames: vec![],
-                        protocols: vec!["pvst".to_string()],
-                        identifiers,
-                    }),
-                ));
+            let mut metadata = BTreeMap::new();
+            metadata.insert("protocol_version".to_string(), protocol_version.to_string());
+            metadata.insert("root_path_cost".to_string(), root_path_cost.to_string());
+            metadata.insert("port_id".to_string(), format!("{port_id:#06x}"));
+            if let Some(vlan) = originating_vlan {
+                metadata.insert("originating_vlan".to_string(), vlan.to_string());
             }
-            _ => {}
+
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                BronzeEventFamily::TopologyObservation(TopologyObservation {
+                    observation_type: "pvst_bpdu".to_string(),
+                    local_id: bridge_id.clone(),
+                    remote_id: Some(root_id),
+                    description: originating_vlan.map(|v| format!("VLAN {v}")),
+                    capabilities: vec!["pvst".to_string()],
+                    metadata,
+                }),
+            ));
+
+            let mut identifiers = BTreeMap::from([
+                ("mac".to_string(), format_mac(&chunk.context.src_mac)),
+                ("bridge_id".to_string(), bridge_id.clone()),
+            ]);
+            if let Some(vlan) = originating_vlan {
+                identifiers.insert("originating_vlan".to_string(), vlan.to_string());
+            }
+
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope,
+                BronzeEventFamily::AssetObservation(AssetObservation {
+                    asset_key: bridge_id,
+                    role: Some("switch".to_string()),
+                    vendor: Some("Cisco".to_string()),
+                    model: None,
+                    firmware: None,
+                    hostnames: vec![],
+                    protocols: vec!["pvst".to_string()],
+                    identifiers,
+                }),
+            ));
         }
     }
 }
@@ -808,73 +812,68 @@ impl SessionDecoder for PrpDecoder {
     }
 
     fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
-        match self.dissector.parse(chunk.payload, &chunk.context) {
-            Some(ProtocolData::Prp(PrpFields {
-                supervision_type_name,
-                source_mac,
-                red_box_mac,
-                sequence_nr,
-                ..
-            })) => {
-                let envelope = build_envelope(
-                    &chunk.context,
-                    chunk.interface_id,
-                    chunk.frame_index,
-                    chunk.timestamp,
-                    chunk.segment_hash,
-                    TransportProtocol::Ethernet,
-                    Some("prp"),
-                    chunk.captured_len,
-                    chunk.session_key.clone(),
-                );
+        if let Some(ProtocolData::Prp(PrpFields {
+            supervision_type_name,
+            source_mac,
+            red_box_mac,
+            sequence_nr,
+            ..
+        })) = self.dissector.parse(chunk.payload, &chunk.context)
+        {
+            let envelope = build_envelope(
+                &chunk.context,
+                chunk.interface_id,
+                chunk.frame_index,
+                chunk.timestamp,
+                chunk.segment_hash,
+                TransportProtocol::Ethernet,
+                Some("prp"),
+                chunk.captured_len,
+                chunk.session_key.clone(),
+            );
 
-                let local_id = source_mac
-                    .clone()
-                    .unwrap_or_else(|| format_mac(&chunk.context.src_mac));
+            let local_id = source_mac
+                .clone()
+                .unwrap_or_else(|| format_mac(&chunk.context.src_mac));
 
-                let mut metadata = BTreeMap::new();
-                if let Some(seq) = sequence_nr {
-                    metadata.insert("sequence_nr".to_string(), seq.to_string());
-                }
-                if let Some(ref rb) = red_box_mac {
-                    metadata.insert("red_box_mac".to_string(), rb.clone());
-                }
-
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    envelope.clone(),
-                    BronzeEventFamily::TopologyObservation(TopologyObservation {
-                        observation_type: format!(
-                            "prp_{}",
-                            supervision_type_name.to_lowercase()
-                        ),
-                        local_id: local_id.clone(),
-                        remote_id: red_box_mac,
-                        description: Some("PRP supervision".to_string()),
-                        capabilities: vec!["prp".to_string()],
-                        metadata,
-                    }),
-                ));
-
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    envelope,
-                    BronzeEventFamily::AssetObservation(AssetObservation {
-                        asset_key: local_id,
-                        role: Some("prp_node".to_string()),
-                        vendor: None,
-                        model: None,
-                        firmware: None,
-                        hostnames: vec![],
-                        protocols: vec!["prp".to_string()],
-                        identifiers: BTreeMap::from([(
-                            "mac".to_string(),
-                            format_mac(&chunk.context.src_mac),
-                        )]),
-                    }),
-                ));
+            let mut metadata = BTreeMap::new();
+            if let Some(seq) = sequence_nr {
+                metadata.insert("sequence_nr".to_string(), seq.to_string());
             }
-            _ => {}
+            if let Some(ref rb) = red_box_mac {
+                metadata.insert("red_box_mac".to_string(), rb.clone());
+            }
+
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                BronzeEventFamily::TopologyObservation(TopologyObservation {
+                    observation_type: format!("prp_{}", supervision_type_name.to_lowercase()),
+                    local_id: local_id.clone(),
+                    remote_id: red_box_mac,
+                    description: Some("PRP supervision".to_string()),
+                    capabilities: vec!["prp".to_string()],
+                    metadata,
+                }),
+            ));
+
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope,
+                BronzeEventFamily::AssetObservation(AssetObservation {
+                    asset_key: local_id,
+                    role: Some("prp_node".to_string()),
+                    vendor: None,
+                    model: None,
+                    firmware: None,
+                    hostnames: vec![],
+                    protocols: vec!["prp".to_string()],
+                    identifiers: BTreeMap::from([(
+                        "mac".to_string(),
+                        format_mac(&chunk.context.src_mac),
+                    )]),
+                }),
+            ));
         }
     }
 }
@@ -896,80 +895,75 @@ impl SessionDecoder for LacpDecoder {
     }
 
     fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
-        match self.dissector.parse(chunk.payload, &chunk.context) {
-            Some(ProtocolData::Lacp(LacpFields {
-                version: _,
-                ref actor,
-                ref partner,
-                max_delay,
-            })) => {
-                let envelope = build_envelope(
-                    &chunk.context,
-                    chunk.interface_id,
-                    chunk.frame_index,
-                    chunk.timestamp,
-                    chunk.segment_hash,
-                    TransportProtocol::Ethernet,
-                    Some("lacp"),
-                    chunk.captured_len,
-                    chunk.session_key.clone(),
-                );
+        if let Some(ProtocolData::Lacp(LacpFields {
+            version: _,
+            ref actor,
+            ref partner,
+            max_delay,
+        })) = self.dissector.parse(chunk.payload, &chunk.context)
+        {
+            let envelope = build_envelope(
+                &chunk.context,
+                chunk.interface_id,
+                chunk.frame_index,
+                chunk.timestamp,
+                chunk.segment_hash,
+                TransportProtocol::Ethernet,
+                Some("lacp"),
+                chunk.captured_len,
+                chunk.session_key.clone(),
+            );
 
-                let mut metadata = BTreeMap::new();
-                metadata.insert("actor_system".to_string(), actor.system.clone());
-                metadata.insert("actor_key".to_string(), actor.key.to_string());
-                metadata.insert("actor_port".to_string(), actor.port.to_string());
-                metadata.insert("partner_system".to_string(), partner.system.clone());
-                metadata.insert("partner_key".to_string(), partner.key.to_string());
-                metadata.insert("partner_port".to_string(), partner.port.to_string());
-                if let Some(delay) = max_delay {
-                    metadata.insert("max_delay".to_string(), delay.to_string());
-                }
+            let mut metadata = BTreeMap::new();
+            metadata.insert("actor_system".to_string(), actor.system.clone());
+            metadata.insert("actor_key".to_string(), actor.key.to_string());
+            metadata.insert("actor_port".to_string(), actor.port.to_string());
+            metadata.insert("partner_system".to_string(), partner.system.clone());
+            metadata.insert("partner_key".to_string(), partner.key.to_string());
+            metadata.insert("partner_port".to_string(), partner.port.to_string());
+            if let Some(delay) = max_delay {
+                metadata.insert("max_delay".to_string(), delay.to_string());
+            }
 
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                BronzeEventFamily::TopologyObservation(TopologyObservation {
+                    observation_type: "lacp_bond".to_string(),
+                    local_id: actor.system.clone(),
+                    remote_id: Some(partner.system.clone()),
+                    description: Some(format!(
+                        "key={} port={} <-> key={} port={}",
+                        actor.key, actor.port, partner.key, partner.port
+                    )),
+                    capabilities: actor.state_flags.clone(),
+                    metadata,
+                }),
+            ));
+
+            // Identify both actor and partner as switches.
+            for (sys_mac, role_prefix) in [(&actor.system, "actor"), (&partner.system, "partner")] {
                 out.push(new_event(
                     chunk.capture_id.to_string(),
                     envelope.clone(),
-                    BronzeEventFamily::TopologyObservation(TopologyObservation {
-                        observation_type: "lacp_bond".to_string(),
-                        local_id: actor.system.clone(),
-                        remote_id: Some(partner.system.clone()),
-                        description: Some(format!(
-                            "key={} port={} <-> key={} port={}",
-                            actor.key, actor.port, partner.key, partner.port
-                        )),
-                        capabilities: actor.state_flags.clone(),
-                        metadata,
+                    BronzeEventFamily::AssetObservation(AssetObservation {
+                        asset_key: sys_mac.clone(),
+                        role: Some("switch".to_string()),
+                        vendor: None,
+                        model: None,
+                        firmware: None,
+                        hostnames: vec![],
+                        protocols: vec!["lacp".to_string()],
+                        identifiers: BTreeMap::from([
+                            ("system".to_string(), sys_mac.clone()),
+                            ("lacp_role".to_string(), role_prefix.to_string()),
+                        ]),
                     }),
                 ));
-
-                // Identify both actor and partner as switches.
-                for (sys_mac, role_prefix) in
-                    [(&actor.system, "actor"), (&partner.system, "partner")]
-                {
-                    out.push(new_event(
-                        chunk.capture_id.to_string(),
-                        envelope.clone(),
-                        BronzeEventFamily::AssetObservation(AssetObservation {
-                            asset_key: sys_mac.clone(),
-                            role: Some("switch".to_string()),
-                            vendor: None,
-                            model: None,
-                            firmware: None,
-                            hostnames: vec![],
-                            protocols: vec!["lacp".to_string()],
-                            identifiers: BTreeMap::from([
-                                ("system".to_string(), sys_mac.clone()),
-                                ("lacp_role".to_string(), role_prefix.to_string()),
-                            ]),
-                        }),
-                    ));
-                }
             }
-            _ => {}
         }
     }
 }
-
 
 // ── Inventory registration ──────────────────────────────────────
 inventory::submit!(crate::engine::decoders::DecoderRegistration {

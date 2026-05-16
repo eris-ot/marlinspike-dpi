@@ -1151,7 +1151,10 @@ mod tests {
             is_null: false,
         };
         let json = serde_json::to_string(&q).expect("serialize");
-        assert!(!json.contains("\"value\""), "value: None should be skipped, got: {json}");
+        assert!(
+            !json.contains("\"value\""),
+            "value: None should be skipped, got: {json}"
+        );
         // Roundtrip still works:
         let back: RawQuality = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(q, back);

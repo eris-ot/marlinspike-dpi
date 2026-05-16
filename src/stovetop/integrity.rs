@@ -28,7 +28,11 @@ pub fn ethernet_crc32(data: &[u8]) -> u32 {
 /// Many capture tools strip FCS. We only check if `captured_len` matches
 /// `orig_len` (no truncation) and the frame is at least 64 bytes (the
 /// standard minimum including FCS).
-pub fn validate_ethernet_fcs(frame: &[u8], captured_len: usize, orig_len: u32) -> Option<(u32, u32, bool)> {
+pub fn validate_ethernet_fcs(
+    frame: &[u8],
+    captured_len: usize,
+    orig_len: u32,
+) -> Option<(u32, u32, bool)> {
     // FCS is only present if the capture didn't truncate and frame >= 64 bytes
     if captured_len < orig_len as usize || frame.len() < 64 {
         return None;

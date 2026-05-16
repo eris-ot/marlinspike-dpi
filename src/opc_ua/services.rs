@@ -6,8 +6,8 @@
 //!   TypeId NodeId  (identifies the service, e.g. ReadResponse_Encoding_DefaultBinary)
 //!   ServiceBody    (RequestHeader/ResponseHeader + service-specific fields)
 
-use crate::opc_ua::data_value::{read_data_value, DecodedDataValue};
-use crate::opc_ua::node_id::{read_node_id, DecodedNodeId};
+use crate::opc_ua::data_value::{DecodedDataValue, read_data_value};
+use crate::opc_ua::node_id::{DecodedNodeId, read_node_id};
 use crate::opc_ua::reader::{Reader, ReaderError};
 
 /// OPC UA service TypeId NodeIds (numeric IDs in namespace 0).
@@ -119,9 +119,7 @@ pub fn skip_extension_object(r: &mut Reader<'_>) -> Result<(), ReaderError> {
 
 /// Parse a ReadRequest body (after the TypeId NodeId already consumed by the
 /// caller). Returns the NodeIds the request reads.
-pub fn parse_read_request_body(
-    r: &mut Reader<'_>,
-) -> Result<Vec<DecodedNodeId>, ReaderError> {
+pub fn parse_read_request_body(r: &mut Reader<'_>) -> Result<Vec<DecodedNodeId>, ReaderError> {
     let _request_handle = skip_request_header(r)?;
     let _max_age = r.read_f64()?;
     let _timestamps_to_return = r.read_u32()?;

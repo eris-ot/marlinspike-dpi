@@ -24,7 +24,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── BVLC-SC function codes (ASHRAE 135-2020 Addendum bj, Table 24-5) ──────────
@@ -467,7 +467,12 @@ mod tests {
         let ctx = make_context(47808);
         dec.on_stream_chunk(&make_chunk(&payload, &ctx), &mut out);
 
-        assert_eq!(out.len(), 2, "expected 2 events (transaction + asset), got {}", out.len());
+        assert_eq!(
+            out.len(),
+            2,
+            "expected 2 events (transaction + asset), got {}",
+            out.len()
+        );
 
         let tx = extract_transaction(&out[0]);
         assert_eq!(tx.operation, "bacnet_sc_tls_session");
@@ -479,12 +484,19 @@ mod tests {
 
         let asset = extract_asset(&out[1]);
         assert_eq!(asset.role.as_deref(), Some("bacnet_sc_endpoint"));
-        assert_eq!(asset.identifiers.get("port").map(String::as_str), Some("47808"));
+        assert_eq!(
+            asset.identifiers.get("port").map(String::as_str),
+            Some("47808")
+        );
 
         // Subsequent chunks on the same session must NOT re-emit.
         let payload2 = [0x17u8, 0x03, 0x03, 0x00, 0x10];
         dec.on_stream_chunk(&make_chunk(&payload2, &ctx), &mut out);
-        assert_eq!(out.len(), 2, "duplicate TLS session event must not be emitted");
+        assert_eq!(
+            out.len(),
+            2,
+            "duplicate TLS session event must not be emitted"
+        );
     }
 
     // ── Test 2: Plaintext Connect-Request (0x06) with no VMACs ────────────────
@@ -504,7 +516,10 @@ mod tests {
         let tx = extract_transaction(&out[0]);
         assert_eq!(tx.operation, "bacnet_sc_connect_request");
         assert_eq!(tx.status, "observed");
-        assert_eq!(tx.attributes.get("message_id").map(String::as_str), Some("1"));
+        assert_eq!(
+            tx.attributes.get("message_id").map(String::as_str),
+            Some("1")
+        );
         assert_eq!(
             tx.attributes.get("function_code").map(String::as_str),
             Some("0x06")
@@ -586,7 +601,12 @@ mod tests {
         dec.on_stream_chunk(&make_chunk(&payload, &ctx), &mut out);
 
         // Expect: 1 ParseAnomaly + 1 ProtocolTransaction.
-        assert_eq!(out.len(), 2, "expected anomaly + transaction, got {}", out.len());
+        assert_eq!(
+            out.len(),
+            2,
+            "expected anomaly + transaction, got {}",
+            out.len()
+        );
 
         let anomaly = extract_anomaly(&out[0]);
         assert_eq!(anomaly.severity, "low");

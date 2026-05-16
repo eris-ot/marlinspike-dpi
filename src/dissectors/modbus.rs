@@ -82,7 +82,7 @@ impl ProtocolDissector for ModbusDissector {
             return false;
         }
         let mbap_length = u16::from_be_bytes([data[4], data[5]]) as usize;
-        if mbap_length < 2 || mbap_length > 253 {
+        if !(2..=253).contains(&mbap_length) {
             return false;
         }
         let expected = 6 + mbap_length;
@@ -91,7 +91,7 @@ impl ProtocolDissector for ModbusDissector {
         }
         let fc = data[7];
         let base_fc = fc & 0x7F;
-        base_fc >= 1 && base_fc <= 127
+        (1..=127).contains(&base_fc)
     }
 
     fn parse(&self, data: &[u8], context: &PacketContext) -> Option<ProtocolData> {
@@ -384,7 +384,7 @@ fn pdu_to_legacy_registers(pdu: Option<&ModbusPdu>) -> Vec<(u16, u16)> {
     match pdu.direction {
         ModbusDirection::Request => match pdu.function_code {
             // Read requests: encode as (start_addr, qty)
-            1 | 2 | 3 | 4 => {
+            1..=4 => {
                 if let (Some(addr), Some(qty)) = (pdu.start_addr, pdu.qty) {
                     vec![(addr, qty)]
                 } else {
@@ -415,7 +415,7 @@ fn pdu_to_legacy_registers(pdu: Option<&ModbusPdu>) -> Vec<(u16, u16)> {
         },
         ModbusDirection::Response => match pdu.function_code {
             // Read responses: (index, value) — address not known without request
-            1 | 2 | 3 | 4 => pdu
+            1..=4 => pdu
                 .values
                 .iter()
                 .enumerate()
@@ -512,8 +512,7 @@ mod tests {
     #[test]
     fn fc01_read_coils_request() {
         let pkt = [
-            0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x01,
-            0x01, // FC 01
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x01, 0x01, // FC 01
             0x00, 0x13, // start addr: 19
             0x00, 0x25, // qty: 37
         ];
@@ -538,8 +537,7 @@ mod tests {
     fn fc01_read_coils_response() {
         // 37 coils → 5 bytes of coil data (0xCD 0x6B 0xB2 0x0E 0x1B)
         let pkt = [
-            0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x01,
-            0x01, // FC 01
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x01, 0x01, // FC 01
             0x05, // byte count
             0xCD, 0x6B, 0xB2, 0x0E, 0x1B,
         ];
@@ -566,8 +564,7 @@ mod tests {
     #[test]
     fn fc02_read_discrete_inputs_request() {
         let pkt = [
-            0x00, 0x02, 0x00, 0x00, 0x00, 0x06, 0x01,
-            0x02, // FC 02
+            0x00, 0x02, 0x00, 0x00, 0x00, 0x06, 0x01, 0x02, // FC 02
             0x00, 0xC4, // start addr: 196
             0x00, 0x16, // qty: 22
         ];
@@ -589,8 +586,7 @@ mod tests {
     #[test]
     fn fc03_read_holding_registers_request() {
         let pkt = [
-            0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x01,
-            0x03, // FC 03
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x01, 0x03, // FC 03
             0x00, 0x64, // start addr: 100
             0x00, 0x02, // qty: 2
         ];
@@ -616,8 +612,7 @@ mod tests {
     #[test]
     fn fc03_read_holding_registers_response() {
         let pkt = [
-            0x00, 0x01, 0x00, 0x00, 0x00, 0x07, 0x01,
-            0x03, // FC 03
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x07, 0x01, 0x03, // FC 03
             0x04, // byte count: 4
             0x00, 0x0A, // reg 0: 10
             0x00, 0x14, // reg 1: 20
@@ -642,8 +637,7 @@ mod tests {
     #[test]
     fn fc04_read_input_registers_request() {
         let pkt = [
-            0x00, 0x03, 0x00, 0x00, 0x00, 0x06, 0x01,
-            0x04, // FC 04
+            0x00, 0x03, 0x00, 0x00, 0x00, 0x06, 0x01, 0x04, // FC 04
             0x00, 0x08, // start addr: 8
             0x00, 0x01, // qty: 1
         ];
@@ -665,8 +659,7 @@ mod tests {
     #[test]
     fn fc05_write_single_coil_on() {
         let pkt = [
-            0x00, 0x04, 0x00, 0x00, 0x00, 0x06, 0x01,
-            0x05, // FC 05
+            0x00, 0x04, 0x00, 0x00, 0x00, 0x06, 0x01, 0x05, // FC 05
             0x00, 0xAC, // addr: 172
             0xFF, 0x00, // value: ON
         ];
@@ -687,8 +680,7 @@ mod tests {
     #[test]
     fn fc05_write_single_coil_off() {
         let pkt = [
-            0x00, 0x04, 0x00, 0x00, 0x00, 0x06, 0x01,
-            0x05, // FC 05
+            0x00, 0x04, 0x00, 0x00, 0x00, 0x06, 0x01, 0x05, // FC 05
             0x00, 0xAC, // addr: 172
             0x00, 0x00, // value: OFF
         ];
@@ -708,8 +700,7 @@ mod tests {
     #[test]
     fn fc06_write_single_register() {
         let pkt = [
-            0x00, 0x02, 0x00, 0x00, 0x00, 0x06, 0x01,
-            0x06, // FC 06
+            0x00, 0x02, 0x00, 0x00, 0x00, 0x06, 0x01, 0x06, // FC 06
             0x00, 0x01, // addr: 1
             0x00, 0xFF, // value: 255
         ];
@@ -735,8 +726,7 @@ mod tests {
         // 0xCD = 1100_1101 → bits: 1,0,1,1,0,0,1,1
         // 0x01 = 0000_0001 → bits: 1,0 (only 2 more needed for 10 total)
         let pkt = [
-            0x00, 0x0F, 0x00, 0x00, 0x00, 0x09, 0x01,
-            0x0F, // FC 15
+            0x00, 0x0F, 0x00, 0x00, 0x00, 0x09, 0x01, 0x0F, // FC 15
             0x00, 0x14, // start addr: 20
             0x00, 0x0A, // qty: 10
             0x02, // byte count: 2
@@ -765,8 +755,7 @@ mod tests {
     #[test]
     fn fc16_write_multiple_registers_request() {
         let pkt = [
-            0x00, 0x03, 0x00, 0x00, 0x00, 0x0B, 0x01,
-            0x10, // FC 16
+            0x00, 0x03, 0x00, 0x00, 0x00, 0x0B, 0x01, 0x10, // FC 16
             0x00, 0x0A, // start addr: 10
             0x00, 0x02, // qty: 2
             0x04, // byte count: 4
@@ -794,8 +783,7 @@ mod tests {
     #[test]
     fn exception_response_fc03() {
         let pkt = [
-            0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x01,
-            0x83, // FC 03 | 0x80 = exception
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x01, 0x83, // FC 03 | 0x80 = exception
             0x02, // exception code: illegal data address
         ];
         let d = ModbusDissector;
@@ -816,8 +804,7 @@ mod tests {
     #[test]
     fn exception_response_fc06() {
         let pkt = [
-            0x00, 0x05, 0x00, 0x00, 0x00, 0x03, 0x01,
-            0x86, // FC 06 | 0x80
+            0x00, 0x05, 0x00, 0x00, 0x00, 0x03, 0x01, 0x86, // FC 06 | 0x80
             0x04, // exception: server device failure
         ];
         let d = ModbusDissector;
@@ -837,10 +824,8 @@ mod tests {
     #[test]
     fn fc43_device_identification_response() {
         let mut pkt = vec![
-            0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01,
-            0x2B, // FC 43
-            0x0E, 0x01, 0x01, 0x00, 0x00,
-            0x03, // 3 objects
+            0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01, 0x2B, // FC 43
+            0x0E, 0x01, 0x01, 0x00, 0x00, 0x03, // 3 objects
             0x00, 0x09,
         ];
         pkt.extend_from_slice(b"Schneider");
@@ -857,11 +842,15 @@ mod tests {
             ProtocolData::Modbus(m) => {
                 assert_eq!(m.function_code, 43);
                 assert_eq!(
-                    m.device_identification.get("vendor_name").map(|s| s.as_str()),
+                    m.device_identification
+                        .get("vendor_name")
+                        .map(|s| s.as_str()),
                     Some("Schneider")
                 );
                 assert_eq!(
-                    m.device_identification.get("model_name").map(|s| s.as_str()),
+                    m.device_identification
+                        .get("model_name")
+                        .map(|s| s.as_str()),
                     Some("M580CPU")
                 );
             }

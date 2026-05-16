@@ -41,13 +41,9 @@ pub enum AlertKind {
         window_secs: u64,
     },
     /// Source MAC has the locally-administered bit set (bit 1 of first octet).
-    MacLocallyAdministered {
-        mac: String,
-    },
+    MacLocallyAdministered { mac: String },
     /// Source MAC is a multicast address (should never be source).
-    MacMulticastSource {
-        mac: String,
-    },
+    MacMulticastSource { mac: String },
     /// MAC rapidly changing IP associations.
     MacFlapping {
         mac: String,
@@ -55,10 +51,7 @@ pub enum AlertKind {
         window_secs: u64,
     },
     /// Double-tagged 802.1Q frame — possible VLAN hopping.
-    VlanHopping {
-        outer_vlan: u16,
-        inner_vlan: u16,
-    },
+    VlanHopping { outer_vlan: u16, inner_vlan: u16 },
     /// STP root bridge changed.
     StpRootChange {
         previous_root: String,
@@ -112,9 +105,7 @@ impl BilgepumpAlert {
                 claimed_ip,
                 new_mac,
                 previous_mac,
-            } => format!(
-                "ARP spoof: {claimed_ip} moved from {previous_mac} to {new_mac}"
-            ),
+            } => format!("ARP spoof: {claimed_ip} moved from {previous_mac} to {new_mac}"),
             AlertKind::ArpGratuitous {
                 sender_mac,
                 sender_ip,
@@ -123,9 +114,7 @@ impl BilgepumpAlert {
                 source_mac,
                 count,
                 window_secs,
-            } => format!(
-                "ARP flood: {count} replies from {source_mac} in {window_secs}s"
-            ),
+            } => format!("ARP flood: {count} replies from {source_mac} in {window_secs}s"),
             AlertKind::MacLocallyAdministered { mac } => {
                 format!("locally-administered source MAC: {mac}")
             }
@@ -136,15 +125,13 @@ impl BilgepumpAlert {
                 mac,
                 distinct_ips,
                 window_secs,
-            } => format!(
-                "MAC flapping: {mac} associated with {distinct_ips} IPs in {window_secs}s"
-            ),
+            } => {
+                format!("MAC flapping: {mac} associated with {distinct_ips} IPs in {window_secs}s")
+            }
             AlertKind::VlanHopping {
                 outer_vlan,
                 inner_vlan,
-            } => format!(
-                "VLAN hopping: double-tagged frame outer={outer_vlan} inner={inner_vlan}"
-            ),
+            } => format!("VLAN hopping: double-tagged frame outer={outer_vlan} inner={inner_vlan}"),
             AlertKind::StpRootChange {
                 previous_root,
                 new_root,
@@ -166,9 +153,7 @@ impl BilgepumpAlert {
             AlertKind::DhcpStarvation {
                 request_count,
                 window_secs,
-            } => format!(
-                "DHCP starvation: {request_count} requests in {window_secs}s"
-            ),
+            } => format!("DHCP starvation: {request_count} requests in {window_secs}s"),
             AlertKind::LldpIdentityConflict {
                 src_mac,
                 current_chassis_id,

@@ -23,7 +23,7 @@ use crate::bronze::{
     TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -102,16 +102,24 @@ fn umas_operation(sf: u8) -> String {
     .to_string()
 }
 
-fn umas_attrs(sf: u8, pair_id: u8, txn: u16, unit: u8, req_len: u16, exc: bool)
-    -> BTreeMap<String, String>
-{
+fn umas_attrs(
+    sf: u8,
+    pair_id: u8,
+    txn: u16,
+    unit: u8,
+    req_len: u16,
+    exc: bool,
+) -> BTreeMap<String, String> {
     BTreeMap::from([
         ("umas_subfunction".into(), format!("0x{sf:02x}")),
         ("pair_id".into(), pair_id.to_string()),
         ("transaction_id".into(), txn.to_string()),
         ("unit_id".into(), unit.to_string()),
         ("request_length".into(), req_len.to_string()),
-        ("is_exception".into(), if exc { "true" } else { "false" }.into()),
+        (
+            "is_exception".into(),
+            if exc { "true" } else { "false" }.into(),
+        ),
     ])
 }
 
@@ -163,6 +171,7 @@ fn asset_obs(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_tx(
     capture_id: String,
     env: EventEnvelope,
@@ -215,7 +224,9 @@ pub(crate) struct UmasDecoder {
 }
 
 impl SessionDecoder for UmasDecoder {
-    fn name(&self) -> &'static str { "umas" }
+    fn name(&self) -> &'static str {
+        "umas"
+    }
 
     fn interest(&self) -> &'static [DecoderInterest] {
         &[DecoderInterest::TcpPort(502)]
@@ -224,20 +235,30 @@ impl SessionDecoder for UmasDecoder {
     fn on_stream_chunk(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
         let p = chunk.payload;
         // Minimum: 7 B MBAP + FC + pair_id + subfn = 10 B
-        if p.len() < 10 { return; }
+        if p.len() < 10 {
+            return;
+        }
 
         let txn_id = u16::from_be_bytes([p[0], p[1]]);
-        if u16::from_be_bytes([p[2], p[3]]) != 0 { return; } // protocol_id must be 0
+        if u16::from_be_bytes([p[2], p[3]]) != 0 {
+            return;
+        } // protocol_id must be 0
         let mbap_len = u16::from_be_bytes([p[4], p[5]]);
         let unit_id = p[6];
         let fc = p[7];
 
-        if fc != FC_UMAS && fc != FC_UMAS_EXC { return; }
+        if fc != FC_UMAS && fc != FC_UMAS_EXC {
+            return;
+        }
 
         let pair_id = p[8];
-        let subfn   = p[9];
-        let is_exc  = fc == FC_UMAS_EXC;
-        let exc_code = if is_exc && p.len() > 10 { Some(p[10]) } else { None };
+        let subfn = p[9];
+        let is_exc = fc == FC_UMAS_EXC;
+        let exc_code = if is_exc && p.len() > 10 {
+            Some(p[10])
+        } else {
+            None
+        };
 
         let is_request = chunk.context.dst_port == 502 && chunk.context.src_port != 502;
         let key = format!("{}:{}", chunk.session_key, pair_id);
@@ -247,40 +268,76 @@ impl SessionDecoder for UmasDecoder {
         if is_request && !is_exc {
             // Emit security anomalies before parking the request.
             match subfn {
-                SF_STOP_PLC => out.push(anomaly(chunk, "high",
-                    "UMAS STOP_PLC — control-disruption capable command observed")),
-                SF_START_PLC => out.push(anomaly(chunk, "high",
-                    "UMAS START_PLC — control-disruption capable command observed")),
-                SF_DOWNLOAD_BLOCK => out.push(anomaly(chunk, "high",
-                    "UMAS DOWNLOAD_BLOCK — program-modification capable command observed")),
-                SF_INIT_DOWNLOAD => out.push(anomaly(chunk, "high",
-                    "UMAS INITIALIZE_DOWNLOAD — program-modification capable command observed")),
-                SF_END_DOWNLOAD => out.push(anomaly(chunk, "high",
-                    "UMAS END_STRATEGY_DOWNLOAD — program-modification capable command observed")),
-                SF_AUTH_REQUEST => out.push(anomaly(chunk, "medium",
-                    "UMAS AUTH_REQUEST — authentication flow visible on wire")),
-                sf if !is_known_subfn(sf) => out.push(anomaly(chunk, "low",
-                    &format!("UMAS unknown sub-function 0x{sf:02x} observed"))),
+                SF_STOP_PLC => out.push(anomaly(
+                    chunk,
+                    "high",
+                    "UMAS STOP_PLC — control-disruption capable command observed",
+                )),
+                SF_START_PLC => out.push(anomaly(
+                    chunk,
+                    "high",
+                    "UMAS START_PLC — control-disruption capable command observed",
+                )),
+                SF_DOWNLOAD_BLOCK => out.push(anomaly(
+                    chunk,
+                    "high",
+                    "UMAS DOWNLOAD_BLOCK — program-modification capable command observed",
+                )),
+                SF_INIT_DOWNLOAD => out.push(anomaly(
+                    chunk,
+                    "high",
+                    "UMAS INITIALIZE_DOWNLOAD — program-modification capable command observed",
+                )),
+                SF_END_DOWNLOAD => out.push(anomaly(
+                    chunk,
+                    "high",
+                    "UMAS END_STRATEGY_DOWNLOAD — program-modification capable command observed",
+                )),
+                SF_AUTH_REQUEST => out.push(anomaly(
+                    chunk,
+                    "medium",
+                    "UMAS AUTH_REQUEST — authentication flow visible on wire",
+                )),
+                sf if !is_known_subfn(sf) => out.push(anomaly(
+                    chunk,
+                    "low",
+                    &format!("UMAS unknown sub-function 0x{sf:02x} observed"),
+                )),
                 _ => {}
             }
 
             // Emit asset observations for TAKE_PLC_RESERVATION.
             if subfn == SF_TAKE_RESERVATION {
                 let env = build_env(chunk);
-                out.push(asset_obs(chunk, env.clone(), src_ip, "schneider_engineering_workstation", None));
-                out.push(asset_obs(chunk, env, dst_ip, "schneider_modicon_plc", Some("Schneider Electric")));
+                out.push(asset_obs(
+                    chunk,
+                    env.clone(),
+                    src_ip,
+                    "schneider_engineering_workstation",
+                    None,
+                ));
+                out.push(asset_obs(
+                    chunk,
+                    env,
+                    dst_ip,
+                    "schneider_modicon_plc",
+                    Some("Schneider Electric"),
+                ));
             }
 
-            self.pending.insert(key, PendingUmas {
-                capture_id: chunk.capture_id.to_string(),
-                envelope: build_env(chunk),
-                transaction_id: txn_id,
-                unit_id,
-                pair_id,
-                subfn,
-                operation: umas_operation(subfn),
-                request_len: mbap_len,
-            });
+            self.pending.insert(
+                key,
+                PendingUmas {
+                    capture_id: chunk.capture_id.to_string(),
+                    envelope: build_env(chunk),
+                    transaction_id: txn_id,
+                    unit_id,
+                    pair_id,
+                    subfn,
+                    operation: umas_operation(subfn),
+                    request_len: mbap_len,
+                },
+            );
         } else {
             // Response path — normal or exception.
             let status = if is_exc {
@@ -293,34 +350,87 @@ impl SessionDecoder for UmasDecoder {
                 let mut env = req.envelope.clone();
                 env.bytes_count += chunk.captured_len;
                 env.packet_count += 1;
-                out.push(emit_tx(req.capture_id, env, req.operation, status,
-                    req.subfn, req.pair_id, req.transaction_id, req.unit_id, req.request_len, is_exc));
+                out.push(emit_tx(
+                    req.capture_id,
+                    env,
+                    req.operation,
+                    status,
+                    req.subfn,
+                    req.pair_id,
+                    req.transaction_id,
+                    req.unit_id,
+                    req.request_len,
+                    is_exc,
+                ));
             } else {
                 // Unpaired response.
-                out.push(emit_tx(chunk.capture_id.to_string(), build_env(chunk),
-                    umas_operation(subfn), status, subfn, pair_id, txn_id, unit_id, 0, is_exc));
+                out.push(emit_tx(
+                    chunk.capture_id.to_string(),
+                    build_env(chunk),
+                    umas_operation(subfn),
+                    status,
+                    subfn,
+                    pair_id,
+                    txn_id,
+                    unit_id,
+                    0,
+                    is_exc,
+                ));
             }
         }
     }
 
     fn on_idle_flush(&mut self, _ts: DateTime<Utc>, out: &mut Vec<BronzeEvent>) {
         for (_, req) in self.pending.drain() {
-            out.push(emit_tx(req.capture_id, req.envelope, req.operation,
-                "request_only".into(), req.subfn, req.pair_id,
-                req.transaction_id, req.unit_id, req.request_len, false));
+            out.push(emit_tx(
+                req.capture_id,
+                req.envelope,
+                req.operation,
+                "request_only".into(),
+                req.subfn,
+                req.pair_id,
+                req.transaction_id,
+                req.unit_id,
+                req.request_len,
+                false,
+            ));
         }
     }
 }
 
 fn is_known_subfn(sf: u8) -> bool {
-    matches!(sf,
-        SF_INIT_COMM | SF_READ_ID | SF_READ_PROJECT_INFO | SF_READ_PLC_INFO |
-        SF_READ_CARD_INFO | SF_REPEAT | SF_TAKE_RESERVATION | SF_RELEASE_RESERVATION |
-        SF_KEEP_ALIVE | SF_READ_MEM | SF_WRITE_MEM | SF_READ_VARS | SF_WRITE_VARS |
-        SF_READ_COILS | SF_WRITE_COILS | SF_INIT_UPLOAD | SF_UPLOAD_BLOCK | SF_END_UPLOAD |
-        SF_INIT_DOWNLOAD | SF_DOWNLOAD_BLOCK | SF_END_DOWNLOAD | SF_START_PLC | SF_STOP_PLC |
-        SF_MONITOR_PLC | SF_CHECK_PLC | SF_READ_IO | SF_WRITE_IO | SF_GET_STATUS |
-        SF_AUTH_REQUEST | SF_AUTH_REPLY
+    matches!(
+        sf,
+        SF_INIT_COMM
+            | SF_READ_ID
+            | SF_READ_PROJECT_INFO
+            | SF_READ_PLC_INFO
+            | SF_READ_CARD_INFO
+            | SF_REPEAT
+            | SF_TAKE_RESERVATION
+            | SF_RELEASE_RESERVATION
+            | SF_KEEP_ALIVE
+            | SF_READ_MEM
+            | SF_WRITE_MEM
+            | SF_READ_VARS
+            | SF_WRITE_VARS
+            | SF_READ_COILS
+            | SF_WRITE_COILS
+            | SF_INIT_UPLOAD
+            | SF_UPLOAD_BLOCK
+            | SF_END_UPLOAD
+            | SF_INIT_DOWNLOAD
+            | SF_DOWNLOAD_BLOCK
+            | SF_END_DOWNLOAD
+            | SF_START_PLC
+            | SF_STOP_PLC
+            | SF_MONITOR_PLC
+            | SF_CHECK_PLC
+            | SF_READ_IO
+            | SF_WRITE_IO
+            | SF_GET_STATUS
+            | SF_AUTH_REQUEST
+            | SF_AUTH_REPLY
     )
 }
 
@@ -424,7 +534,10 @@ mod tests {
         let ctx = ctx_client("10.0.0.10", "10.0.0.20");
         let mut out = vec![];
         d.on_stream_chunk(&chunk(&p, &ctx), &mut out);
-        assert!(out.is_empty(), "unpaired request must not emit; got {out:?}");
+        assert!(
+            out.is_empty(),
+            "unpaired request must not emit; got {out:?}"
+        );
     }
 
     // ── Test 2: READ_ID request + response → paired transaction, status=ok ────
@@ -495,11 +608,22 @@ mod tests {
         let mut out = vec![];
         d.on_stream_chunk(&chunk(&p, &ctx), &mut out);
 
-        let a = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(a) = &e.family { Some(a) } else { None }
-        }).expect("DOWNLOAD_BLOCK must emit a ParseAnomaly");
+        let a = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ParseAnomaly(a) = &e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .expect("DOWNLOAD_BLOCK must emit a ParseAnomaly");
         assert_eq!(a.severity, "high");
-        assert!(a.reason.contains("DOWNLOAD_BLOCK"), "bad reason: {}", a.reason);
+        assert!(
+            a.reason.contains("DOWNLOAD_BLOCK"),
+            "bad reason: {}",
+            a.reason
+        );
     }
 
     // ── Test 5: Exception response (FC=0xDA, exc=0x83) → umas_exception_0x83 ──
@@ -536,17 +660,25 @@ mod tests {
         let mut out = vec![];
         d.on_stream_chunk(&chunk(&p, &ctx), &mut out);
 
-        let a = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(a) = &e.family { Some(a) } else { None }
-        }).expect("unknown subfn must emit a ParseAnomaly");
+        let a = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ParseAnomaly(a) = &e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .expect("unknown subfn must emit a ParseAnomaly");
         assert_eq!(a.severity, "low");
 
         let mut flush = vec![];
         d.on_idle_flush(Utc::now(), &mut flush);
         assert_eq!(flush.len(), 1);
         match &flush[0].family {
-            BronzeEventFamily::ProtocolTransaction(tx) =>
-                assert_eq!(tx.operation, "umas_unknown_subfn_0xaa"),
+            BronzeEventFamily::ProtocolTransaction(tx) => {
+                assert_eq!(tx.operation, "umas_unknown_subfn_0xaa")
+            }
             other => panic!("expected ProtocolTransaction, got {other:?}"),
         }
     }
@@ -561,13 +693,23 @@ mod tests {
         let mut out = vec![];
         d.on_stream_chunk(&chunk(&p, &ctx), &mut out);
 
-        let assets: Vec<_> = out.iter().filter_map(|e| {
-            if let BronzeEventFamily::AssetObservation(a) = &e.family { Some(a) } else { None }
-        }).collect();
+        let assets: Vec<_> = out
+            .iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::AssetObservation(a) = &e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(assets.len(), 2, "expect EWS + PLC asset observations");
 
         let ews = assets.iter().find(|a| a.asset_key == "10.0.0.10").unwrap();
-        assert_eq!(ews.role.as_deref(), Some("schneider_engineering_workstation"));
+        assert_eq!(
+            ews.role.as_deref(),
+            Some("schneider_engineering_workstation")
+        );
 
         let plc = assets.iter().find(|a| a.asset_key == "10.0.0.20").unwrap();
         assert_eq!(plc.role.as_deref(), Some("schneider_modicon_plc"));

@@ -115,7 +115,7 @@ fn format_tlv_value(value: &[u8], subtype: u8) -> String {
             }
             hex::encode(value)
         }
-        5 | 6 | 7 => {
+        5..=7 => {
             // Network address / string-like
             String::from_utf8_lossy(value).to_string()
         }

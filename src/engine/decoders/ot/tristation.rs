@@ -37,7 +37,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // Minimum header size: command_type(1) + command_subtype(1) + payload_length(2)
@@ -102,7 +102,9 @@ impl TsFunctionCode {
             Self::GetCpuStatus => "tristation_get_cpu_status".to_string(),
             Self::SetControlProgram => "tristation_set_control_program".to_string(),
             Self::AllocateMemory => "tristation_allocate_memory".to_string(),
-            Self::SequenceOfOperationEvents => "tristation_sequence_of_operation_events".to_string(),
+            Self::SequenceOfOperationEvents => {
+                "tristation_sequence_of_operation_events".to_string()
+            }
             Self::Unknown(code) => format!("tristation_unknown_0x{code:02x}"),
         }
     }
@@ -283,7 +285,7 @@ impl SessionDecoder for TriStationDecoder {
 
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "tristation",
-    factory: || Box::new(TriStationDecoder::default()),
+    factory: || Box::new(TriStationDecoder),
 });
 
 #[cfg(test)]
@@ -318,10 +320,7 @@ mod tests {
         vec![cmd_type, cmd_subtype, lo, hi]
     }
 
-    fn make_chunk<'a>(
-        payload: &'a [u8],
-        context: &'a PacketContext,
-    ) -> StreamChunk<'a> {
+    fn make_chunk<'a>(payload: &'a [u8], context: &'a PacketContext) -> StreamChunk<'a> {
         StreamChunk {
             capture_id: "test-cap",
             segment_hash: "seg-hash",
@@ -343,7 +342,7 @@ mod tests {
     // Verifies basic ProtocolTransaction emission with operation name.
     #[test]
     fn get_cp_status_emits_protocol_transaction() {
-        let mut decoder = TriStationDecoder::default();
+        let mut decoder = TriStationDecoder;
         let payload = ts_datagram(0x05, 0x00, 0);
         let ctx = test_context("10.0.0.10", "10.0.0.20");
         let chunk = make_chunk(&payload, &ctx);
@@ -367,7 +366,7 @@ mod tests {
     // a high-severity ParseAnomaly.
     #[test]
     fn set_control_program_emits_transaction_and_high_anomaly() {
-        let mut decoder = TriStationDecoder::default();
+        let mut decoder = TriStationDecoder;
         let payload = ts_datagram(0x70, 0x00, 128);
         let ctx = test_context("192.168.1.50", "192.168.1.100");
         let chunk = make_chunk(&payload, &ctx);
@@ -407,7 +406,7 @@ mod tests {
     // ── Test 3: Connection Request (0x01) → AssetObservation EWS ─────────────
     #[test]
     fn connection_request_emits_ews_asset_observation() {
-        let mut decoder = TriStationDecoder::default();
+        let mut decoder = TriStationDecoder;
         let payload = ts_datagram(0x01, 0x00, 0);
         let ctx = test_context("10.1.2.3", "10.1.2.200");
         let chunk = make_chunk(&payload, &ctx);
@@ -440,7 +439,7 @@ mod tests {
     // ── Test 4: Connection Response (0x02) → AssetObservation controller ─────
     #[test]
     fn connection_response_emits_controller_asset_observation() {
-        let mut decoder = TriStationDecoder::default();
+        let mut decoder = TriStationDecoder;
         let payload = ts_datagram(0x02, 0x00, 0);
         let ctx = test_context("10.1.2.200", "10.1.2.3");
         let chunk = make_chunk(&payload, &ctx);
@@ -470,7 +469,7 @@ mod tests {
     // ── Test 5: Unknown function code → low ParseAnomaly + "unknown" operation ─
     #[test]
     fn unknown_function_code_emits_low_anomaly_and_unknown_operation() {
-        let mut decoder = TriStationDecoder::default();
+        let mut decoder = TriStationDecoder;
         // 0xAB is not in the documented set
         let payload = ts_datagram(0xAB, 0x00, 0);
         let ctx = test_context("10.0.0.1", "10.0.0.2");
@@ -514,7 +513,7 @@ mod tests {
     // ── Test 6: decoder interest is UDP/1502 ──────────────────────────────────
     #[test]
     fn decoder_interest_is_udp_1502() {
-        let decoder = TriStationDecoder::default();
+        let decoder = TriStationDecoder;
         assert_eq!(decoder.name(), "tristation");
         let interest = decoder.interest();
         assert_eq!(interest.len(), 1);

@@ -69,8 +69,7 @@ pub fn read_common_header(r: &mut Reader<'_>) -> Result<CommonHeader, ReaderErro
         return Err(ReaderError::OutOfBounds);
     }
     let sync1 = r.read_u8()?;
-    let frame_type =
-        FrameType::from_byte(sync1).ok_or(ReaderError::OutOfBounds)?;
+    let frame_type = FrameType::from_byte(sync1).ok_or(ReaderError::OutOfBounds)?;
     let version = sync1 & 0x0F;
     let framesize = r.read_u16()?;
     let idcode = r.read_u16()?;

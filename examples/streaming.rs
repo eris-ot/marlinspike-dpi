@@ -68,7 +68,10 @@ fn main() {
     println!("  frames_processed = {}", checkpoint.frames_processed);
     println!("  events_emitted   = {}", checkpoint.events_emitted);
     println!();
-    println!("sink received {} batches, {} events", sink.batches_received, sink.events_total);
+    println!(
+        "sink received {} batches, {} events",
+        sink.batches_received, sink.events_total
+    );
     println!();
     println!("by family:");
     for (family, count) in &sink.by_family {

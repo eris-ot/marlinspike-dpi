@@ -28,39 +28,41 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── BER tag constants ─────────────────────────────────────────────────────────
 
-const TAG_SEQUENCE: u8 = 0x30;           // UNIVERSAL 16 constructed
+const TAG_SEQUENCE: u8 = 0x30; // UNIVERSAL 16 constructed
 const TAG_INTEGER: u8 = 0x02;
 const TAG_OCTET_STRING: u8 = 0x04;
+#[cfg(test)]
 const TAG_BOOLEAN: u8 = 0x01;
 const TAG_ENUMERATED: u8 = 0x0A;
+#[cfg(test)]
 const TAG_NULL: u8 = 0x05;
 
 // Application-class constructed (0x60 | n) and primitive (0x40 | n)
 // RFC 4511 §4: most protocolOp choices are constructed application tags.
-const APP_BIND_REQUEST: u8 = 0x60;       // [APPLICATION 0] CONSTRUCTED
-const APP_BIND_RESPONSE: u8 = 0x61;      // [APPLICATION 1] CONSTRUCTED
-const APP_UNBIND_REQUEST: u8 = 0x42;     // [APPLICATION 2] PRIMITIVE
-const APP_SEARCH_REQUEST: u8 = 0x63;     // [APPLICATION 3] CONSTRUCTED
-const APP_SEARCH_RESULT_ENTRY: u8 = 0x64;// [APPLICATION 4] CONSTRUCTED
+const APP_BIND_REQUEST: u8 = 0x60; // [APPLICATION 0] CONSTRUCTED
+const APP_BIND_RESPONSE: u8 = 0x61; // [APPLICATION 1] CONSTRUCTED
+const APP_UNBIND_REQUEST: u8 = 0x42; // [APPLICATION 2] PRIMITIVE
+const APP_SEARCH_REQUEST: u8 = 0x63; // [APPLICATION 3] CONSTRUCTED
+const APP_SEARCH_RESULT_ENTRY: u8 = 0x64; // [APPLICATION 4] CONSTRUCTED
 const APP_SEARCH_RESULT_DONE: u8 = 0x65; // [APPLICATION 5] CONSTRUCTED
-const APP_MODIFY_REQUEST: u8 = 0x66;     // [APPLICATION 6] CONSTRUCTED
-const APP_MODIFY_RESPONSE: u8 = 0x67;    // [APPLICATION 7] CONSTRUCTED
-const APP_ADD_REQUEST: u8 = 0x68;        // [APPLICATION 8] CONSTRUCTED
-const APP_ADD_RESPONSE: u8 = 0x69;       // [APPLICATION 9] CONSTRUCTED
-const APP_DEL_REQUEST: u8 = 0x4A;        // [APPLICATION 10] PRIMITIVE (DN as octet string body)
-const APP_DEL_RESPONSE: u8 = 0x6B;       // [APPLICATION 11] CONSTRUCTED
-const APP_MODIFY_DN_REQUEST: u8 = 0x6C;  // [APPLICATION 12] CONSTRUCTED
+const APP_MODIFY_REQUEST: u8 = 0x66; // [APPLICATION 6] CONSTRUCTED
+const APP_MODIFY_RESPONSE: u8 = 0x67; // [APPLICATION 7] CONSTRUCTED
+const APP_ADD_REQUEST: u8 = 0x68; // [APPLICATION 8] CONSTRUCTED
+const APP_ADD_RESPONSE: u8 = 0x69; // [APPLICATION 9] CONSTRUCTED
+const APP_DEL_REQUEST: u8 = 0x4A; // [APPLICATION 10] PRIMITIVE (DN as octet string body)
+const APP_DEL_RESPONSE: u8 = 0x6B; // [APPLICATION 11] CONSTRUCTED
+const APP_MODIFY_DN_REQUEST: u8 = 0x6C; // [APPLICATION 12] CONSTRUCTED
 const APP_MODIFY_DN_RESPONSE: u8 = 0x6D; // [APPLICATION 13] CONSTRUCTED
-const APP_COMPARE_REQUEST: u8 = 0x6E;    // [APPLICATION 14] CONSTRUCTED
-const APP_COMPARE_RESPONSE: u8 = 0x6F;   // [APPLICATION 15] CONSTRUCTED
-const APP_ABANDON_REQUEST: u8 = 0x50;    // [APPLICATION 16] PRIMITIVE
-const APP_EXTENDED_REQUEST: u8 = 0x77;   // [APPLICATION 23] CONSTRUCTED
-const APP_EXTENDED_RESPONSE: u8 = 0x78;  // [APPLICATION 24] CONSTRUCTED
+const APP_COMPARE_REQUEST: u8 = 0x6E; // [APPLICATION 14] CONSTRUCTED
+const APP_COMPARE_RESPONSE: u8 = 0x6F; // [APPLICATION 15] CONSTRUCTED
+const APP_ABANDON_REQUEST: u8 = 0x50; // [APPLICATION 16] PRIMITIVE
+const APP_EXTENDED_REQUEST: u8 = 0x77; // [APPLICATION 23] CONSTRUCTED
+const APP_EXTENDED_RESPONSE: u8 = 0x78; // [APPLICATION 24] CONSTRUCTED
 
 // Context-specific tags inside BindRequest authentication CHOICE
 const CTX_PRIM_0: u8 = 0x80; // [0] simple OCTET STRING
@@ -154,15 +156,13 @@ fn ber_string(val: &[u8]) -> String {
 }
 
 /// Decode a BER OID value bytes into dotted notation string.
+#[expect(dead_code, reason = "kept for future LDAP schema/OID enrichment work")]
 fn decode_oid(val: &[u8]) -> Option<String> {
     if val.is_empty() {
         return None;
     }
     let first = val[0];
-    let mut components = vec![
-        (first / 40).to_string(),
-        (first % 40).to_string(),
-    ];
+    let mut components = vec![(first / 40).to_string(), (first % 40).to_string()];
     let mut acc: u64 = 0;
     for &b in &val[1..] {
         acc = (acc << 7) | ((b & 0x7F) as u64);
@@ -191,13 +191,13 @@ fn walk_sequence<F: FnMut(u8, &[u8])>(seq_val: &[u8], mut f: F) {
 
 fn result_code_name(code: u32) -> &'static str {
     match code {
-        0  => "success",
-        1  => "operationsError",
-        2  => "protocolError",
-        3  => "timeLimitExceeded",
-        4  => "sizeLimitExceeded",
-        7  => "authMethodNotSupported",
-        8  => "strongerAuthRequired",
+        0 => "success",
+        1 => "operationsError",
+        2 => "protocolError",
+        3 => "timeLimitExceeded",
+        4 => "sizeLimitExceeded",
+        7 => "authMethodNotSupported",
+        8 => "strongerAuthRequired",
         10 => "referral",
         11 => "adminLimitExceeded",
         16 => "noSuchAttribute",
@@ -220,7 +220,7 @@ fn result_code_name(code: u32) -> &'static str {
         68 => "entryAlreadyExists",
         69 => "objectClassModsProhibited",
         80 => "other",
-        _  => "unknownResultCode",
+        _ => "unknownResultCode",
     }
 }
 
@@ -240,7 +240,7 @@ fn filter_type_name(filter_tag: u8) -> &'static str {
         0x87 => "present",
         0xA8 => "approxMatch",
         0xA9 => "extensibleMatch",
-        _    => "unknown",
+        _ => "unknown",
     }
 }
 
@@ -249,9 +249,9 @@ fn filter_type_name(filter_tag: u8) -> &'static str {
 fn scope_name(scope: u8) -> &'static str {
     match scope {
         SCOPE_BASE => "baseObject",
-        SCOPE_ONE  => "singleLevel",
-        SCOPE_SUB  => "wholeSubtree",
-        _          => "unknown",
+        SCOPE_ONE => "singleLevel",
+        SCOPE_SUB => "wholeSubtree",
+        _ => "unknown",
     }
 }
 
@@ -313,7 +313,11 @@ fn parse_ldap_message(seq_val: &[u8]) -> Option<LdapMessage> {
 
     let details = extract_op_details(op_tag, op_val);
 
-    Some(LdapMessage { message_id, op_tag, details })
+    Some(LdapMessage {
+        message_id,
+        op_tag,
+        details,
+    })
 }
 
 fn extract_op_details(op_tag: u8, op_val: &[u8]) -> LdapOpDetails {
@@ -370,10 +374,10 @@ fn parse_bind_request(val: &[u8], d: &mut LdapOpDetails) {
             // SaslCredentials: mechanism LDAPSTRING, credentials OCTET STRING opt
             let mut sasl_children = Vec::new();
             walk_sequence(auth_val, |t, v| sasl_children.push((t, v.to_vec())));
-            if let Some((t, v)) = sasl_children.first() {
-                if *t == TAG_OCTET_STRING {
-                    d.sasl_mechanism = Some(ber_string(v));
-                }
+            if let Some((t, v)) = sasl_children.first()
+                && *t == TAG_OCTET_STRING
+            {
+                d.sasl_mechanism = Some(ber_string(v));
             }
         }
         _ => {
@@ -393,10 +397,11 @@ fn parse_ldap_result(val: &[u8], d: &mut LdapOpDetails) {
         pos += consumed;
     }
     // matchedDN OCTET STRING
-    if let Some((tag, v, _consumed)) = decode_tlv(&val[pos..]) {
-        if tag == TAG_OCTET_STRING && !v.is_empty() {
-            d.matched_dn = Some(ber_string(v));
-        }
+    if let Some((tag, v, _consumed)) = decode_tlv(&val[pos..])
+        && tag == TAG_OCTET_STRING
+        && !v.is_empty()
+    {
+        d.matched_dn = Some(ber_string(v));
     }
 }
 
@@ -439,45 +444,45 @@ fn parse_search_request(val: &[u8], d: &mut LdapOpDetails) {
         pos += consumed;
     }
     // attributes AttributeDescriptionList (SEQUENCE OF LDAPSTRING)
-    if let Some((tag, v, _)) = decode_tlv(&val[pos..]) {
-        if tag == TAG_SEQUENCE {
-            walk_sequence(v, |t, attr_v| {
-                if t == TAG_OCTET_STRING {
-                    d.attributes.push(ber_string(attr_v));
-                }
-            });
-        }
+    if let Some((tag, v, _)) = decode_tlv(&val[pos..])
+        && tag == TAG_SEQUENCE
+    {
+        walk_sequence(v, |t, attr_v| {
+            if t == TAG_OCTET_STRING {
+                d.attributes.push(ber_string(attr_v));
+            }
+        });
     }
 }
 
 /// Parse SearchResultEntry: objectName LDAPDN, attributes PartialAttributeList
 fn parse_search_result_entry(val: &[u8], d: &mut LdapOpDetails) {
-    if let Some((tag, v, _)) = decode_tlv(val) {
-        if tag == TAG_OCTET_STRING {
-            d.object_name = Some(ber_string(v));
-        }
+    if let Some((tag, v, _)) = decode_tlv(val)
+        && tag == TAG_OCTET_STRING
+    {
+        d.object_name = Some(ber_string(v));
     }
 }
 
 /// Parse structures that begin with the target DN (ModifyRequest, AddRequest,
 /// ModifyDNRequest, CompareRequest).
 fn parse_dn_first(val: &[u8], d: &mut LdapOpDetails) {
-    if let Some((tag, v, _)) = decode_tlv(val) {
-        if tag == TAG_OCTET_STRING {
-            d.dn = Some(ber_string(v));
-        }
+    if let Some((tag, v, _)) = decode_tlv(val)
+        && tag == TAG_OCTET_STRING
+    {
+        d.dn = Some(ber_string(v));
     }
 }
 
 /// Parse ExtendedRequest: requestName [0] IMPLICIT LDAPOID
 fn parse_extended_request(val: &[u8], d: &mut LdapOpDetails) {
-    if let Some((tag, v, _)) = decode_tlv(val) {
-        if tag == CTX_PRIM_80 {
-            // requestName is stored as an OID in OCTET STRING encoding,
-            // but RFC 4511 says it's an LDAPOID (really just an OctetString
-            // containing the dotted OID as ASCII text).
-            d.extended_oid = Some(ber_string(v));
-        }
+    if let Some((tag, v, _)) = decode_tlv(val)
+        && tag == CTX_PRIM_80
+    {
+        // requestName is stored as an OID in OCTET STRING encoding,
+        // but RFC 4511 says it's an LDAPOID (really just an OctetString
+        // containing the dotted OID as ASCII text).
+        d.extended_oid = Some(ber_string(v));
     }
 }
 
@@ -485,30 +490,31 @@ fn parse_extended_request(val: &[u8], d: &mut LdapOpDetails) {
 
 fn op_name(tag: u8) -> &'static str {
     match tag {
-        APP_BIND_REQUEST          => "ldap_bind_request",
-        APP_BIND_RESPONSE         => "ldap_bind_response",
-        APP_UNBIND_REQUEST        => "ldap_unbind_request",
-        APP_SEARCH_REQUEST        => "ldap_search_request",
-        APP_SEARCH_RESULT_ENTRY   => "ldap_search_result_entry",
-        APP_SEARCH_RESULT_DONE    => "ldap_search_result_done",
-        APP_MODIFY_REQUEST        => "ldap_modify_request",
-        APP_MODIFY_RESPONSE       => "ldap_modify_response",
-        APP_ADD_REQUEST           => "ldap_add_request",
-        APP_ADD_RESPONSE          => "ldap_add_response",
-        APP_DEL_REQUEST           => "ldap_del_request",
-        APP_DEL_RESPONSE          => "ldap_del_response",
-        APP_MODIFY_DN_REQUEST     => "ldap_modifydn_request",
-        APP_MODIFY_DN_RESPONSE    => "ldap_modifydn_response",
-        APP_COMPARE_REQUEST       => "ldap_compare_request",
-        APP_COMPARE_RESPONSE      => "ldap_compare_response",
-        APP_ABANDON_REQUEST       => "ldap_abandon_request",
-        APP_EXTENDED_REQUEST      => "ldap_extended_request",
-        APP_EXTENDED_RESPONSE     => "ldap_extended_response",
-        _                         => "ldap_unknown_op",
+        APP_BIND_REQUEST => "ldap_bind_request",
+        APP_BIND_RESPONSE => "ldap_bind_response",
+        APP_UNBIND_REQUEST => "ldap_unbind_request",
+        APP_SEARCH_REQUEST => "ldap_search_request",
+        APP_SEARCH_RESULT_ENTRY => "ldap_search_result_entry",
+        APP_SEARCH_RESULT_DONE => "ldap_search_result_done",
+        APP_MODIFY_REQUEST => "ldap_modify_request",
+        APP_MODIFY_RESPONSE => "ldap_modify_response",
+        APP_ADD_REQUEST => "ldap_add_request",
+        APP_ADD_RESPONSE => "ldap_add_response",
+        APP_DEL_REQUEST => "ldap_del_request",
+        APP_DEL_RESPONSE => "ldap_del_response",
+        APP_MODIFY_DN_REQUEST => "ldap_modifydn_request",
+        APP_MODIFY_DN_RESPONSE => "ldap_modifydn_response",
+        APP_COMPARE_REQUEST => "ldap_compare_request",
+        APP_COMPARE_RESPONSE => "ldap_compare_response",
+        APP_ABANDON_REQUEST => "ldap_abandon_request",
+        APP_EXTENDED_REQUEST => "ldap_extended_request",
+        APP_EXTENDED_RESPONSE => "ldap_extended_response",
+        _ => "ldap_unknown_op",
     }
 }
 
 /// Whether this op tag represents a request (client→server) direction.
+#[expect(dead_code, reason = "kept for future directional heuristics")]
 fn is_request_op(tag: u8) -> bool {
     matches!(
         tag,
@@ -558,6 +564,7 @@ fn is_response_op(tag: u8) -> bool {
 
 #[derive(Debug)]
 struct PendingReq {
+    #[expect(dead_code, reason = "reserved for richer request/response correlation")]
     op_tag: u8,
 }
 
@@ -596,10 +603,7 @@ impl SessionDecoder for LdapDecoder {
     }
 
     fn interest(&self) -> &'static [DecoderInterest] {
-        &[
-            DecoderInterest::TcpPort(389),
-            DecoderInterest::TcpPort(636),
-        ]
+        &[DecoderInterest::TcpPort(389), DecoderInterest::TcpPort(636)]
     }
 
     fn on_stream_chunk(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
@@ -710,7 +714,11 @@ impl LdapDecoder {
 
                 let llen = {
                     let lb = msg_bytes[1];
-                    if lb & 0x80 == 0 { 1usize } else { 1 + (lb & 0x7F) as usize }
+                    if lb & 0x80 == 0 {
+                        1usize
+                    } else {
+                        1 + (lb & 0x7F) as usize
+                    }
                 };
                 let seq_val_start = 1 + llen;
                 match parse_ldap_message(&msg_bytes[seq_val_start..]) {
@@ -771,7 +779,12 @@ impl LdapDecoder {
         }
     }
 
-    fn emit_message(&mut self, chunk: &StreamChunk<'_>, msg: LdapMessage, out: &mut Vec<BronzeEvent>) {
+    fn emit_message(
+        &mut self,
+        chunk: &StreamChunk<'_>,
+        msg: LdapMessage,
+        out: &mut Vec<BronzeEvent>,
+    ) {
         let session = self.sessions.get_mut(&chunk.session_key).unwrap();
 
         // ── Server asset (once per session, on first message) ─────────────────
@@ -810,7 +823,9 @@ impl LdapDecoder {
 
         // ── Request/response pairing ──────────────────────────────────────────
         let status = if is_paired_request(op_tag) {
-            session.pending.insert(msg.message_id, PendingReq { op_tag });
+            session
+                .pending
+                .insert(msg.message_id, PendingReq { op_tag });
             "request_only".to_string()
         } else if is_response_op(op_tag) {
             let rc = details.result_code.unwrap_or(0);
@@ -822,7 +837,11 @@ impl LdapDecoder {
                 }
             } else {
                 // Unsolicited response
-                if rc == RC_SUCCESS { "response_only".to_string() } else { "error".to_string() }
+                if rc == RC_SUCCESS {
+                    "response_only".to_string()
+                } else {
+                    "error".to_string()
+                }
             }
         } else {
             // Unpaired ops: UnbindRequest, SearchResultEntry, AbandonRequest
@@ -845,7 +864,10 @@ impl LdapDecoder {
         }
         if let Some(rc) = details.result_code {
             attributes.insert("result_code".to_string(), rc.to_string());
-            attributes.insert("result_code_name".to_string(), result_code_name(rc).to_string());
+            attributes.insert(
+                "result_code_name".to_string(),
+                result_code_name(rc).to_string(),
+            );
         }
         if let Some(ref mdn) = details.matched_dn {
             attributes.insert("matched_dn".to_string(), mdn.clone());
@@ -880,10 +902,15 @@ impl LdapDecoder {
                 let base = details.dn.as_deref().unwrap_or("");
                 let scope = details.scope.map(scope_name).unwrap_or("?");
                 let ftype = details.filter_type.as_deref().unwrap_or("?");
-                Some(format!("search base=\"{base}\" scope={scope} filter={ftype}"))
+                Some(format!(
+                    "search base=\"{base}\" scope={scope} filter={ftype}"
+                ))
             }
-            APP_DEL_REQUEST | APP_MODIFY_REQUEST | APP_ADD_REQUEST
-            | APP_MODIFY_DN_REQUEST | APP_COMPARE_REQUEST => {
+            APP_DEL_REQUEST
+            | APP_MODIFY_REQUEST
+            | APP_ADD_REQUEST
+            | APP_MODIFY_DN_REQUEST
+            | APP_COMPARE_REQUEST => {
                 let dn = details.dn.as_deref().unwrap_or("");
                 Some(format!("dn=\"{dn}\""))
             }
@@ -934,45 +961,42 @@ impl LdapDecoder {
         }
 
         // StartTLS detected: informational low-severity
-        if op_tag == APP_EXTENDED_REQUEST {
-            if details.extended_oid.as_deref() == Some(STARTTLS_OID) {
-                out.push(parse_anomaly_event(
-                    chunk.capture_id.to_string(),
-                    envelope.clone(),
-                    "ldap",
-                    "low",
-                    "StartTLS negotiation detected — session may go opaque after this message",
-                    &[],
-                ));
-            }
+        if op_tag == APP_EXTENDED_REQUEST && details.extended_oid.as_deref() == Some(STARTTLS_OID) {
+            out.push(parse_anomaly_event(
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                "ldap",
+                "low",
+                "StartTLS negotiation detected — session may go opaque after this message",
+                &[],
+            ));
         }
 
         // ── Client AssetObservation on successful bind ─────────────────────────
         // Emit for BindRequest so we capture the attempted DN even before response.
-        if op_tag == APP_BIND_REQUEST {
-            if let Some(ref dn) = details.dn {
-                if !dn.is_empty() {
-                    let mut identifiers: BTreeMap<String, String> = BTreeMap::new();
-                    identifiers.insert("bind_dn".to_string(), dn.clone());
-                    if let Some(ref mech) = details.sasl_mechanism {
-                        identifiers.insert("sasl_mechanism".to_string(), mech.clone());
-                    }
-                    out.push(new_event(
-                        chunk.capture_id.to_string(),
-                        envelope.clone(),
-                        BronzeEventFamily::AssetObservation(AssetObservation {
-                            asset_key: chunk.context.src_ip.to_string(),
-                            role: Some("ldap_client".to_string()),
-                            vendor: None,
-                            model: None,
-                            firmware: None,
-                            hostnames: vec![],
-                            protocols: vec!["ldap".to_string()],
-                            identifiers,
-                        }),
-                    ));
-                }
+        if op_tag == APP_BIND_REQUEST
+            && let Some(ref dn) = details.dn
+            && !dn.is_empty()
+        {
+            let mut identifiers: BTreeMap<String, String> = BTreeMap::new();
+            identifiers.insert("bind_dn".to_string(), dn.clone());
+            if let Some(ref mech) = details.sasl_mechanism {
+                identifiers.insert("sasl_mechanism".to_string(), mech.clone());
             }
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                BronzeEventFamily::AssetObservation(AssetObservation {
+                    asset_key: chunk.context.src_ip.to_string(),
+                    role: Some("ldap_client".to_string()),
+                    vendor: None,
+                    model: None,
+                    firmware: None,
+                    hostnames: vec![],
+                    protocols: vec!["ldap".to_string()],
+                    identifiers,
+                }),
+            ));
         }
 
         // ── ProtocolTransaction event ─────────────────────────────────────────
@@ -999,11 +1023,11 @@ impl LdapDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr};
-    use chrono::Utc;
     use crate::bronze::BronzeEventFamily;
     use crate::engine::{DecoderInterest, SessionDecoder, StreamChunk};
     use crate::registry::PacketContext;
+    use chrono::Utc;
+    use std::net::{IpAddr, Ipv4Addr};
 
     // ── Test helpers ─────────────────────────────────────────────────────────
 
@@ -1047,21 +1071,39 @@ mod tests {
     }
 
     fn get_txns(evs: &[BronzeEvent]) -> Vec<&ProtocolTransaction> {
-        evs.iter().filter_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family { Some(t) } else { None }
-        }).collect()
+        evs.iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn get_assets(evs: &[BronzeEvent]) -> Vec<&AssetObservation> {
-        evs.iter().filter_map(|e| {
-            if let BronzeEventFamily::AssetObservation(ref a) = e.family { Some(a) } else { None }
-        }).collect()
+        evs.iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::AssetObservation(ref a) = e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn get_anomalies(evs: &[BronzeEvent]) -> Vec<&crate::bronze::ParseAnomaly> {
-        evs.iter().filter_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(ref a) = e.family { Some(a) } else { None }
-        }).collect()
+        evs.iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::ParseAnomaly(ref a) = e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     // ── BER encoding helpers ──────────────────────────────────────────────────
@@ -1120,6 +1162,7 @@ mod tests {
         tlv(TAG_SEQUENCE, inner)
     }
 
+    #[expect(dead_code, reason = "kept for future BER test fixtures")]
     fn null() -> Vec<u8> {
         vec![TAG_NULL, 0x00]
     }
@@ -1148,9 +1191,18 @@ mod tests {
 
         let txns = get_txns(&evs);
         assert!(!txns.is_empty(), "expected ProtocolTransaction");
-        let tx = txns.iter().find(|t| t.operation == "ldap_bind_request").expect("bind_request tx");
-        assert_eq!(tx.attributes.get("dn").map(String::as_str), Some("cn=admin,dc=example,dc=com"));
-        assert_eq!(tx.attributes.get("auth_type").map(String::as_str), Some("simple"));
+        let tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_bind_request")
+            .expect("bind_request tx");
+        assert_eq!(
+            tx.attributes.get("dn").map(String::as_str),
+            Some("cn=admin,dc=example,dc=com")
+        );
+        assert_eq!(
+            tx.attributes.get("auth_type").map(String::as_str),
+            Some("simple")
+        );
         assert_eq!(tx.status, "request_only");
     }
 
@@ -1174,9 +1226,18 @@ mod tests {
         dec.on_stream_chunk(&chunk(&pkt, ctx(50001, 389)), &mut evs);
 
         let txns = get_txns(&evs);
-        let tx = txns.iter().find(|t| t.operation == "ldap_bind_request").expect("bind_request tx");
-        assert_eq!(tx.attributes.get("auth_type").map(String::as_str), Some("sasl"));
-        assert_eq!(tx.attributes.get("sasl_mechanism").map(String::as_str), Some("GSSAPI"));
+        let tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_bind_request")
+            .expect("bind_request tx");
+        assert_eq!(
+            tx.attributes.get("auth_type").map(String::as_str),
+            Some("sasl")
+        );
+        assert_eq!(
+            tx.attributes.get("sasl_mechanism").map(String::as_str),
+            Some("GSSAPI")
+        );
     }
 
     // ── Test 3: BindResponse success ─────────────────────────────────────────
@@ -1197,14 +1258,32 @@ mod tests {
 
         let mut dec = LdapDecoder::default();
         let mut evs = Vec::new();
-        dec.on_stream_chunk(&chunk_with_key(&req_pkt, ctx(50002, 389), "sess-bind"), &mut evs);
-        dec.on_stream_chunk(&chunk_with_key(&resp_pkt, ctx(50002, 389), "sess-bind"), &mut evs);
+        dec.on_stream_chunk(
+            &chunk_with_key(&req_pkt, ctx(50002, 389), "sess-bind"),
+            &mut evs,
+        );
+        dec.on_stream_chunk(
+            &chunk_with_key(&resp_pkt, ctx(50002, 389), "sess-bind"),
+            &mut evs,
+        );
 
         let txns = get_txns(&evs);
-        let resp_tx = txns.iter().find(|t| t.operation == "ldap_bind_response").expect("bind_response tx");
+        let resp_tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_bind_response")
+            .expect("bind_response tx");
         assert_eq!(resp_tx.status, "ok");
-        assert_eq!(resp_tx.attributes.get("result_code").map(String::as_str), Some("0"));
-        assert_eq!(resp_tx.attributes.get("result_code_name").map(String::as_str), Some("success"));
+        assert_eq!(
+            resp_tx.attributes.get("result_code").map(String::as_str),
+            Some("0")
+        );
+        assert_eq!(
+            resp_tx
+                .attributes
+                .get("result_code_name")
+                .map(String::as_str),
+            Some("success")
+        );
     }
 
     // ── Test 4: BindResponse invalidCredentials (49) ─────────────────────────
@@ -1221,10 +1300,22 @@ mod tests {
         dec.on_stream_chunk(&chunk(&resp_pkt, ctx(50003, 389)), &mut evs);
 
         let txns = get_txns(&evs);
-        let resp_tx = txns.iter().find(|t| t.operation == "ldap_bind_response").expect("bind_response");
+        let resp_tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_bind_response")
+            .expect("bind_response");
         assert_eq!(resp_tx.status, "error");
-        assert_eq!(resp_tx.attributes.get("result_code").map(String::as_str), Some("49"));
-        assert_eq!(resp_tx.attributes.get("result_code_name").map(String::as_str), Some("invalidCredentials"));
+        assert_eq!(
+            resp_tx.attributes.get("result_code").map(String::as_str),
+            Some("49")
+        );
+        assert_eq!(
+            resp_tx
+                .attributes
+                .get("result_code_name")
+                .map(String::as_str),
+            Some("invalidCredentials")
+        );
 
         let anomalies = get_anomalies(&evs);
         assert!(!anomalies.is_empty(), "expected anomaly for failed bind");
@@ -1237,11 +1328,11 @@ mod tests {
     #[test]
     fn test_search_request_wholetree_filter_attributes() {
         let mut search_inner = octet_string(b"dc=example,dc=com"); // baseObject
-        search_inner.extend_from_slice(&enumerated(SCOPE_SUB as u32));     // scope=wholeSubtree
-        search_inner.extend_from_slice(&enumerated(0));                     // derefAliases
-        search_inner.extend_from_slice(&integer(0));                        // sizeLimit
-        search_inner.extend_from_slice(&integer(0));                        // timeLimit
-        search_inner.extend_from_slice(&boolean_val(false));                // typesOnly
+        search_inner.extend_from_slice(&enumerated(SCOPE_SUB as u32)); // scope=wholeSubtree
+        search_inner.extend_from_slice(&enumerated(0)); // derefAliases
+        search_inner.extend_from_slice(&integer(0)); // sizeLimit
+        search_inner.extend_from_slice(&integer(0)); // timeLimit
+        search_inner.extend_from_slice(&boolean_val(false)); // typesOnly
         // filter: present (0x87) for "objectClass"
         search_inner.extend_from_slice(&tlv(0x87, b"objectClass"));
         // attributes: ["cn", "mail"]
@@ -1256,11 +1347,27 @@ mod tests {
         dec.on_stream_chunk(&chunk(&pkt, ctx(50004, 389)), &mut evs);
 
         let txns = get_txns(&evs);
-        let tx = txns.iter().find(|t| t.operation == "ldap_search_request").expect("search_request");
-        assert_eq!(tx.attributes.get("dn").map(String::as_str), Some("dc=example,dc=com"));
-        assert_eq!(tx.attributes.get("scope").map(String::as_str), Some("wholeSubtree"));
-        assert_eq!(tx.attributes.get("filter_type").map(String::as_str), Some("present"));
-        let attrs_str = tx.attributes.get("attributes").map(String::as_str).unwrap_or("");
+        let tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_search_request")
+            .expect("search_request");
+        assert_eq!(
+            tx.attributes.get("dn").map(String::as_str),
+            Some("dc=example,dc=com")
+        );
+        assert_eq!(
+            tx.attributes.get("scope").map(String::as_str),
+            Some("wholeSubtree")
+        );
+        assert_eq!(
+            tx.attributes.get("filter_type").map(String::as_str),
+            Some("present")
+        );
+        let attrs_str = tx
+            .attributes
+            .get("attributes")
+            .map(String::as_str)
+            .unwrap_or("");
         assert!(attrs_str.contains("cn"));
         assert!(attrs_str.contains("mail"));
     }
@@ -1279,8 +1386,14 @@ mod tests {
         dec.on_stream_chunk(&chunk(&pkt, ctx(389, 50004)), &mut evs);
 
         let txns = get_txns(&evs);
-        let tx = txns.iter().find(|t| t.operation == "ldap_search_result_entry").expect("result_entry");
-        assert_eq!(tx.attributes.get("object_name").map(String::as_str), Some("cn=john,dc=example,dc=com"));
+        let tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_search_result_entry")
+            .expect("result_entry");
+        assert_eq!(
+            tx.attributes.get("object_name").map(String::as_str),
+            Some("cn=john,dc=example,dc=com")
+        );
         assert_eq!(tx.status, "ok");
     }
 
@@ -1306,13 +1419,25 @@ mod tests {
 
         let mut dec = LdapDecoder::default();
         let mut evs = Vec::new();
-        dec.on_stream_chunk(&chunk_with_key(&req_pkt, ctx(50005, 389), "sess-search"), &mut evs);
-        dec.on_stream_chunk(&chunk_with_key(&done_pkt, ctx(50005, 389), "sess-search"), &mut evs);
+        dec.on_stream_chunk(
+            &chunk_with_key(&req_pkt, ctx(50005, 389), "sess-search"),
+            &mut evs,
+        );
+        dec.on_stream_chunk(
+            &chunk_with_key(&done_pkt, ctx(50005, 389), "sess-search"),
+            &mut evs,
+        );
 
         let txns = get_txns(&evs);
-        let done_tx = txns.iter().find(|t| t.operation == "ldap_search_result_done").expect("done");
+        let done_tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_search_result_done")
+            .expect("done");
         assert_eq!(done_tx.status, "ok");
-        assert_eq!(done_tx.attributes.get("result_code").map(String::as_str), Some("0"));
+        assert_eq!(
+            done_tx.attributes.get("result_code").map(String::as_str),
+            Some("0")
+        );
     }
 
     // ── Test 8: ModifyRequest ─────────────────────────────────────────────────
@@ -1329,8 +1454,14 @@ mod tests {
         dec.on_stream_chunk(&chunk(&pkt, ctx(50006, 389)), &mut evs);
 
         let txns = get_txns(&evs);
-        let tx = txns.iter().find(|t| t.operation == "ldap_modify_request").expect("modify_request");
-        assert_eq!(tx.attributes.get("dn").map(String::as_str), Some("cn=bob,dc=corp,dc=com"));
+        let tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_modify_request")
+            .expect("modify_request");
+        assert_eq!(
+            tx.attributes.get("dn").map(String::as_str),
+            Some("cn=bob,dc=corp,dc=com")
+        );
         assert_eq!(tx.status, "request_only");
     }
 
@@ -1348,8 +1479,14 @@ mod tests {
         dec.on_stream_chunk(&chunk(&pkt, ctx(50007, 389)), &mut evs);
 
         let txns = get_txns(&evs);
-        let tx = txns.iter().find(|t| t.operation == "ldap_add_request").expect("add_request");
-        assert_eq!(tx.attributes.get("dn").map(String::as_str), Some("cn=newuser,ou=users,dc=corp"));
+        let tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_add_request")
+            .expect("add_request");
+        assert_eq!(
+            tx.attributes.get("dn").map(String::as_str),
+            Some("cn=newuser,ou=users,dc=corp")
+        );
     }
 
     // ── Test 10: DelRequest ───────────────────────────────────────────────────
@@ -1365,8 +1502,14 @@ mod tests {
         dec.on_stream_chunk(&chunk(&pkt, ctx(50008, 389)), &mut evs);
 
         let txns = get_txns(&evs);
-        let tx = txns.iter().find(|t| t.operation == "ldap_del_request").expect("del_request");
-        assert_eq!(tx.attributes.get("dn").map(String::as_str), Some("cn=old,dc=corp"));
+        let tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_del_request")
+            .expect("del_request");
+        assert_eq!(
+            tx.attributes.get("dn").map(String::as_str),
+            Some("cn=old,dc=corp")
+        );
     }
 
     // ── Test 11: ExtendedRequest StartTLS ────────────────────────────────────
@@ -1384,9 +1527,18 @@ mod tests {
         dec.on_stream_chunk(&chunk(&pkt, ctx(50009, 389)), &mut evs);
 
         let txns = get_txns(&evs);
-        let tx = txns.iter().find(|t| t.operation == "ldap_extended_request").expect("extended_request");
-        assert_eq!(tx.attributes.get("extended_oid").map(String::as_str), Some(STARTTLS_OID));
-        assert_eq!(tx.attributes.get("starttls").map(String::as_str), Some("true"));
+        let tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_extended_request")
+            .expect("extended_request");
+        assert_eq!(
+            tx.attributes.get("extended_oid").map(String::as_str),
+            Some(STARTTLS_OID)
+        );
+        assert_eq!(
+            tx.attributes.get("starttls").map(String::as_str),
+            Some("true")
+        );
 
         let anomalies = get_anomalies(&evs);
         assert!(!anomalies.is_empty(), "expected StartTLS anomaly");
@@ -1405,7 +1557,10 @@ mod tests {
 
         let txns = get_txns(&evs);
         assert!(!txns.is_empty(), "expected ldap_tls_session tx");
-        let tx = txns.iter().find(|t| t.operation == "ldap_tls_session").expect("tls_session");
+        let tx = txns
+            .iter()
+            .find(|t| t.operation == "ldap_tls_session")
+            .expect("tls_session");
         assert_eq!(tx.status, "observed");
 
         let assets = get_assets(&evs);
@@ -1433,9 +1588,15 @@ mod tests {
         // Buffer should hold the bytes and not emit a ProtocolTransaction yet.
         // No events should appear — message is incomplete, waiting for more data.
         let txns = get_txns(&evs);
-        assert!(txns.is_empty(), "incomplete message must not emit ProtocolTransaction");
+        assert!(
+            txns.is_empty(),
+            "incomplete message must not emit ProtocolTransaction"
+        );
         let anomalies = get_anomalies(&evs);
-        assert!(anomalies.is_empty(), "incomplete message must not emit anomaly — just buffer");
+        assert!(
+            anomalies.is_empty(),
+            "incomplete message must not emit anomaly — just buffer"
+        );
     }
 
     // ── Test 14: Message straddling two chunks (buffering) ────────────────────
@@ -1458,15 +1619,27 @@ mod tests {
         let mut evs = Vec::new();
 
         // First half: should buffer, no tx emitted yet
-        dec.on_stream_chunk(&chunk_with_key(part1, ctx(50012, 389), "sess-straddle"), &mut evs);
+        dec.on_stream_chunk(
+            &chunk_with_key(part1, ctx(50012, 389), "sess-straddle"),
+            &mut evs,
+        );
         let txns_after_first = get_txns(&evs);
-        assert!(txns_after_first.is_empty(), "first chunk should not produce tx");
+        assert!(
+            txns_after_first.is_empty(),
+            "first chunk should not produce tx"
+        );
 
         // Second half: now complete, should emit
-        dec.on_stream_chunk(&chunk_with_key(part2, ctx(50012, 389), "sess-straddle"), &mut evs);
+        dec.on_stream_chunk(
+            &chunk_with_key(part2, ctx(50012, 389), "sess-straddle"),
+            &mut evs,
+        );
         let txns = get_txns(&evs);
         let bind_tx = txns.iter().find(|t| t.operation == "ldap_bind_request");
-        assert!(bind_tx.is_some(), "assembled message should produce bind_request tx");
+        assert!(
+            bind_tx.is_some(),
+            "assembled message should produce bind_request tx"
+        );
         assert_eq!(
             bind_tx.unwrap().attributes.get("dn").map(String::as_str),
             Some("cn=test,dc=local")

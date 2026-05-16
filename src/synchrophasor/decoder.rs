@@ -6,12 +6,12 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use crate::bronze::{
-    BronzeEvent, BronzeEventFamily, EventEnvelope, PointIdentifier, PointValue, ProcessReading,
-    RawQuality, SynchrophasorChannelType, BRONZE_SCHEMA_VERSION,
+    BRONZE_SCHEMA_VERSION, BronzeEvent, BronzeEventFamily, EventEnvelope, PointIdentifier,
+    PointValue, ProcessReading, RawQuality, SynchrophasorChannelType,
 };
-use crate::synchrophasor::config::{parse_config_frame, ConfigFrame};
+use crate::synchrophasor::config::{ConfigFrame, parse_config_frame};
 use crate::synchrophasor::data::parse_data_frame;
-use crate::synchrophasor::frame::{read_common_header, FrameType};
+use crate::synchrophasor::frame::{FrameType, read_common_header};
 use crate::synchrophasor::reader::Reader;
 
 const SOURCE_PROTOCOL: &str = "synchrophasor";
@@ -100,6 +100,7 @@ impl SynchrophasorDecoder {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn emit_pmu_readings(
         &mut self,
         cfg: &crate::synchrophasor::config::PmuConfig,
@@ -220,11 +221,7 @@ impl SynchrophasorDecoder {
 
 fn envelope_us(env: &EventEnvelope) -> u64 {
     let nanos = env.timestamp.timestamp_nanos_opt().unwrap_or(0);
-    if nanos < 0 {
-        0
-    } else {
-        (nanos / 1_000) as u64
-    }
+    if nanos < 0 { 0 } else { (nanos / 1_000) as u64 }
 }
 
 #[cfg(test)]

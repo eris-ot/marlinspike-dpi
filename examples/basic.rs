@@ -23,12 +23,10 @@ fn main() {
     });
 
     let mut engine = DpiEngine::new();
-    let events = engine
-        .process_capture(&path, file)
-        .unwrap_or_else(|err| {
-            eprintln!("DPI error: {err}");
-            process::exit(1);
-        });
+    let events = engine.process_capture(&path, file).unwrap_or_else(|err| {
+        eprintln!("DPI error: {err}");
+        process::exit(1);
+    });
 
     println!("processed {} events from {path}", events.len());
     println!();
@@ -43,7 +41,9 @@ fn main() {
             *by_protocol.entry(proto.to_string()).or_default() += 1;
         }
         if let BronzeEventFamily::ParseAnomaly(anomaly) = &event.family {
-            *anomaly_severity.entry(anomaly.severity.clone()).or_default() += 1;
+            *anomaly_severity
+                .entry(anomaly.severity.clone())
+                .or_default() += 1;
         }
     }
 

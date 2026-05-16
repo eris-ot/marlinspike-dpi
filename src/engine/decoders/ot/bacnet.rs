@@ -6,8 +6,8 @@ use crate::bronze::{
 };
 use crate::dissectors::bacnet::BacnetDissector;
 use crate::engine::{
-    artifact_event, build_envelope, new_event, parse_anomaly_event, DecoderInterest,
-    SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
+    parse_anomaly_event,
 };
 use crate::registry::{BacnetFields, ProtocolData, ProtocolDissector};
 
@@ -91,9 +91,9 @@ impl SessionDecoder for BacnetDecoder {
                         object_refs: bacnet_object_refs(device_instance, invoke_id),
                         values: Vec::new(),
                         attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
+                        modbus: None,
+                        protocol_fields: None,
+                    }),
                 ));
 
                 if let Some(device_instance) = device_instance {

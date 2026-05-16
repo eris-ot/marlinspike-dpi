@@ -17,7 +17,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── TPKT / X.224 constants ──────────────────────────────────────────────────
@@ -74,17 +74,31 @@ pub(crate) struct RdpDecoder {
 /// Returns `Some(total_len)` when a complete TPKT is buffered, `None`
 /// if more bytes are needed or if a `ParseAnomaly` was emitted for a bad
 /// version byte.
-fn check_tpkt(data: &[u8], capture_id: &str, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) -> Option<usize> {
+fn check_tpkt(
+    data: &[u8],
+    capture_id: &str,
+    chunk: &StreamChunk<'_>,
+    out: &mut Vec<BronzeEvent>,
+) -> Option<usize> {
     if data.len() < TPKT_HEADER_LEN {
         return None;
     }
     if data[0] != TPKT_VERSION {
         out.push(parse_anomaly_event(
             capture_id.to_string(),
-            build_envelope(&chunk.context, chunk.interface_id, chunk.frame_index,
-                chunk.timestamp, chunk.segment_hash, TransportProtocol::Tcp, Some("rdp"),
-                chunk.captured_len, chunk.session_key.clone()),
-            "rdp", "low",
+            build_envelope(
+                &chunk.context,
+                chunk.interface_id,
+                chunk.frame_index,
+                chunk.timestamp,
+                chunk.segment_hash,
+                TransportProtocol::Tcp,
+                Some("rdp"),
+                chunk.captured_len,
+                chunk.session_key.clone(),
+            ),
+            "rdp",
+            "low",
             "unexpected TPKT version byte — not RDP or mid-stream capture",
             data,
         ));
@@ -172,8 +186,12 @@ fn parse_cc(tpdu: &[u8]) -> Option<CcPayload> {
     }
     let value = u32::from_le_bytes([user_data[4], user_data[5], user_data[6], user_data[7]]);
     Some(match ie_type {
-        RDP_NEG_RSP => CcPayload::NegResponse { selected_protocol: value },
-        RDP_NEG_FAIL => CcPayload::NegFailure { failure_code: value },
+        RDP_NEG_RSP => CcPayload::NegResponse {
+            selected_protocol: value,
+        },
+        RDP_NEG_FAIL => CcPayload::NegFailure {
+            failure_code: value,
+        },
         _ => CcPayload::Bare,
     })
 }
@@ -184,9 +202,17 @@ fn emit_asset_observation(mstshash: &str, chunk: &StreamChunk<'_>, out: &mut Vec
     let src_ip = chunk.context.src_ip.to_string();
     out.push(new_event(
         chunk.capture_id.to_string(),
-        build_envelope(&chunk.context, chunk.interface_id, chunk.frame_index,
-            chunk.timestamp, chunk.segment_hash, TransportProtocol::Tcp, Some("rdp"),
-            chunk.captured_len, chunk.session_key.clone()),
+        build_envelope(
+            &chunk.context,
+            chunk.interface_id,
+            chunk.frame_index,
+            chunk.timestamp,
+            chunk.segment_hash,
+            TransportProtocol::Tcp,
+            Some("rdp"),
+            chunk.captured_len,
+            chunk.session_key.clone(),
+        ),
         BronzeEventFamily::AssetObservation(AssetObservation {
             asset_key: src_ip.clone(),
             // Role is rdp_client; mstshash_username is unauthenticated — spoofable.
@@ -204,38 +230,70 @@ fn emit_asset_observation(mstshash: &str, chunk: &StreamChunk<'_>, out: &mut Vec
     ));
 }
 
-fn emit_transaction(cr: PendingCr, cc: CcPayload, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
+fn emit_transaction(
+    cr: PendingCr,
+    cc: CcPayload,
+    chunk: &StreamChunk<'_>,
+    out: &mut Vec<BronzeEvent>,
+) {
     let mut attributes = BTreeMap::new();
     attributes.insert("tpdu_class".to_string(), cr.tpdu_class.to_string());
     if let Some(rp) = cr.requested_protocols {
-        attributes.insert("requested_protocols_hex".to_string(), format!("{:#010x}", rp));
+        attributes.insert(
+            "requested_protocols_hex".to_string(),
+            format!("{:#010x}", rp),
+        );
     }
     if let Some(ref u) = cr.mstshash {
         attributes.insert("mstshash".to_string(), u.clone());
     }
 
-    let request_summary = cr.mstshash
+    let request_summary = cr
+        .mstshash
         .as_deref()
         .map(|u| format!("CR with cookie {u}"))
         .unwrap_or_else(|| "CR without cookie".to_string());
 
     let (status, response_summary) = match &cc {
         CcPayload::NegResponse { selected_protocol } => {
-            attributes.insert("selected_protocol_hex".to_string(), format!("{:#010x}", selected_protocol));
-            ("ok".to_string(), format!("CC negotiation_response selected={:#010x}", selected_protocol))
+            attributes.insert(
+                "selected_protocol_hex".to_string(),
+                format!("{:#010x}", selected_protocol),
+            );
+            (
+                "ok".to_string(),
+                format!(
+                    "CC negotiation_response selected={:#010x}",
+                    selected_protocol
+                ),
+            )
         }
         CcPayload::NegFailure { failure_code } => {
-            attributes.insert("negotiation_failure_code".to_string(), format!("{:#010x}", failure_code));
-            ("failed".to_string(), format!("CC negotiation_failure code={:#010x}", failure_code))
+            attributes.insert(
+                "negotiation_failure_code".to_string(),
+                format!("{:#010x}", failure_code),
+            );
+            (
+                "failed".to_string(),
+                format!("CC negotiation_failure code={:#010x}", failure_code),
+            )
         }
         CcPayload::Bare => ("observed".to_string(), "CC (no negotiation IE)".to_string()),
     };
 
     out.push(new_event(
         chunk.capture_id.to_string(),
-        build_envelope(&chunk.context, chunk.interface_id, chunk.frame_index,
-            chunk.timestamp, chunk.segment_hash, TransportProtocol::Tcp, Some("rdp"),
-            chunk.captured_len, chunk.session_key.clone()),
+        build_envelope(
+            &chunk.context,
+            chunk.interface_id,
+            chunk.frame_index,
+            chunk.timestamp,
+            chunk.segment_hash,
+            TransportProtocol::Tcp,
+            Some("rdp"),
+            chunk.captured_len,
+            chunk.session_key.clone(),
+        ),
         BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
             operation: "rdp_connect".to_string(),
             status,
@@ -253,7 +311,9 @@ fn emit_transaction(cr: PendingCr, cc: CcPayload, chunk: &StreamChunk<'_>, out: 
 // ── SessionDecoder impl ──────────────────────────────────────────────────────
 
 impl SessionDecoder for RdpDecoder {
-    fn name(&self) -> &'static str { "rdp" }
+    fn name(&self) -> &'static str {
+        "rdp"
+    }
 
     fn interest(&self) -> &'static [DecoderInterest] {
         &[DecoderInterest::TcpPort(3389)]
@@ -265,12 +325,7 @@ impl SessionDecoder for RdpDecoder {
         }
         self.buf.extend_from_slice(chunk.payload);
 
-        loop {
-            let total = match check_tpkt(&self.buf, chunk.capture_id, chunk, out) {
-                Some(n) => n,
-                None => break,
-            };
-
+        while let Some(total) = check_tpkt(&self.buf, chunk.capture_id, chunk, out) {
             let pdu = self.buf[..total].to_vec();
             let tpdu = &pdu[TPKT_HEADER_LEN..];
             if tpdu.len() < 2 {
@@ -281,13 +336,13 @@ impl SessionDecoder for RdpDecoder {
 
             match &self.state {
                 State::AwaitingCr => {
-                    if tpdu_code == X224_CR {
-                        if let Some(cr) = parse_cr(tpdu) {
-                            if let Some(ref u) = cr.mstshash.clone() {
-                                emit_asset_observation(u, chunk, out);
-                            }
-                            self.state = State::AwaitingCc(cr);
+                    if tpdu_code == X224_CR
+                        && let Some(cr) = parse_cr(tpdu)
+                    {
+                        if let Some(ref u) = cr.mstshash.clone() {
+                            emit_asset_observation(u, chunk, out);
                         }
+                        self.state = State::AwaitingCc(cr);
                     }
                     self.buf.drain(..total);
                 }
@@ -365,11 +420,11 @@ mod tests {
     fn minimal_cr() -> Vec<u8> {
         vec![
             0x03, 0x00, 0x00, 0x0B, // TPKT: version=3, rsvd=0, total=11
-            0x06,                   // LI=6 (covers code+refs+class)
-            0xE0,                   // CR
-            0x00, 0x00,             // dst-ref
-            0x00, 0x00,             // src-ref
-            0x00,                   // class 0
+            0x06, // LI=6 (covers code+refs+class)
+            0xE0, // CR
+            0x00, 0x00, // dst-ref
+            0x00, 0x00, // src-ref
+            0x00, // class 0
         ]
     }
 
@@ -377,9 +432,9 @@ mod tests {
     fn cc_neg_response(selected: u32) -> Vec<u8> {
         let mut v = vec![
             0x03, 0x00, 0x00, 0x13, // TPKT total=19
-            0x06, 0xD0,             // LI=6, CC
+            0x06, 0xD0, // LI=6, CC
             0x00, 0x00, 0x00, 0x00, // dst-ref, src-ref
-            0x00,                   // class
+            0x00, // class
         ];
         v.push(RDP_NEG_RSP);
         v.push(0x00);
@@ -391,10 +446,7 @@ mod tests {
     /// CC with an RDP Negotiation Failure IE.
     fn cc_neg_failure(code: u32) -> Vec<u8> {
         let mut v = vec![
-            0x03, 0x00, 0x00, 0x13,
-            0x06, 0xD0,
-            0x00, 0x00, 0x00, 0x00,
-            0x00,
+            0x03, 0x00, 0x00, 0x13, 0x06, 0xD0, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
         v.push(RDP_NEG_FAIL);
         v.push(0x00);
@@ -415,10 +467,10 @@ mod tests {
         v.push(0x03);
         v.push(0x00);
         v.extend_from_slice(&(total as u16).to_be_bytes());
-        v.push(0x06);  // LI=6
+        v.push(0x06); // LI=6
         v.push(X224_CR);
         v.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // dst-ref + src-ref
-        v.push(0x00);  // class
+        v.push(0x00); // class
         v.extend_from_slice(cookie.as_bytes());
         v.extend_from_slice(&neg_req);
         v
@@ -432,7 +484,8 @@ mod tests {
         let mut out = Vec::new();
         dec.on_stream_chunk(&chunk_from(&minimal_cr()), &mut out);
         assert!(
-            !out.iter().any(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_))),
+            !out.iter()
+                .any(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_))),
             "CR alone must not emit a ProtocolTransaction"
         );
     }
@@ -446,12 +499,24 @@ mod tests {
         let mut payload = minimal_cr();
         payload.extend(cc_neg_response(1));
         dec.on_stream_chunk(&chunk_from(&payload), &mut out);
-        let tx = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family { Some(t.clone()) } else { None }
-        }).expect("ProtocolTransaction must be emitted");
+        let tx = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family {
+                    Some(t.clone())
+                } else {
+                    None
+                }
+            })
+            .expect("ProtocolTransaction must be emitted");
         assert_eq!(tx.operation, "rdp_connect");
         assert_eq!(tx.status, "ok");
-        assert_eq!(tx.attributes.get("selected_protocol_hex").map(String::as_str), Some("0x00000001"));
+        assert_eq!(
+            tx.attributes
+                .get("selected_protocol_hex")
+                .map(String::as_str),
+            Some("0x00000001")
+        );
     }
 
     // ── Test 3: CR with cookie → AssetObservation mstshash_username=alice ───
@@ -461,11 +526,21 @@ mod tests {
         let mut dec = RdpDecoder::default();
         let mut out = Vec::new();
         dec.on_stream_chunk(&chunk_from(&cr_with_cookie("alice", 1)), &mut out);
-        let obs = out.iter().find_map(|e| {
-            if let BronzeEventFamily::AssetObservation(ref o) = e.family { Some(o.clone()) } else { None }
-        }).expect("AssetObservation must be emitted");
+        let obs = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::AssetObservation(ref o) = e.family {
+                    Some(o.clone())
+                } else {
+                    None
+                }
+            })
+            .expect("AssetObservation must be emitted");
         assert_eq!(obs.role.as_deref(), Some("rdp_client"));
-        assert_eq!(obs.identifiers.get("mstshash_username").map(String::as_str), Some("alice"));
+        assert_eq!(
+            obs.identifiers.get("mstshash_username").map(String::as_str),
+            Some("alice")
+        );
     }
 
     // ── Test 4: CR + CC negotiation_failure → status=failed, code present ───
@@ -477,11 +552,23 @@ mod tests {
         let mut payload = minimal_cr();
         payload.extend(cc_neg_failure(2)); // SSL_NOT_ALLOWED_BY_SERVER = 2
         dec.on_stream_chunk(&chunk_from(&payload), &mut out);
-        let tx = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family { Some(t.clone()) } else { None }
-        }).expect("ProtocolTransaction must be emitted");
+        let tx = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(ref t) = e.family {
+                    Some(t.clone())
+                } else {
+                    None
+                }
+            })
+            .expect("ProtocolTransaction must be emitted");
         assert_eq!(tx.status, "failed");
-        assert_eq!(tx.attributes.get("negotiation_failure_code").map(String::as_str), Some("0x00000002"));
+        assert_eq!(
+            tx.attributes
+                .get("negotiation_failure_code")
+                .map(String::as_str),
+            Some("0x00000002")
+        );
     }
 
     // ── Test 5: fragmented delivery → buffer until complete, then emit ───────
@@ -498,10 +585,16 @@ mod tests {
         // Deliver the rest.
         dec.on_stream_chunk(&chunk_from(&full[split..]), &mut out);
         // After both fragments we must have both an AssetObservation and a transaction.
-        assert!(out.iter().any(|e| matches!(e.family, BronzeEventFamily::AssetObservation(_))),
-            "AssetObservation must appear across fragments");
-        assert!(out.iter().any(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_))),
-            "ProtocolTransaction must appear after reassembly");
+        assert!(
+            out.iter()
+                .any(|e| matches!(e.family, BronzeEventFamily::AssetObservation(_))),
+            "AssetObservation must appear across fragments"
+        );
+        assert!(
+            out.iter()
+                .any(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_))),
+            "ProtocolTransaction must appear after reassembly"
+        );
     }
 
     // ── Test 6: bad TPKT version → ParseAnomaly severity=low ────────────────
@@ -513,9 +606,16 @@ mod tests {
         let mut bad = minimal_cr();
         bad[0] = 0x04; // wrong version
         dec.on_stream_chunk(&chunk_from(&bad), &mut out);
-        let anomaly = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(ref a) = e.family { Some(a.clone()) } else { None }
-        }).expect("ParseAnomaly must be emitted for bad TPKT version");
+        let anomaly = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ParseAnomaly(ref a) = e.family {
+                    Some(a.clone())
+                } else {
+                    None
+                }
+            })
+            .expect("ParseAnomaly must be emitted for bad TPKT version");
         assert_eq!(anomaly.severity, "low");
         assert_eq!(anomaly.decoder, "rdp");
     }

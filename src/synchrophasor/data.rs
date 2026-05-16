@@ -93,10 +93,7 @@ fn read_phasors(
             let ang = b.atan2(a);
             (mag, ang)
         };
-        out.push(PhasorReading {
-            magnitude,
-            angle,
-        });
+        out.push(PhasorReading { magnitude, angle });
     }
     Ok(out)
 }
@@ -117,11 +114,7 @@ fn read_freq(r: &mut Reader<'_>, fmt: &PmuFormat, is_freq: bool) -> Result<f64, 
     }
 }
 
-fn read_analogs(
-    r: &mut Reader<'_>,
-    fmt: &PmuFormat,
-    n: usize,
-) -> Result<Vec<f64>, ReaderError> {
+fn read_analogs(r: &mut Reader<'_>, fmt: &PmuFormat, n: usize) -> Result<Vec<f64>, ReaderError> {
     let mut out = Vec::with_capacity(n);
     for _ in 0..n {
         if fmt.analog_is_float {

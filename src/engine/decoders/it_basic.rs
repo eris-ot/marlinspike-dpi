@@ -14,8 +14,7 @@ use crate::dissectors::radius::RadiusDissector;
 use crate::dissectors::ssh::SshDissector;
 use crate::dissectors::syslog::SyslogDissector;
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest,
-    SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 use crate::registry::{
     FtpFields, NtpFields, ProtocolData, ProtocolDissector, RadiusFields, SshFields, SyslogFields,
@@ -75,19 +74,16 @@ impl SessionDecoder for NtpDecoder {
                         object_refs: vec![],
                         values: vec![],
                         attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
+                        modbus: None,
+                        protocol_fields: None,
+                    }),
                 ));
 
                 // NTP servers (mode 4, stratum 1-15) are worth identifying.
                 if mode == 4 && stratum > 0 && stratum < 16 {
-                    let mut identifiers = BTreeMap::from([(
-                        "ip".to_string(),
-                        chunk.context.src_ip.to_string(),
-                    )]);
-                    identifiers
-                        .insert("reference_id".to_string(), reference_id);
+                    let mut identifiers =
+                        BTreeMap::from([("ip".to_string(), chunk.context.src_ip.to_string())]);
+                    identifiers.insert("reference_id".to_string(), reference_id);
                     out.push(new_event(
                         chunk.capture_id.to_string(),
                         envelope,
@@ -183,17 +179,15 @@ impl SessionDecoder for SyslogDecoder {
                         object_refs: vec![format!("{facility_name}.{severity}")],
                         values: vec![],
                         attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
+                        modbus: None,
+                        protocol_fields: None,
+                    }),
                 ));
 
                 // Hostname in syslog = asset identification.
                 if let Some(hostname) = hostname {
-                    let mut identifiers = BTreeMap::from([(
-                        "ip".to_string(),
-                        chunk.context.src_ip.to_string(),
-                    )]);
+                    let mut identifiers =
+                        BTreeMap::from([("ip".to_string(), chunk.context.src_ip.to_string())]);
                     identifiers.insert("hostname".to_string(), hostname.clone());
                     let protocols = if let Some(ref app) = app_name {
                         vec!["syslog".to_string(), app.clone()]
@@ -313,9 +307,9 @@ impl SessionDecoder for FtpDecoder {
                         object_refs: argument.into_iter().collect(),
                         values: vec![],
                         attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
+                        modbus: None,
+                        protocol_fields: None,
+                    }),
                 ));
 
                 // Banner (220) identifies the FTP server.
@@ -382,89 +376,81 @@ impl SessionDecoder for SshDecoder {
         if !chunk.payload.windows(4).any(|w| w == b"SSH-") {
             return;
         }
-        match self.dissector.parse(chunk.payload, &chunk.context) {
-            Some(ProtocolData::Ssh(SshFields {
-                protocol_version,
-                software_version,
-                comments,
-                banner,
-            })) => {
-                let envelope = build_envelope(
-                    &chunk.context,
-                    chunk.interface_id,
-                    chunk.frame_index,
-                    chunk.timestamp,
-                    chunk.segment_hash,
-                    TransportProtocol::Tcp,
-                    Some("ssh"),
-                    chunk.captured_len,
-                    chunk.session_key.clone(),
-                );
+        if let Some(ProtocolData::Ssh(SshFields {
+            protocol_version,
+            software_version,
+            comments,
+            banner,
+        })) = self.dissector.parse(chunk.payload, &chunk.context)
+        {
+            let envelope = build_envelope(
+                &chunk.context,
+                chunk.interface_id,
+                chunk.frame_index,
+                chunk.timestamp,
+                chunk.segment_hash,
+                TransportProtocol::Tcp,
+                Some("ssh"),
+                chunk.captured_len,
+                chunk.session_key.clone(),
+            );
 
-                let mut attributes = BTreeMap::new();
-                attributes
-                    .insert("protocol_version".to_string(), protocol_version.clone());
-                attributes
-                    .insert("software_version".to_string(), software_version.clone());
-                if let Some(ref c) = comments {
-                    attributes.insert("comments".to_string(), c.clone());
-                }
-
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    envelope.clone(),
-                    BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
-                        operation: "banner".to_string(),
-                        status: "ok".to_string(),
-                        request_summary: Some(banner),
-                        response_summary: None,
-                        object_refs: vec![],
-                        values: vec![],
-                        attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
-                ));
-
-                // The banner sender is the SSH server — identify it.
-                let is_server = chunk.context.src_port == 22;
-                let firmware = Some(software_version.clone());
-                let role = if is_server {
-                    "ssh_server"
-                } else {
-                    "ssh_client"
-                };
-                let ip = if is_server {
-                    chunk.context.src_ip.to_string()
-                } else {
-                    chunk.context.dst_ip.to_string()
-                };
-                let mut identifiers =
-                    BTreeMap::from([("ip".to_string(), ip.clone())]);
-                identifiers.insert(
-                    "software_version".to_string(),
-                    software_version,
-                );
-                if let Some(c) = comments {
-                    identifiers.insert("os_hint".to_string(), c);
-                }
-
-                out.push(new_event(
-                    chunk.capture_id.to_string(),
-                    envelope,
-                    BronzeEventFamily::AssetObservation(AssetObservation {
-                        asset_key: ip,
-                        role: Some(role.to_string()),
-                        vendor: None,
-                        model: None,
-                        firmware,
-                        hostnames: vec![],
-                        protocols: vec!["ssh".to_string()],
-                        identifiers,
-                    }),
-                ));
+            let mut attributes = BTreeMap::new();
+            attributes.insert("protocol_version".to_string(), protocol_version.clone());
+            attributes.insert("software_version".to_string(), software_version.clone());
+            if let Some(ref c) = comments {
+                attributes.insert("comments".to_string(), c.clone());
             }
-            _ => {}
+
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope.clone(),
+                BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
+                    operation: "banner".to_string(),
+                    status: "ok".to_string(),
+                    request_summary: Some(banner),
+                    response_summary: None,
+                    object_refs: vec![],
+                    values: vec![],
+                    attributes,
+                    modbus: None,
+                    protocol_fields: None,
+                }),
+            ));
+
+            // The banner sender is the SSH server — identify it.
+            let is_server = chunk.context.src_port == 22;
+            let firmware = Some(software_version.clone());
+            let role = if is_server {
+                "ssh_server"
+            } else {
+                "ssh_client"
+            };
+            let ip = if is_server {
+                chunk.context.src_ip.to_string()
+            } else {
+                chunk.context.dst_ip.to_string()
+            };
+            let mut identifiers = BTreeMap::from([("ip".to_string(), ip.clone())]);
+            identifiers.insert("software_version".to_string(), software_version);
+            if let Some(c) = comments {
+                identifiers.insert("os_hint".to_string(), c);
+            }
+
+            out.push(new_event(
+                chunk.capture_id.to_string(),
+                envelope,
+                BronzeEventFamily::AssetObservation(AssetObservation {
+                    asset_key: ip,
+                    role: Some(role.to_string()),
+                    vendor: None,
+                    model: None,
+                    firmware,
+                    hostnames: vec![],
+                    protocols: vec!["ssh".to_string()],
+                    identifiers,
+                }),
+            ));
         }
     }
 }
@@ -565,36 +551,34 @@ impl SessionDecoder for RadiusDecoder {
                         object_refs: username.clone().into_iter().collect(),
                         values: vec![],
                         attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
+                        modbus: None,
+                        protocol_fields: None,
+                    }),
                 ));
 
                 // NAS identification from Access-Request.
-                if code == 1 {
-                    if let Some(nas_ip) = nas_ip_address {
-                        let hostnames = nas_identifier.clone().into_iter().collect();
-                        let mut identifiers =
-                            BTreeMap::from([("ip".to_string(), nas_ip.clone())]);
-                        if let Some(nas_id) = nas_identifier {
-                            identifiers
-                                .insert("nas_identifier".to_string(), nas_id.clone());
-                        }
-                        out.push(new_event(
-                            chunk.capture_id.to_string(),
-                            envelope,
-                            BronzeEventFamily::AssetObservation(AssetObservation {
-                                asset_key: nas_ip,
-                                role: Some("network_device".to_string()),
-                                vendor: None,
-                                model: None,
-                                firmware: None,
-                                hostnames,
-                                protocols: vec!["radius".to_string()],
-                                identifiers,
-                            }),
-                        ));
+                if code == 1
+                    && let Some(nas_ip) = nas_ip_address
+                {
+                    let hostnames = nas_identifier.clone().into_iter().collect();
+                    let mut identifiers = BTreeMap::from([("ip".to_string(), nas_ip.clone())]);
+                    if let Some(nas_id) = nas_identifier {
+                        identifiers.insert("nas_identifier".to_string(), nas_id.clone());
                     }
+                    out.push(new_event(
+                        chunk.capture_id.to_string(),
+                        envelope,
+                        BronzeEventFamily::AssetObservation(AssetObservation {
+                            asset_key: nas_ip,
+                            role: Some("network_device".to_string()),
+                            vendor: None,
+                            model: None,
+                            firmware: None,
+                            hostnames,
+                            protocols: vec!["radius".to_string()],
+                            identifiers,
+                        }),
+                    ));
                 }
             }
             _ => out.push(parse_anomaly_event(
@@ -698,9 +682,9 @@ impl SessionDecoder for IcmpDecoder {
                 object_refs: Vec::new(),
                 values: Vec::new(),
                 attributes: attrs,
-                        modbus: None,
-                                        protocol_fields: None,
-}),
+                modbus: None,
+                protocol_fields: None,
+            }),
         ));
     }
 }

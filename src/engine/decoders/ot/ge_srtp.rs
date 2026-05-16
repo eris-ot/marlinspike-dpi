@@ -9,9 +9,11 @@ use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, Utc};
 
-use crate::bronze::{BronzeEvent, BronzeEventFamily, EventEnvelope, ProtocolTransaction, TransportProtocol};
+use crate::bronze::{
+    BronzeEvent, BronzeEventFamily, EventEnvelope, ProtocolTransaction, TransportProtocol,
+};
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ---------------------------------------------------------------------------
@@ -83,15 +85,27 @@ fn service_code_name(code: u8) -> String {
 }
 
 fn is_known_service_code(code: u8) -> bool {
-    matches!(code, 0x03 | 0x04 | 0x06 | 0x07 | 0x18 | 0x1B | 0x21 | 0x4E | 0xC0)
+    matches!(
+        code,
+        0x03 | 0x04 | 0x06 | 0x07 | 0x18 | 0x1B | 0x21 | 0x4E | 0xC0
+    )
 }
 
 fn srtp_attributes(frame: &SrtpFrame) -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
-    m.insert("service_code".to_string(), format!("0x{:02x}", frame.service_code));
+    m.insert(
+        "service_code".to_string(),
+        format!("0x{:02x}", frame.service_code),
+    );
     m.insert("sequence_number".to_string(), frame.seq_num.to_string());
-    m.insert("status_code".to_string(), format!("0x{:02x}", frame.status_code));
-    m.insert("minor_status".to_string(), format!("0x{:02x}", frame.minor_status));
+    m.insert(
+        "status_code".to_string(),
+        format!("0x{:02x}", frame.status_code),
+    );
+    m.insert(
+        "minor_status".to_string(),
+        format!("0x{:02x}", frame.minor_status),
+    );
     m
 }
 
@@ -104,6 +118,7 @@ struct PendingRequest {
     capture_id: String,
     envelope: EventEnvelope,
     frame: SrtpFrame,
+    #[expect(dead_code, reason = "reserved for future stale-request handling")]
     last_seen: DateTime<Utc>,
 }
 
@@ -117,6 +132,7 @@ pub(crate) struct GeSrtpDecoder {
 }
 
 impl GeSrtpDecoder {
+    #[allow(clippy::too_many_arguments)]
     fn emit_transaction(
         capture_id: String,
         envelope: EventEnvelope,
@@ -165,13 +181,22 @@ impl SessionDecoder for GeSrtpDecoder {
                 out.push(parse_anomaly_event(
                     chunk.capture_id.to_string(),
                     build_envelope(
-                        &chunk.context, chunk.interface_id, chunk.frame_index,
-                        chunk.timestamp, chunk.segment_hash, TransportProtocol::Tcp,
-                        Some("ge_srtp"), chunk.captured_len, chunk.session_key.clone(),
+                        &chunk.context,
+                        chunk.interface_id,
+                        chunk.frame_index,
+                        chunk.timestamp,
+                        chunk.segment_hash,
+                        TransportProtocol::Tcp,
+                        Some("ge_srtp"),
+                        chunk.captured_len,
+                        chunk.session_key.clone(),
                     ),
                     self.name(),
                     "medium",
-                    &format!("frame shorter than SRTP header ({} < {SRTP_HEADER_LEN})", payload.len()),
+                    &format!(
+                        "frame shorter than SRTP header ({} < {SRTP_HEADER_LEN})",
+                        payload.len()
+                    ),
                     payload,
                 ));
             }
@@ -184,9 +209,15 @@ impl SessionDecoder for GeSrtpDecoder {
         };
 
         let envelope = build_envelope(
-            &chunk.context, chunk.interface_id, chunk.frame_index,
-            chunk.timestamp, chunk.segment_hash, TransportProtocol::Tcp,
-            Some("ge_srtp"), chunk.captured_len, chunk.session_key.clone(),
+            &chunk.context,
+            chunk.interface_id,
+            chunk.frame_index,
+            chunk.timestamp,
+            chunk.segment_hash,
+            TransportProtocol::Tcp,
+            Some("ge_srtp"),
+            chunk.captured_len,
+            chunk.session_key.clone(),
         );
 
         // Unknown service code: low severity. May be a vendor extension or newer
@@ -207,12 +238,15 @@ impl SessionDecoder for GeSrtpDecoder {
 
         match frame.msg_type {
             MSG_TYPE_REQUEST => {
-                self.pending.insert(pending_key, PendingRequest {
-                    capture_id: chunk.capture_id.to_string(),
-                    envelope,
-                    frame,
-                    last_seen: chunk.timestamp,
-                });
+                self.pending.insert(
+                    pending_key,
+                    PendingRequest {
+                        capture_id: chunk.capture_id.to_string(),
+                        envelope,
+                        frame,
+                        last_seen: chunk.timestamp,
+                    },
+                );
             }
 
             MSG_TYPE_RESPONSE => {
@@ -221,12 +255,21 @@ impl SessionDecoder for GeSrtpDecoder {
                     let status = if frame.status_code == 0 {
                         "ok".to_string()
                     } else {
-                        format!("srtp_status_0x{:02x}_minor_0x{:02x}", frame.status_code, frame.minor_status)
+                        format!(
+                            "srtp_status_0x{:02x}_minor_0x{:02x}",
+                            frame.status_code, frame.minor_status
+                        )
                     };
                     let mut attrs = srtp_attributes(&req.frame);
                     // Response status overrides the request's zero placeholders.
-                    attrs.insert("status_code".to_string(), format!("0x{:02x}", frame.status_code));
-                    attrs.insert("minor_status".to_string(), format!("0x{:02x}", frame.minor_status));
+                    attrs.insert(
+                        "status_code".to_string(),
+                        format!("0x{:02x}", frame.status_code),
+                    );
+                    attrs.insert(
+                        "minor_status".to_string(),
+                        format!("0x{:02x}", frame.minor_status),
+                    );
                     let mut merged = req.envelope.clone();
                     merged.bytes_count += envelope.bytes_count;
                     merged.packet_count += 1;
@@ -235,8 +278,14 @@ impl SessionDecoder for GeSrtpDecoder {
                         merged,
                         operation,
                         status,
-                        Some(format!("seq={} svc=0x{:02x}", req.frame.seq_num, req.frame.service_code)),
-                        Some(format!("status=0x{:02x} minor=0x{:02x}", frame.status_code, frame.minor_status)),
+                        Some(format!(
+                            "seq={} svc=0x{:02x}",
+                            req.frame.seq_num, req.frame.service_code
+                        )),
+                        Some(format!(
+                            "status=0x{:02x} minor=0x{:02x}",
+                            frame.status_code, frame.minor_status
+                        )),
                         req.frame.service_code,
                         attrs,
                         out,
@@ -249,7 +298,10 @@ impl SessionDecoder for GeSrtpDecoder {
                         service_code_name(frame.service_code),
                         "response_only".to_string(),
                         None,
-                        Some(format!("status=0x{:02x} minor=0x{:02x}", frame.status_code, frame.minor_status)),
+                        Some(format!(
+                            "status=0x{:02x} minor=0x{:02x}",
+                            frame.status_code, frame.minor_status
+                        )),
                         frame.service_code,
                         srtp_attributes(&frame),
                         out,
@@ -264,7 +316,10 @@ impl SessionDecoder for GeSrtpDecoder {
                     envelope,
                     service_code_name(frame.service_code),
                     "request_only".to_string(),
-                    Some(format!("seq={} svc=0x{:02x} type=0x{:02x}", frame.seq_num, frame.service_code, frame.msg_type)),
+                    Some(format!(
+                        "seq={} svc=0x{:02x} type=0x{:02x}",
+                        frame.seq_num, frame.service_code, frame.msg_type
+                    )),
                     None,
                     frame.service_code,
                     srtp_attributes(&frame),
@@ -328,7 +383,13 @@ mod tests {
         buf
     }
 
-    fn feed(dec: &mut GeSrtpDecoder, payload: &[u8], src_port: u16, dst_port: u16, out: &mut Vec<BronzeEvent>) {
+    fn feed(
+        dec: &mut GeSrtpDecoder,
+        payload: &[u8],
+        src_port: u16,
+        dst_port: u16,
+        out: &mut Vec<BronzeEvent>,
+    ) {
         let context = PacketContext {
             src_ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
             dst_ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
@@ -373,9 +434,21 @@ mod tests {
     fn test_programmer_login_paired_ok() {
         let mut dec = GeSrtpDecoder::default();
         let mut out = Vec::new();
-        feed(&mut dec, &srtp_frame(MSG_TYPE_REQUEST, 7, 0x4E, 0, 0), 50000, 18245, &mut out);
+        feed(
+            &mut dec,
+            &srtp_frame(MSG_TYPE_REQUEST, 7, 0x4E, 0, 0),
+            50000,
+            18245,
+            &mut out,
+        );
         assert!(out.is_empty());
-        feed(&mut dec, &srtp_frame(MSG_TYPE_RESPONSE, 7, 0x4E, 0, 0), 18245, 50000, &mut out);
+        feed(
+            &mut dec,
+            &srtp_frame(MSG_TYPE_RESPONSE, 7, 0x4E, 0, 0),
+            18245,
+            50000,
+            &mut out,
+        );
         assert_eq!(out.len(), 1);
         let BronzeEventFamily::ProtocolTransaction(ref txn) = out[0].family else {
             panic!("expected ProtocolTransaction");
@@ -390,14 +463,30 @@ mod tests {
     fn test_read_system_memory_error_status() {
         let mut dec = GeSrtpDecoder::default();
         let mut out = Vec::new();
-        feed(&mut dec, &srtp_frame(MSG_TYPE_REQUEST, 42, 0x03, 0, 0), 50000, 18245, &mut out);
-        feed(&mut dec, &srtp_frame(MSG_TYPE_RESPONSE, 42, 0x03, 0x05, 0x01), 18245, 50000, &mut out);
+        feed(
+            &mut dec,
+            &srtp_frame(MSG_TYPE_REQUEST, 42, 0x03, 0, 0),
+            50000,
+            18245,
+            &mut out,
+        );
+        feed(
+            &mut dec,
+            &srtp_frame(MSG_TYPE_RESPONSE, 42, 0x03, 0x05, 0x01),
+            18245,
+            50000,
+            &mut out,
+        );
         assert_eq!(out.len(), 1);
         let BronzeEventFamily::ProtocolTransaction(ref txn) = out[0].family else {
             panic!("expected ProtocolTransaction");
         };
         assert_eq!(txn.operation, "srtp_read_system_memory");
-        assert!(txn.status.starts_with("srtp_status_0x05"), "got: {}", txn.status);
+        assert!(
+            txn.status.starts_with("srtp_status_0x05"),
+            "got: {}",
+            txn.status
+        );
     }
 
     /// 4. Unknown service code → ParseAnomaly emitted; flushed transaction operation contains "unknown".
@@ -405,17 +494,27 @@ mod tests {
     fn test_unknown_service_code_anomaly_and_operation() {
         let mut dec = GeSrtpDecoder::default();
         let mut out = Vec::new();
-        feed(&mut dec, &srtp_frame(MSG_TYPE_REQUEST, 99, 0xAB, 0, 0), 50000, 18245, &mut out);
-        let anomalies: Vec<_> = out.iter()
+        feed(
+            &mut dec,
+            &srtp_frame(MSG_TYPE_REQUEST, 99, 0xAB, 0, 0),
+            50000,
+            18245,
+            &mut out,
+        );
+        let anomalies: Vec<_> = out
+            .iter()
             .filter(|e| matches!(e.family, BronzeEventFamily::ParseAnomaly(_)))
             .collect();
         assert_eq!(anomalies.len(), 1, "one low-severity ParseAnomaly expected");
         dec.on_idle_flush(Utc::now(), &mut out);
-        let txns: Vec<_> = out.iter()
+        let txns: Vec<_> = out
+            .iter()
             .filter(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
             .collect();
         assert_eq!(txns.len(), 1);
-        let BronzeEventFamily::ProtocolTransaction(ref txn) = txns[0].family else { panic!() };
+        let BronzeEventFamily::ProtocolTransaction(ref txn) = txns[0].family else {
+            panic!()
+        };
         assert!(txn.operation.contains("unknown"), "got: {}", txn.operation);
     }
 
@@ -426,8 +525,10 @@ mod tests {
         let mut out = Vec::new();
         // 20-byte stub — port context marks it as SRTP but header is incomplete.
         // Bytes [0..20] = 0x02, 0x00, 0x02, ... (opaque framing; only length matters here).
-        let truncated = vec![0x02u8, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                             0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let truncated = vec![
+            0x02u8, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
         assert!(truncated.len() < SRTP_HEADER_LEN);
         feed(&mut dec, &truncated, 50000, 18245, &mut out);
         assert_eq!(out.len(), 1);

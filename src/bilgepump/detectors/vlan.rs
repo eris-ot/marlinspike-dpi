@@ -7,10 +7,7 @@ use crate::bilgepump::config::BilgepumpConfig;
 ///
 /// Must be called BEFORE VLAN tags are unwrapped by the engine. Examines
 /// the raw frame starting at the ethertype field (bytes 12-13).
-pub fn inspect_vlan_tags(
-    raw_frame: &[u8],
-    config: &BilgepumpConfig,
-) -> Vec<BilgepumpAlert> {
+pub fn inspect_vlan_tags(raw_frame: &[u8], config: &BilgepumpConfig) -> Vec<BilgepumpAlert> {
     if !config.check_vlan_hopping || raw_frame.len() < 22 {
         return Vec::new();
     }

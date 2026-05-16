@@ -83,10 +83,10 @@ impl ProtocolDissector for HttpDissector {
 
 fn find_header(text: &str, name: &str) -> Option<String> {
     for line in text.lines() {
-        if let Some(value) = line.strip_prefix(name) {
-            if let Some(value) = value.strip_prefix(':') {
-                return Some(value.trim().to_string());
-            }
+        if let Some(value) = line.strip_prefix(name)
+            && let Some(value) = value.strip_prefix(':')
+        {
+            return Some(value.trim().to_string());
         }
     }
     None

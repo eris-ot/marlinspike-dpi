@@ -6,10 +6,10 @@ use crate::bronze::{
 };
 use crate::dissectors::ethercat::EthercatDissector;
 use crate::engine::{
-    artifact_event, build_envelope, new_event, parse_anomaly_event, DecoderInterest,
-    SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
+    parse_anomaly_event,
 };
-use crate::registry::{format_mac, ProtocolData, ProtocolDissector};
+use crate::registry::{ProtocolData, ProtocolDissector, format_mac};
 
 use super::normalize_operation_name;
 
@@ -72,9 +72,9 @@ impl SessionDecoder for EthercatDecoderWrapper {
                         object_refs: ethercat_object_refs(&fields),
                         values: Vec::new(),
                         attributes,
-                                        modbus: None,
-                                        protocol_fields: None,
-}),
+                        modbus: None,
+                        protocol_fields: None,
+                    }),
                 ));
 
                 out.push(new_event(

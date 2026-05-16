@@ -165,10 +165,7 @@ mod tests {
         bytes.extend_from_slice(&[0xFF, 0x00, 0xFE]); // not valid UTF-8
         let mut r = Reader::new(&bytes);
         let n = read_node_id(&mut r).unwrap();
-        assert_eq!(
-            n.identifier,
-            OpcUaNodeId::StringRaw(vec![0xFF, 0x00, 0xFE])
-        );
+        assert_eq!(n.identifier, OpcUaNodeId::StringRaw(vec![0xFF, 0x00, 0xFE]));
     }
 
     #[test]

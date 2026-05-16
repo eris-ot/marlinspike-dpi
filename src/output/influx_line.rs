@@ -382,9 +382,7 @@ fn push_field_key(line: &mut String, s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bronze::{
-        EventEnvelope, ProcessReading, TransportProtocol, BRONZE_SCHEMA_VERSION,
-    };
+    use crate::bronze::{BRONZE_SCHEMA_VERSION, EventEnvelope, ProcessReading, TransportProtocol};
     use chrono::{DateTime, Utc};
 
     fn envelope() -> EventEnvelope {

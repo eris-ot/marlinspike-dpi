@@ -11,12 +11,12 @@
 /// - For 802.3 length frames (`ethertype <= 1500`): the ethertype field *is*
 ///   the payload length. Bytes beyond that are padding.
 /// - For other ethertypes: no reliable padding boundary, returns `None`.
-pub fn extract_padding<'a>(
+pub fn extract_padding(
     ethertype: u16,
-    l2_payload: &'a [u8],
+    l2_payload: &[u8],
     ethernet_header_len: usize,
     _total_frame_len: usize,
-) -> Option<(usize, &'a [u8])> {
+) -> Option<(usize, &[u8])> {
     let real_payload_len = if ethertype == 0x0800 && l2_payload.len() >= 4 {
         // IPv4: total length is at bytes 2..4 of the IP header
         u16::from_be_bytes([l2_payload[2], l2_payload[3]]) as usize

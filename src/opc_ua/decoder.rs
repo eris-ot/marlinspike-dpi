@@ -8,8 +8,8 @@ use crate::bronze::{
 };
 use crate::opc_ua::reader::Reader;
 use crate::opc_ua::services::{
-    parse_read_request_body, parse_read_response_body, read_service_type_id,
-    READ_REQUEST_TYPE_ID, READ_RESPONSE_TYPE_ID,
+    READ_REQUEST_TYPE_ID, READ_RESPONSE_TYPE_ID, parse_read_request_body, parse_read_response_body,
+    read_service_type_id,
 };
 use crate::opc_ua::state::{PendingConfig, PendingKey, PendingReads};
 
@@ -48,6 +48,7 @@ impl OpcUaServiceDecoder {
     ///
     /// Returns any [`BronzeEvent`]s derived from this chunk (process readings
     /// for ReadResponse). Non-Read services are ignored quietly.
+    #[allow(clippy::too_many_arguments)]
     pub fn handle_msg_body(
         &mut self,
         body: &[u8],
@@ -126,8 +127,8 @@ impl OpcUaServiceDecoder {
 mod tests {
     use super::*;
     use crate::bronze::{
-        EventEnvelope, OpcUaNodeId, PointValue, RawQuality, TransportProtocol,
-        BRONZE_SCHEMA_VERSION,
+        BRONZE_SCHEMA_VERSION, EventEnvelope, OpcUaNodeId, PointValue, RawQuality,
+        TransportProtocol,
     };
     use chrono::{DateTime, Utc};
 

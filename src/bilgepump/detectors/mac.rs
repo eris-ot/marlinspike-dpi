@@ -17,11 +17,7 @@ pub struct MacDetector {
 
 impl MacDetector {
     /// Inspect a source MAC from an Ethernet frame header.
-    pub fn inspect_mac(
-        &self,
-        src_mac: &[u8; 6],
-        config: &BilgepumpConfig,
-    ) -> Vec<BilgepumpAlert> {
+    pub fn inspect_mac(&self, src_mac: &[u8; 6], config: &BilgepumpConfig) -> Vec<BilgepumpAlert> {
         if !config.check_mac_anomalies {
             return Vec::new();
         }
@@ -43,9 +39,7 @@ impl MacDetector {
         // Multicast source (bit 0 of first octet) — should never be a source MAC
         if src_mac[0] & 0x01 != 0 && *src_mac != [0xFF; 6] {
             alerts.push(BilgepumpAlert {
-                kind: AlertKind::MacMulticastSource {
-                    mac: mac_str,
-                },
+                kind: AlertKind::MacMulticastSource { mac: mac_str },
                 severity: AlertSeverity::High,
                 decoder: "bilgepump:mac_multicast",
             });
@@ -89,9 +83,7 @@ impl MacDetector {
         self.flap_trackers.retain(|_, t| {
             t.observations
                 .back()
-                .is_some_and(|o| {
-                    (now - o.timestamp) < chrono::Duration::seconds(ttl_secs as i64)
-                })
+                .is_some_and(|o| (now - o.timestamp) < chrono::Duration::seconds(ttl_secs as i64))
         });
     }
 }
@@ -116,7 +108,11 @@ mod tests {
         let config = BilgepumpConfig::default();
         let mac = [0x01, 0x00, 0x5E, 0x00, 0x00, 0x01]; // multicast
         let alerts = det.inspect_mac(&mac, &config);
-        assert!(alerts.iter().any(|a| a.decoder == "bilgepump:mac_multicast"));
+        assert!(
+            alerts
+                .iter()
+                .any(|a| a.decoder == "bilgepump:mac_multicast")
+        );
     }
 
     #[test]

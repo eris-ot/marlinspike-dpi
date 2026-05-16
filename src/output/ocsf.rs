@@ -251,8 +251,7 @@ fn activity_for(class: &OcsfClass, proto: &str, tx: &ProtocolTransaction) -> (u3
                 (4, "Service Ticket Request")
             } else if op.contains("logoff") || op.contains("unbind") {
                 (2, "Logoff")
-            } else if op.contains("bind") || op.contains("logon") || proto.starts_with("kerberos")
-            {
+            } else if op.contains("bind") || op.contains("logon") || proto.starts_with("kerberos") {
                 (1, "Logon")
             } else {
                 (99, "Other")
@@ -261,7 +260,11 @@ fn activity_for(class: &OcsfClass, proto: &str, tx: &ProtocolTransaction) -> (u3
         // Network/SMB/SSH: Traffic by default; failures map to Fail.
         _ => {
             let (sid, _) = status_for(&tx.status);
-            if sid == 2 { (4, "Fail") } else { (6, "Traffic") }
+            if sid == 2 {
+                (4, "Fail")
+            } else {
+                (6, "Traffic")
+            }
         }
     }
 }
@@ -466,14 +469,8 @@ fn render_parse_anomaly(event: &BronzeEvent, an: &ParseAnomaly) -> Value {
         }),
     );
 
-    r.insert(
-        "src_endpoint".into(),
-        endpoint(&event.envelope, Side::Src),
-    );
-    r.insert(
-        "dst_endpoint".into(),
-        endpoint(&event.envelope, Side::Dst),
-    );
+    r.insert("src_endpoint".into(), endpoint(&event.envelope, Side::Src));
+    r.insert("dst_endpoint".into(), endpoint(&event.envelope, Side::Dst));
 
     r.insert(
         "unmapped".into(),
@@ -767,7 +764,9 @@ mod tests {
 
     #[test]
     fn process_reading_returns_none() {
-        use crate::bronze::{ModbusRegKind, PointIdentifier, PointValue, ProcessReading, RawQuality};
+        use crate::bronze::{
+            ModbusRegKind, PointIdentifier, PointValue, ProcessReading, RawQuality,
+        };
         let ev = BronzeEvent {
             event_id: "evt-4".into(),
             capture_id: "cap-1".into(),
@@ -792,7 +791,9 @@ mod tests {
 
     #[test]
     fn render_ndjson_skips_unmapped() {
-        use crate::bronze::{ModbusRegKind, PointIdentifier, PointValue, ProcessReading, RawQuality};
+        use crate::bronze::{
+            ModbusRegKind, PointIdentifier, PointValue, ProcessReading, RawQuality,
+        };
         let ev_tx = tx_event("modbus", "read_holding_registers", "ok");
         let ev_pr = BronzeEvent {
             event_id: "evt-pr".into(),

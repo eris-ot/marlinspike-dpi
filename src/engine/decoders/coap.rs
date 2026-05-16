@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use crate::bronze::{BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol};
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── CoAP option numbers (RFC 7252 §12.2) ─────────────────────────────────
@@ -97,10 +97,12 @@ fn parse_options(buf: &[u8], mut pos: usize) -> Option<(ParsedOptions, usize)> {
                 opts.uri_host = Some(String::from_utf8_lossy(value).into_owned());
             }
             OPT_URI_PATH => {
-                opts.uri_path.push(String::from_utf8_lossy(value).into_owned());
+                opts.uri_path
+                    .push(String::from_utf8_lossy(value).into_owned());
             }
             OPT_URI_QUERY => {
-                opts.uri_query.push(String::from_utf8_lossy(value).into_owned());
+                opts.uri_query
+                    .push(String::from_utf8_lossy(value).into_owned());
             }
             OPT_CONTENT_FORMAT => {
                 let cf = value.iter().fold(0u32, |a, &b| (a << 8) | b as u32);
@@ -191,12 +193,7 @@ impl SessionDecoder for CoapDecoder {
 }
 
 impl CoapDecoder {
-    fn anomaly<'a>(
-        &self,
-        chunk: &StreamChunk<'a>,
-        reason: &str,
-        out: &mut Vec<BronzeEvent>,
-    ) {
+    fn anomaly<'a>(&self, chunk: &StreamChunk<'a>, reason: &str, out: &mut Vec<BronzeEvent>) {
         out.push(parse_anomaly_event(
             chunk.capture_id.to_string(),
             build_envelope(
@@ -240,7 +237,10 @@ impl CoapDecoder {
         self.dtls_emitted = true;
 
         let mut attributes = BTreeMap::new();
-        attributes.insert("note".to_string(), "DTLS-encrypted, payload opaque".to_string());
+        attributes.insert(
+            "note".to_string(),
+            "DTLS-encrypted, payload opaque".to_string(),
+        );
 
         out.push(new_event(
             chunk.capture_id.to_string(),
@@ -300,7 +300,11 @@ impl CoapDecoder {
         let (opts, _payload_start) = match parse_options(buf, token_end) {
             Some(r) => r,
             None => {
-                self.anomaly(chunk, "coap option parse error (truncated or invalid delta)", out);
+                self.anomaly(
+                    chunk,
+                    "coap option parse error (truncated or invalid delta)",
+                    out,
+                );
                 return;
             }
         };
@@ -337,9 +341,7 @@ impl CoapDecoder {
             BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                 operation: coap_operation(code, tkl).to_string(),
                 status: coap_status(code),
-                request_summary: Some(format!(
-                    "CoAP {tn} {class}.{detail:02} id={message_id}"
-                )),
+                request_summary: Some(format!("CoAP {tn} {class}.{detail:02} id={message_id}")),
                 response_summary: None,
                 object_refs: vec![],
                 values: vec![],
@@ -405,8 +407,13 @@ mod tests {
     /// Build a minimal CoAP datagram. Options must already be serialised by
     /// the caller. A non-empty payload is preceded by the 0xFF marker.
     fn coap_pkt(
-        ver: u8, msg_type: u8, code: u8, mid: u16,
-        token: &[u8], options: &[u8], payload: &[u8],
+        ver: u8,
+        msg_type: u8,
+        code: u8,
+        mid: u16,
+        token: &[u8],
+        options: &[u8],
+        payload: &[u8],
     ) -> Vec<u8> {
         let tkl = token.len() as u8;
         let mut buf = vec![(ver << 6) | (msg_type << 4) | tkl, code];
@@ -445,8 +452,8 @@ mod tests {
     //    delta from 0 = 11, then delta from 11 = 0 (same option number).
     #[test]
     fn test_get_uri_path() {
-        let mut opts = opt(11, b"sensor");       // delta=11 → opt 11
-        opts.extend(opt(0, b"temperature"));     // delta=0  → opt 11 again
+        let mut opts = opt(11, b"sensor"); // delta=11 → opt 11
+        opts.extend(opt(0, b"temperature")); // delta=0  → opt 11 again
         let pkt = coap_pkt(1, 0, 0x01, 1, b"\xAB", &opts, &[]);
         let mut dec = CoapDecoder::default();
         let mut out = vec![];
@@ -502,7 +509,9 @@ mod tests {
     #[test]
     fn test_dtls_port_5684() {
         // Minimal DTLS record: content-type=22 (Handshake) + dummy bytes.
-        let pkt = vec![0x16u8, 0xFE, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00];
+        let pkt = vec![
+            0x16u8, 0xFE, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+        ];
         let mut dec = CoapDecoder::default();
         let mut out = vec![];
         dec.on_datagram(&chunk(&pkt, 12345, 5684), &mut out);
@@ -529,7 +538,9 @@ mod tests {
     #[test]
     fn test_invalid_tkl() {
         // byte0 = (1<<6)|(0<<4)|9 = 0x49
-        let pkt = vec![0x49u8, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let pkt = vec![
+            0x49u8, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
         let mut dec = CoapDecoder::default();
         let mut out = vec![];
         dec.on_datagram(&chunk(&pkt, 12345, 5683), &mut out);
@@ -551,9 +562,9 @@ mod tests {
     //    Content-Format value 50 = application/json.
     #[test]
     fn test_content_format() {
-        let mut opts = opt(3, b"sensor.local");  // opt 3 Uri-Host
-        opts.push((9 << 4) | 1u8);              // delta=9 → opt 12 Content-Format, len=1
-        opts.push(50u8);                         // value = 50 (application/json)
+        let mut opts = opt(3, b"sensor.local"); // opt 3 Uri-Host
+        opts.push((9 << 4) | 1u8); // delta=9 → opt 12 Content-Format, len=1
+        opts.push(50u8); // value = 50 (application/json)
         let pkt = coap_pkt(1, 1, 0x02, 16, b"\x11", &opts, b"data");
         let mut dec = CoapDecoder::default();
         let mut out = vec![];

@@ -30,7 +30,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── Subtype constants (IEEE 1722-2016 §5.3) ───────────────────────────────────
@@ -63,28 +63,37 @@ const MEDIA_PERIODIC_INTERVAL: u64 = 1000;
 fn subtype_name(s: u8) -> &'static str {
     match s {
         SUBTYPE_IEC61883 => "iec61883",
-        SUBTYPE_MMA      => "mma",
-        SUBTYPE_AAF      => "aaf",
-        SUBTYPE_CVF      => "cvf",
-        SUBTYPE_CRF      => "crf",
-        SUBTYPE_TSCF     => "tscf",
-        SUBTYPE_SVF      => "svf",
-        SUBTYPE_RVF      => "rvf",
-        SUBTYPE_NTSCF    => "ntscf",
-        SUBTYPE_ESCF     => "escf",
-        SUBTYPE_EECF     => "eecf",
-        SUBTYPE_AEF      => "aef",
-        SUBTYPE_ADP      => "adp",
-        SUBTYPE_AECP     => "aecp",
-        SUBTYPE_ACMP     => "acmp",
-        SUBTYPE_MAAP     => "maap",
-        _                => "unknown",
+        SUBTYPE_MMA => "mma",
+        SUBTYPE_AAF => "aaf",
+        SUBTYPE_CVF => "cvf",
+        SUBTYPE_CRF => "crf",
+        SUBTYPE_TSCF => "tscf",
+        SUBTYPE_SVF => "svf",
+        SUBTYPE_RVF => "rvf",
+        SUBTYPE_NTSCF => "ntscf",
+        SUBTYPE_ESCF => "escf",
+        SUBTYPE_EECF => "eecf",
+        SUBTYPE_AEF => "aef",
+        SUBTYPE_ADP => "adp",
+        SUBTYPE_AECP => "aecp",
+        SUBTYPE_ACMP => "acmp",
+        SUBTYPE_MAAP => "maap",
+        _ => "unknown",
     }
 }
 
 fn is_media_subtype(s: u8) -> bool {
-    matches!(s, SUBTYPE_IEC61883 | SUBTYPE_MMA | SUBTYPE_AAF | SUBTYPE_CVF
-               | SUBTYPE_CRF | SUBTYPE_TSCF | SUBTYPE_SVF | SUBTYPE_RVF)
+    matches!(
+        s,
+        SUBTYPE_IEC61883
+            | SUBTYPE_MMA
+            | SUBTYPE_AAF
+            | SUBTYPE_CVF
+            | SUBTYPE_CRF
+            | SUBTYPE_TSCF
+            | SUBTYPE_SVF
+            | SUBTYPE_RVF
+    )
 }
 
 // ── Common header ─────────────────────────────────────────────────────────────
@@ -101,8 +110,10 @@ struct AvtpHdr {
 fn parse_hdr(p: &[u8]) -> AvtpHdr {
     let flags = p[1];
     let stream_id = if p.len() >= 12 {
-        u64::from_be_bytes([p[4],p[5],p[6],p[7],p[8],p[9],p[10],p[11]])
-    } else { 0 };
+        u64::from_be_bytes([p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11]])
+    } else {
+        0
+    };
     AvtpHdr {
         subtype: p[0],
         stream_valid: (flags >> 7) & 1 == 1,
@@ -122,7 +133,9 @@ pub(crate) struct AvtpDecoder {
 }
 
 impl SessionDecoder for AvtpDecoder {
-    fn name(&self) -> &'static str { "avtp" }
+    fn name(&self) -> &'static str {
+        "avtp"
+    }
 
     fn interest(&self) -> &'static [DecoderInterest] {
         &[DecoderInterest::EtherType(0x22F0)]
@@ -135,11 +148,18 @@ impl SessionDecoder for AvtpDecoder {
             out.push(parse_anomaly_event(
                 chunk.capture_id.to_string(),
                 build_envelope(
-                    &chunk.context, chunk.interface_id, chunk.frame_index,
-                    chunk.timestamp, chunk.segment_hash, TransportProtocol::Ethernet,
-                    Some("avtp"), chunk.captured_len, chunk.session_key.clone(),
+                    &chunk.context,
+                    chunk.interface_id,
+                    chunk.frame_index,
+                    chunk.timestamp,
+                    chunk.segment_hash,
+                    TransportProtocol::Ethernet,
+                    Some("avtp"),
+                    chunk.captured_len,
+                    chunk.session_key.clone(),
                 ),
-                self.name(), "medium",
+                self.name(),
+                "medium",
                 "avtp frame shorter than 12-byte common header",
                 payload,
             ));
@@ -148,9 +168,15 @@ impl SessionDecoder for AvtpDecoder {
 
         let hdr = parse_hdr(payload);
         let envelope = build_envelope(
-            &chunk.context, chunk.interface_id, chunk.frame_index,
-            chunk.timestamp, chunk.segment_hash, TransportProtocol::Ethernet,
-            Some("avtp"), chunk.captured_len, chunk.session_key.clone(),
+            &chunk.context,
+            chunk.interface_id,
+            chunk.frame_index,
+            chunk.timestamp,
+            chunk.segment_hash,
+            TransportProtocol::Ethernet,
+            Some("avtp"),
+            chunk.captured_len,
+            chunk.session_key.clone(),
         );
 
         if is_media_subtype(hdr.subtype) {
@@ -232,7 +258,10 @@ impl AvtpDecoder {
         let mut attrs = BTreeMap::new();
         attrs.insert("subtype".to_string(), format!("{:#04x}", hdr.subtype));
         attrs.insert("subtype_name".to_string(), name.to_string());
-        attrs.insert("stream_id_hex".to_string(), format!("{:016x}", hdr.stream_id));
+        attrs.insert(
+            "stream_id_hex".to_string(),
+            format!("{:016x}", hdr.stream_id),
+        );
         out.push(new_event(
             chunk.capture_id.to_string(),
             envelope,
@@ -259,26 +288,30 @@ impl AvtpDecoder {
         out: &mut Vec<BronzeEvent>,
     ) {
         // ADP-specific payload begins after 16-byte common header (12 common + 4 avtp_ts).
-        let adp = if payload.len() > 16 { &payload[16..] } else { &[] };
+        let adp = if payload.len() > 16 {
+            &payload[16..]
+        } else {
+            &[]
+        };
 
         let message_type = adp.first().map(|b| (b >> 4) & 0x0F).unwrap_or(0);
-        let entity_id        = read_u64_be(adp, 4).unwrap_or(0);
-        let entity_model_id  = read_u64_be(adp, 12).unwrap_or(0);
-        let entity_caps      = read_u32_be(adp, 20).unwrap_or(0);
-        let talker_sources   = read_u16_be(adp, 24).unwrap_or(0);
-        let listener_sinks   = read_u16_be(adp, 28).unwrap_or(0);
-        let gptp_gm_id       = read_u64_be(adp, 40).unwrap_or(0);
-        let gptp_domain      = adp.get(48).copied().unwrap_or(0);
+        let entity_id = read_u64_be(adp, 4).unwrap_or(0);
+        let entity_model_id = read_u64_be(adp, 12).unwrap_or(0);
+        let entity_caps = read_u32_be(adp, 20).unwrap_or(0);
+        let talker_sources = read_u16_be(adp, 24).unwrap_or(0);
+        let listener_sinks = read_u16_be(adp, 28).unwrap_or(0);
+        let gptp_gm_id = read_u64_be(adp, 40).unwrap_or(0);
+        let gptp_domain = adp.get(48).copied().unwrap_or(0);
 
-        let eid_hex  = format!("{entity_id:016x}");
+        let eid_hex = format!("{entity_id:016x}");
         let emid_hex = format!("{entity_model_id:016x}");
-        let gm_hex   = format!("{gptp_gm_id:016x}");
+        let gm_hex = format!("{gptp_gm_id:016x}");
 
         let operation = match message_type {
             ADP_MSG_ENTITY_AVAILABLE => "avtp_adp_entity_available",
             ADP_MSG_ENTITY_DEPARTING => "avtp_adp_entity_departing",
-            ADP_MSG_ENTITY_DISCOVER  => "avtp_adp_entity_discover",
-            _                        => "avtp_adp_unknown",
+            ADP_MSG_ENTITY_DISCOVER => "avtp_adp_entity_discover",
+            _ => "avtp_adp_unknown",
         };
 
         let mut attrs = BTreeMap::new();
@@ -287,11 +320,20 @@ impl AvtpDecoder {
         attrs.insert("message_type".to_string(), message_type.to_string());
         attrs.insert("entity_id_hex".to_string(), eid_hex.clone());
         attrs.insert("entity_model_id_hex".to_string(), emid_hex.clone());
-        attrs.insert("entity_capabilities_hex".to_string(), format!("{entity_caps:#010x}"));
+        attrs.insert(
+            "entity_capabilities_hex".to_string(),
+            format!("{entity_caps:#010x}"),
+        );
         attrs.insert("gptp_grandmaster_id_hex".to_string(), gm_hex);
         attrs.insert("gptp_domain_number".to_string(), gptp_domain.to_string());
-        attrs.insert("talker_stream_sources".to_string(), talker_sources.to_string());
-        attrs.insert("listener_stream_sinks".to_string(), listener_sinks.to_string());
+        attrs.insert(
+            "talker_stream_sources".to_string(),
+            talker_sources.to_string(),
+        );
+        attrs.insert(
+            "listener_stream_sinks".to_string(),
+            listener_sinks.to_string(),
+        );
 
         out.push(new_event(
             chunk.capture_id.to_string(),
@@ -316,7 +358,7 @@ impl AvtpDecoder {
             let role = match (talker_sources > 0, listener_sinks > 0) {
                 (true, false) => "avtp_talker",
                 (false, true) => "avtp_listener",
-                _             => "avtp_entity",
+                _ => "avtp_entity",
             };
             let mut identifiers = BTreeMap::new();
             identifiers.insert("avtp_entity_id".to_string(), eid_hex.clone());
@@ -368,7 +410,8 @@ impl AvtpDecoder {
         out.push(parse_anomaly_event(
             chunk.capture_id.to_string(),
             envelope,
-            "avtp", "low",
+            "avtp",
+            "low",
             &format!("unknown AVTP subtype {s:#04x}"),
             payload,
         ));
@@ -385,7 +428,10 @@ fn media_attrs(hdr: &AvtpHdr, name: &str, sid_hex: &str) -> BTreeMap<String, Str
     m.insert("version".to_string(), hdr.version.to_string());
     m.insert("stream_valid".to_string(), bool_str(hdr.stream_valid));
     m.insert("timestamp_valid".to_string(), bool_str(hdr.timestamp_valid));
-    m.insert("media_clock_restart".to_string(), bool_str(hdr.media_clock_restart));
+    m.insert(
+        "media_clock_restart".to_string(),
+        bool_str(hdr.media_clock_restart),
+    );
     m
 }
 
@@ -394,16 +440,18 @@ fn bool_str(b: bool) -> String {
 }
 
 fn read_u16_be(buf: &[u8], off: usize) -> Option<u16> {
-    buf.get(off..off + 2).map(|b| u16::from_be_bytes([b[0], b[1]]))
+    buf.get(off..off + 2)
+        .map(|b| u16::from_be_bytes([b[0], b[1]]))
 }
 
 fn read_u32_be(buf: &[u8], off: usize) -> Option<u32> {
-    buf.get(off..off + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+    buf.get(off..off + 4)
+        .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
 }
 
 fn read_u64_be(buf: &[u8], off: usize) -> Option<u64> {
     buf.get(off..off + 8)
-        .map(|b| u64::from_be_bytes([b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7]]))
+        .map(|b| u64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
 }
 
 // ── Self-registration ─────────────────────────────────────────────────────────
@@ -496,7 +544,7 @@ mod tests {
     fn aaf_first_packet_stream_open() {
         let mut dec = AvtpDecoder::default();
         let mut out = Vec::new();
-        let sid: u64 = 0x001B21AABBCC_0001;
+        let sid: u64 = 0x001B_21AA_BBCC_0001;
         let mut frame = avtp_hdr(SUBTYPE_AAF, sid);
         frame.extend_from_slice(&[0u8; 8]);
         let c = ctx();
@@ -505,13 +553,22 @@ mod tests {
         assert_eq!(out.len(), 1);
         let t = tx(&out[0]);
         assert_eq!(t.operation, "avtp_aaf_stream_open");
-        assert_eq!(t.attributes.get("subtype_name").map(String::as_str), Some("aaf"));
+        assert_eq!(
+            t.attributes.get("subtype_name").map(String::as_str),
+            Some("aaf")
+        );
         assert_eq!(
             t.attributes.get("stream_id_hex").map(String::as_str),
             Some(format!("{sid:016x}").as_str())
         );
-        assert_eq!(t.attributes.get("stream_valid").map(String::as_str), Some("true"));
-        assert_eq!(t.attributes.get("timestamp_valid").map(String::as_str), Some("true"));
+        assert_eq!(
+            t.attributes.get("stream_valid").map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            t.attributes.get("timestamp_valid").map(String::as_str),
+            Some("true")
+        );
     }
 
     // ── Test 2: CVF first packet ──────────────────────────────────────────────
@@ -520,7 +577,7 @@ mod tests {
     fn cvf_first_packet_stream_open() {
         let mut dec = AvtpDecoder::default();
         let mut out = Vec::new();
-        let mut frame = avtp_hdr(SUBTYPE_CVF, 0xAABBCCDDEEFF_0002);
+        let mut frame = avtp_hdr(SUBTYPE_CVF, 0xAABB_CCDD_EEFF_0002);
         frame.extend_from_slice(&[0u8; 8]);
         let c = ctx();
         dec.on_datagram(&chunk(&frame, &c), &mut out);
@@ -559,8 +616,14 @@ mod tests {
         let t = tx(&out[0]);
         assert_eq!(t.operation, "avtp_adp_entity_available");
         let eid_hex = format!("{entity_id:016x}");
-        assert_eq!(t.attributes.get("entity_id_hex").map(String::as_str), Some(eid_hex.as_str()));
-        assert_eq!(t.attributes.get("gptp_domain_number").map(String::as_str), Some("7"));
+        assert_eq!(
+            t.attributes.get("entity_id_hex").map(String::as_str),
+            Some(eid_hex.as_str())
+        );
+        assert_eq!(
+            t.attributes.get("gptp_domain_number").map(String::as_str),
+            Some("7")
+        );
 
         let a = asset(&out[1]);
         assert_eq!(a.role.as_deref(), Some("avtp_talker")); // talker_sources=2 > 0
@@ -616,7 +679,7 @@ mod tests {
         let mut ops: Vec<String> = Vec::new();
         let mut last_periodic_attrs: Option<BTreeMap<String, String>> = None;
 
-        for i in 0u32..1000 {
+        for _i in 0u32..1000 {
             let mut frame = avtp_hdr(SUBTYPE_AAF, sid);
             frame.extend_from_slice(&[0u8; 4]);
             let mut out = Vec::new();

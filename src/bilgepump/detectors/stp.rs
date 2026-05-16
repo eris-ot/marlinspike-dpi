@@ -41,18 +41,18 @@ impl StpDetector {
         }
 
         // Root change detection
-        if let Some(ref current) = self.current_root {
-            if current.root_id != fields.root_id {
-                alerts.push(BilgepumpAlert {
-                    kind: AlertKind::StpRootChange {
-                        previous_root: current.root_id.clone(),
-                        new_root: fields.root_id.clone(),
-                        claiming_bridge: fields.bridge_id.clone(),
-                    },
-                    severity: AlertSeverity::High,
-                    decoder: "bilgepump:stp_root_change",
-                });
-            }
+        if let Some(ref current) = self.current_root
+            && current.root_id != fields.root_id
+        {
+            alerts.push(BilgepumpAlert {
+                kind: AlertKind::StpRootChange {
+                    previous_root: current.root_id.clone(),
+                    new_root: fields.root_id.clone(),
+                    claiming_bridge: fields.bridge_id.clone(),
+                },
+                severity: AlertSeverity::High,
+                decoder: "bilgepump:stp_root_change",
+            });
         }
 
         // Update current root
@@ -104,14 +104,28 @@ mod tests {
         let t = now();
 
         // Establish root
-        let alerts = det.observe(&stp_bpdu("8000.aabbccddeeff", "8000.aabbccddeeff"), &config, t);
-        assert!(!alerts.iter().any(|a| a.decoder == "bilgepump:stp_root_change"));
+        let alerts = det.observe(
+            &stp_bpdu("8000.aabbccddeeff", "8000.aabbccddeeff"),
+            &config,
+            t,
+        );
+        assert!(
+            !alerts
+                .iter()
+                .any(|a| a.decoder == "bilgepump:stp_root_change")
+        );
 
         // Root changes
         let t2 = t + chrono::Duration::seconds(1);
-        let alerts = det.observe(&stp_bpdu("4000.112233445566", "4000.112233445566"), &config, t2);
+        let alerts = det.observe(
+            &stp_bpdu("4000.112233445566", "4000.112233445566"),
+            &config,
+            t2,
+        );
         assert!(
-            alerts.iter().any(|a| a.decoder == "bilgepump:stp_root_change"),
+            alerts
+                .iter()
+                .any(|a| a.decoder == "bilgepump:stp_root_change"),
             "expected STP root change alert"
         );
     }
@@ -123,9 +137,15 @@ mod tests {
         config.stp_root_whitelist = vec!["8000.aabbccddeeff".to_string()];
         let t = now();
 
-        let alerts = det.observe(&stp_bpdu("4000.112233445566", "4000.112233445566"), &config, t);
+        let alerts = det.observe(
+            &stp_bpdu("4000.112233445566", "4000.112233445566"),
+            &config,
+            t,
+        );
         assert!(
-            alerts.iter().any(|a| a.decoder == "bilgepump:stp_unauthorized"),
+            alerts
+                .iter()
+                .any(|a| a.decoder == "bilgepump:stp_unauthorized"),
             "expected unauthorized root alert"
         );
     }
@@ -137,7 +157,15 @@ mod tests {
         config.stp_root_whitelist = vec!["8000.aabbccddeeff".to_string()];
         let t = now();
 
-        let alerts = det.observe(&stp_bpdu("8000.aabbccddeeff", "8000.aabbccddeeff"), &config, t);
-        assert!(!alerts.iter().any(|a| a.decoder == "bilgepump:stp_unauthorized"));
+        let alerts = det.observe(
+            &stp_bpdu("8000.aabbccddeeff", "8000.aabbccddeeff"),
+            &config,
+            t,
+        );
+        assert!(
+            !alerts
+                .iter()
+                .any(|a| a.decoder == "bilgepump:stp_unauthorized")
+        );
     }
 }

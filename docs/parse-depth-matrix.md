@@ -1,6 +1,6 @@
 # Parse Depth Matrix
 
-Per-protocol parse depth as of **v1.15.0**. Living doc — update when shipping a depth release.
+Per-protocol parse depth as of **v1.16.0**. Living doc — update when shipping a depth release.
 
 ## Legend
 
@@ -53,6 +53,7 @@ Per-protocol parse depth as of **v1.15.0**. Living doc — update when shipping 
 | OPC Classic (DA/HDA/AE) | **Shallow** | OPC interface UUIDs in DCE/RPC BIND; AssetObservation per server IP | Endpoint-mapper dynamic-port tracking; OPC method opnums |
 | GVCP / GigE Vision | **Deep** | 8-byte header, command naming, DISCOVERY_ACK → AssetObservation with manufacturer/model/version/serial | — |
 | CIP Safety | **Shallow** | Network Safety Segment (0x50) detection in Forward_Open paths | Type 1/2/Extended safety-segment internal fields (max_consumer, ping interval, etc.) |
+| Allen-Bradley CSP | **Deep** | CSP frame header, command + function naming (RegisterSession, PCCC request/reply, read/write), transaction-id pairing, status code propagation. AssetObservation with vendor=`Allen-Bradley` on RegisterSession | Deeper per-command PCCC payload; DH+ framing internals |
 | Modicon UMAS | **Deep** | FC 0x5A sub-functions; Industroyer2 sequence flagged high | — |
 | POWERLINK | **Deep** | SoC/PReq/PRes/SoA/ASnd dispatch; ASnd IdentResponse → AssetObservation | — |
 | SERCOS III | **Deep** | Telegram-type dispatch; sync-flag transition tracking | Deep Service Channel (partial-public spec) |

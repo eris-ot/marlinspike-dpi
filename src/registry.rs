@@ -109,8 +109,8 @@ pub use crate::dissectors::iec104::Iec104Fields;
 pub use crate::dissectors::fins::OmronFinsFields;
 
 pub use crate::dissectors::modbus::ModbusDirection;
-pub use crate::dissectors::modbus::ModbusPdu;
 pub use crate::dissectors::modbus::ModbusFields;
+pub use crate::dissectors::modbus::ModbusPdu;
 
 pub use crate::dissectors::dnp3::Dnp3Fields;
 
@@ -133,8 +133,8 @@ pub use crate::dissectors::stp::StpFields;
 
 pub use crate::dissectors::dns::DnsFields;
 pub use crate::dissectors::dns::DnsRecord;
-pub use crate::dissectors::dns::DnsRecordType;
 pub use crate::dissectors::dns::DnsRecordData;
+pub use crate::dissectors::dns::DnsRecordType;
 
 pub use crate::dissectors::tcp::TlsFields;
 
@@ -160,8 +160,8 @@ pub use crate::dissectors::vtp::VtpFields;
 
 pub use crate::dissectors::mrp::MrpFields;
 
-pub use crate::dissectors::mstp::MstpFields;
 pub use crate::dissectors::mstp::MstiRecord;
+pub use crate::dissectors::mstp::MstpFields;
 
 pub use crate::dissectors::pvst::PvstFields;
 
@@ -246,10 +246,10 @@ impl DissectorRegistry {
     /// Try each dissector in order; return the first successful parse.
     pub fn dispatch(&self, data: &[u8], context: &PacketContext) -> Option<ProtocolData> {
         for d in &self.dissectors {
-            if d.can_parse(data, context.src_port, context.dst_port) {
-                if let Some(result) = d.parse(data, context) {
-                    return Some(result);
-                }
+            if d.can_parse(data, context.src_port, context.dst_port)
+                && let Some(result) = d.parse(data, context)
+            {
+                return Some(result);
             }
         }
         None

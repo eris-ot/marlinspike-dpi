@@ -25,7 +25,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── RFB constants ────────────────────────────────────────────────────────────
@@ -105,16 +105,8 @@ fn parse_banner(data: &[u8]) -> Option<(u8, u8, String)> {
     }
     let major_bytes = &banner[4..7];
     let minor_bytes = &banner[8..11];
-    let major: u8 = std::str::from_utf8(major_bytes)
-        .ok()?
-        .trim()
-        .parse()
-        .ok()?;
-    let minor: u8 = std::str::from_utf8(minor_bytes)
-        .ok()?
-        .trim()
-        .parse()
-        .ok()?;
+    let major: u8 = std::str::from_utf8(major_bytes).ok()?.trim().parse().ok()?;
+    let minor: u8 = std::str::from_utf8(minor_bytes).ok()?.trim().parse().ok()?;
     let version = format!("{}.{}", major, minor);
     Some((major, minor, version))
 }
@@ -212,14 +204,16 @@ impl SessionDecoder for VncDecoder {
                     self.buf.drain(..BANNER_LEN);
 
                     // Move to security negotiation, capturing version for borrow safety.
-                    let (sv, major, minor) =
-                        if let State::AwaitingClientBanner { server_version, major, minor } =
-                            std::mem::replace(&mut self.state, State::Done)
-                        {
-                            (server_version, major, minor)
-                        } else {
-                            unreachable!()
-                        };
+                    let (sv, major, minor) = if let State::AwaitingClientBanner {
+                        server_version,
+                        major,
+                        minor,
+                    } = std::mem::replace(&mut self.state, State::Done)
+                    {
+                        (server_version, major, minor)
+                    } else {
+                        unreachable!()
+                    };
 
                     self.state = State::AwaitingSecurityTypes {
                         server_version: sv,
@@ -251,7 +245,10 @@ impl SessionDecoder for VncDecoder {
                             break;
                         }
                         let sec_type = u32::from_be_bytes([
-                            self.buf[0], self.buf[1], self.buf[2], self.buf[3],
+                            self.buf[0],
+                            self.buf[1],
+                            self.buf[2],
+                            self.buf[3],
                         ]);
                         self.buf.drain(..4);
 
@@ -270,16 +267,7 @@ impl SessionDecoder for VncDecoder {
                         let types_str = type_name.to_string();
                         let status = if sec_type == 0 { "failed" } else { "ok" };
 
-                        emit_handshake(
-                            chunk,
-                            &sv,
-                            Some(&cv),
-                            &types_str,
-                            None,
-                            status,
-                            None,
-                            out,
-                        );
+                        emit_handshake(chunk, &sv, Some(&cv), &types_str, None, status, None, out);
                         break;
                     } else {
                         // ── v3.7+ branch ─────────────────────────────────────
@@ -307,7 +295,10 @@ impl SessionDecoder for VncDecoder {
                             // Attempt to read the reason string (best-effort).
                             if self.buf.len() >= 4 {
                                 let reason_len = u32::from_be_bytes([
-                                    self.buf[0], self.buf[1], self.buf[2], self.buf[3],
+                                    self.buf[0],
+                                    self.buf[1],
+                                    self.buf[2],
+                                    self.buf[3],
                                 ]) as usize;
                                 if self.buf.len() >= 4 + reason_len {
                                     let reason_bytes = &self.buf[4..4 + reason_len];
@@ -320,13 +311,14 @@ impl SessionDecoder for VncDecoder {
                         }
 
                         // Chosen type from client (v3.7+): 1 byte, only present if count > 0.
-                        let chosen_type: Option<String> = if !types.is_empty() && !self.buf.is_empty() {
-                            let chosen = self.buf[0];
-                            self.buf.drain(..1);
-                            Some(security_type_name(chosen).to_string())
-                        } else {
-                            None
-                        };
+                        let chosen_type: Option<String> =
+                            if !types.is_empty() && !self.buf.is_empty() {
+                                let chosen = self.buf[0];
+                                self.buf.drain(..1);
+                                Some(security_type_name(chosen).to_string())
+                            } else {
+                                None
+                            };
 
                         let types_str = types
                             .iter()
@@ -397,7 +389,10 @@ fn emit_handshake(
     );
 
     let mut attributes: BTreeMap<String, String> = BTreeMap::new();
-    attributes.insert("server_protocol_version".to_string(), server_version.to_string());
+    attributes.insert(
+        "server_protocol_version".to_string(),
+        server_version.to_string(),
+    );
     if let Some(cv) = client_version {
         attributes.insert("client_protocol_version".to_string(), cv.to_string());
     }
@@ -515,6 +510,7 @@ mod tests {
     }
 
     /// Build a complete v3.8 server-banner + security-types payload in one vec.
+    #[expect(dead_code, reason = "kept for future protocol-version test coverage")]
     fn server_banner_38_with_types(types: &[u8]) -> Vec<u8> {
         let mut v = b"RFB 003.008\n".to_vec();
         v.push(types.len() as u8);
@@ -536,7 +532,11 @@ mod tests {
         let banner = b"RFB 003.008\n";
         dec.on_stream_chunk(&chunk(banner), &mut out);
         // Banner buffered, awaiting client echo — no events yet.
-        assert!(out.is_empty(), "expected no events on banner alone, got {:?}", out.len());
+        assert!(
+            out.is_empty(),
+            "expected no events on banner alone, got {:?}",
+            out.len()
+        );
     }
 
     // ── Test 2: Full v3.8 handshake, types [1, 2] → ok ───────────────────────
@@ -568,11 +568,11 @@ mod tests {
         assert_eq!(tx.status, "ok");
         let offered = tx.attributes.get("security_types_offered").unwrap();
         assert!(offered.contains("none"), "should contain 'none': {offered}");
-        assert!(offered.contains("vnc_auth"), "should contain 'vnc_auth': {offered}");
-        assert_eq!(
-            tx.attributes.get("server_protocol_version").unwrap(),
-            "3.8"
+        assert!(
+            offered.contains("vnc_auth"),
+            "should contain 'vnc_auth': {offered}"
         );
+        assert_eq!(tx.attributes.get("server_protocol_version").unwrap(), "3.8");
         assert_eq!(
             tx.attributes.get("chosen_security_type").unwrap(),
             "vnc_auth"
@@ -655,10 +655,7 @@ mod tests {
             tx.attributes.get("security_types_offered").unwrap(),
             "vnc_auth"
         );
-        assert_eq!(
-            tx.attributes.get("server_protocol_version").unwrap(),
-            "3.3"
-        );
+        assert_eq!(tx.attributes.get("server_protocol_version").unwrap(), "3.3");
         // v3.3: no chosen_security_type attribute (server chooses, client doesn't reply)
         assert!(tx.attributes.get("chosen_security_type").is_none());
     }
@@ -678,13 +675,25 @@ mod tests {
         // Wire order on each session: server_banner → client_banner → server_types → client_chosen.
 
         // 5900: server banner
-        dec_5900.on_stream_chunk(&chunk_with_ctx(b"RFB 003.008\n", ctx_5900.clone()), &mut out_5900);
+        dec_5900.on_stream_chunk(
+            &chunk_with_ctx(b"RFB 003.008\n", ctx_5900.clone()),
+            &mut out_5900,
+        );
         // 5902: server banner
-        dec_5902.on_stream_chunk(&chunk_with_ctx(b"RFB 003.008\n", ctx_5902.clone()), &mut out_5902);
+        dec_5902.on_stream_chunk(
+            &chunk_with_ctx(b"RFB 003.008\n", ctx_5902.clone()),
+            &mut out_5902,
+        );
 
         // Client banners
-        dec_5900.on_stream_chunk(&chunk_with_ctx(&client_banner_38(), ctx_5900.clone()), &mut out_5900);
-        dec_5902.on_stream_chunk(&chunk_with_ctx(&client_banner_38(), ctx_5902.clone()), &mut out_5902);
+        dec_5900.on_stream_chunk(
+            &chunk_with_ctx(&client_banner_38(), ctx_5900.clone()),
+            &mut out_5900,
+        );
+        dec_5902.on_stream_chunk(
+            &chunk_with_ctx(&client_banner_38(), ctx_5902.clone()),
+            &mut out_5902,
+        );
 
         assert!(out_5900.is_empty());
         assert!(out_5902.is_empty());

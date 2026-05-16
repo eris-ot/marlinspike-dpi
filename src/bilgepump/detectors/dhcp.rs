@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use crate::bilgepump::alerts::{AlertKind, AlertSeverity, BilgepumpAlert};
 use crate::bilgepump::config::BilgepumpConfig;
 use crate::bilgepump::state::{DhcpServerRecord, RateCounter};
-use crate::registry::{format_mac, DhcpFields};
+use crate::registry::{DhcpFields, format_mac};
 
 /// Stateful DHCP abuse detector.
 #[derive(Debug, Default)]
@@ -35,28 +35,29 @@ impl DhcpDetector {
         let msg_type = fields.message_type.unwrap_or(0);
 
         // DHCP Offer (2) or Ack (5) — server responding
-        if msg_type == 2 || msg_type == 5 {
-            if let Some(ref server_id) = fields.server_id {
-                let mac_str = format_mac(src_mac);
+        if (msg_type == 2 || msg_type == 5)
+            && let Some(ref server_id) = fields.server_id
+        {
+            let mac_str = format_mac(src_mac);
 
-                // Rogue server detection
-                if !config.known_dhcp_servers.is_empty()
-                    && !config.known_dhcp_servers.contains(server_id)
-                {
-                    alerts.push(BilgepumpAlert {
-                        kind: AlertKind::RogueDhcpServer {
-                            server_id: server_id.clone(),
-                            server_mac: mac_str.clone(),
-                            offered_ip: fields.yiaddr.clone(),
-                        },
-                        severity: AlertSeverity::Critical,
-                        decoder: "bilgepump:dhcp_rogue",
-                    });
-                }
+            // Rogue server detection
+            if !config.known_dhcp_servers.is_empty()
+                && !config.known_dhcp_servers.contains(server_id)
+            {
+                alerts.push(BilgepumpAlert {
+                    kind: AlertKind::RogueDhcpServer {
+                        server_id: server_id.clone(),
+                        server_mac: mac_str.clone(),
+                        offered_ip: fields.yiaddr.clone(),
+                    },
+                    severity: AlertSeverity::Critical,
+                    decoder: "bilgepump:dhcp_rogue",
+                });
+            }
 
-                // Track server
-                let record = self
-                    .servers
+            // Track server
+            let record =
+                self.servers
                     .entry(server_id.clone())
                     .or_insert_with(|| DhcpServerRecord {
                         server_id: server_id.clone(),
@@ -65,9 +66,8 @@ impl DhcpDetector {
                         last_seen: now,
                         offer_count: 0,
                     });
-                record.last_seen = now;
-                record.offer_count += 1;
-            }
+            record.last_seen = now;
+            record.offer_count += 1;
         }
 
         // DHCP Discover (1) or Request (3) — client requesting
@@ -183,7 +183,9 @@ mod tests {
             let alerts = det.observe(&dhcp_discover(), &mac, &config, t_i);
             if i == 2 {
                 assert!(
-                    alerts.iter().any(|a| a.decoder == "bilgepump:dhcp_starvation"),
+                    alerts
+                        .iter()
+                        .any(|a| a.decoder == "bilgepump:dhcp_starvation"),
                     "expected starvation alert"
                 );
             }

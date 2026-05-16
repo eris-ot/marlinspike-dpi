@@ -39,7 +39,7 @@ impl Default for StovetopConfig {
             check_protocol_crc: true,
             min_ethernet_frame: 60, // 64 on wire minus 4-byte FCS (captures typically strip FCS)
             max_ethernet_frame: 1514, // 1518 minus FCS
-            max_jumbo_frame: 9018,    // 9022 minus FCS
+            max_jumbo_frame: 9018,  // 9022 minus FCS
             padding_entropy_threshold: 0.5,
         }
     }

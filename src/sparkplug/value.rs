@@ -2,8 +2,8 @@
 
 use crate::bronze::{PointValue, RawQuality};
 use crate::sparkplug::proto::{
-    payload::{metric, property_value, Metric, PropertySet},
     DataType,
+    payload::{Metric, PropertySet, metric, property_value},
 };
 
 /// The conventional Sparkplug "Quality" PropertySet key. Per Sparkplug B
@@ -90,7 +90,7 @@ fn extract_quality_property(props: &PropertySet) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sparkplug::proto::payload::{property_value, PropertyValue};
+    use crate::sparkplug::proto::payload::{PropertyValue, property_value};
 
     fn metric_with_value(datatype: DataType, value: metric::Value) -> Metric {
         Metric {

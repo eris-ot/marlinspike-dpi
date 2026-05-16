@@ -32,7 +32,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 const ITEM_SEQUENCED_ADDR: u16 = 0x8002;
@@ -69,7 +69,9 @@ pub(crate) struct EipIoDecoder {
 }
 
 impl SessionDecoder for EipIoDecoder {
-    fn name(&self) -> &'static str { "eip_io" }
+    fn name(&self) -> &'static str {
+        "eip_io"
+    }
 
     fn interest(&self) -> &'static [DecoderInterest] {
         &[DecoderInterest::UdpPort(2222)]
@@ -77,17 +79,27 @@ impl SessionDecoder for EipIoDecoder {
 
     fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
         let envelope = build_envelope(
-            &chunk.context, chunk.interface_id, chunk.frame_index,
-            chunk.timestamp, chunk.segment_hash, TransportProtocol::Udp,
-            Some("eip_io"), chunk.captured_len, chunk.session_key.clone(),
+            &chunk.context,
+            chunk.interface_id,
+            chunk.frame_index,
+            chunk.timestamp,
+            chunk.segment_hash,
+            TransportProtocol::Udp,
+            Some("eip_io"),
+            chunk.captured_len,
+            chunk.session_key.clone(),
         );
 
         let cpf = match parse_cpf(chunk.payload) {
             Ok(c) => c,
             Err(reason) => {
                 out.push(parse_anomaly_event(
-                    chunk.capture_id.to_string(), envelope, self.name(),
-                    "medium", reason, chunk.payload,
+                    chunk.capture_id.to_string(),
+                    envelope,
+                    self.name(),
+                    "medium",
+                    reason,
+                    chunk.payload,
                 ));
                 return;
             }
@@ -108,22 +120,31 @@ impl SessionDecoder for EipIoDecoder {
                 attrs.insert("connection_id".to_string(), conn_id_hex.clone());
                 attrs.insert("packet_count_observed".to_string(), count.to_string());
                 out.push(new_event(
-                    chunk.capture_id.to_string(), envelope.clone(),
+                    chunk.capture_id.to_string(),
+                    envelope.clone(),
                     BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                         operation: "eip_io_class1_sequence_gap".to_string(),
                         status: "observed".to_string(),
                         request_summary: Some(format!(
                             "EIP Class 1 seq gap conn={conn_id_hex} \
-                             expected={expected} got={}", cpf.sequence_number
+                             expected={expected} got={}",
+                            cpf.sequence_number
                         )),
-                        response_summary: None, object_refs: vec![],
-                        values: vec![], attributes: attrs,
-                        modbus: None, protocol_fields: None,
+                        response_summary: None,
+                        object_refs: vec![],
+                        values: vec![],
+                        attributes: attrs,
+                        modbus: None,
+                        protocol_fields: None,
                     }),
                 ));
                 out.push(parse_anomaly_event(
-                    chunk.capture_id.to_string(), envelope, self.name(),
-                    "low", "EIP Class 1 sequence number gap", chunk.payload,
+                    chunk.capture_id.to_string(),
+                    envelope,
+                    self.name(),
+                    "low",
+                    "EIP Class 1 sequence number gap",
+                    chunk.payload,
                 ));
                 return;
             }
@@ -133,16 +154,20 @@ impl SessionDecoder for EipIoDecoder {
                 attrs.insert("connection_id".to_string(), conn_id_hex);
                 attrs.insert("packet_count_observed".to_string(), count.to_string());
                 out.push(new_event(
-                    chunk.capture_id.to_string(), envelope,
+                    chunk.capture_id.to_string(),
+                    envelope,
                     BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                         operation: "eip_io_class1_periodic".to_string(),
                         status: "observed".to_string(),
                         request_summary: Some(format!(
                             "EIP Class 1 periodic sample: {count} packets"
                         )),
-                        response_summary: None, object_refs: vec![],
-                        values: vec![], attributes: attrs,
-                        modbus: None, protocol_fields: None,
+                        response_summary: None,
+                        object_refs: vec![],
+                        values: vec![],
+                        attributes: attrs,
+                        modbus: None,
+                        protocol_fields: None,
                     }),
                 ));
             }
@@ -154,20 +179,27 @@ impl SessionDecoder for EipIoDecoder {
             attrs.insert("connection_id".to_string(), conn_id_hex.clone());
             attrs.insert("payload_length".to_string(), cpf.io_data.len().to_string());
             attrs.insert("cpf_item_count".to_string(), cpf.item_count.to_string());
-            attrs.insert("sequence_number_initial".to_string(), cpf.sequence_number.to_string());
+            attrs.insert(
+                "sequence_number_initial".to_string(),
+                cpf.sequence_number.to_string(),
+            );
             attrs.insert("run_idle".to_string(), run_idle.to_string());
 
             out.push(new_event(
-                chunk.capture_id.to_string(), envelope.clone(),
+                chunk.capture_id.to_string(),
+                envelope.clone(),
                 BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                     operation: "eip_io_class1_open".to_string(),
                     status: "observed".to_string(),
                     request_summary: Some(format!(
                         "EIP Class 1 connection opened conn={conn_id_hex}"
                     )),
-                    response_summary: None, object_refs: vec![],
-                    values: vec![], attributes: attrs,
-                    modbus: None, protocol_fields: None,
+                    response_summary: None,
+                    object_refs: vec![],
+                    values: vec![],
+                    attributes: attrs,
+                    modbus: None,
+                    protocol_fields: None,
                 }),
             ));
 
@@ -179,11 +211,14 @@ impl SessionDecoder for EipIoDecoder {
                 ids.insert("ip".to_string(), ip_str.clone());
                 ids.insert("connection_id".to_string(), conn_id_hex.clone());
                 out.push(new_event(
-                    chunk.capture_id.to_string(), envelope.clone(),
+                    chunk.capture_id.to_string(),
+                    envelope.clone(),
                     BronzeEventFamily::AssetObservation(AssetObservation {
                         asset_key: ip_str,
                         role: Some("eip_io_endpoint".to_string()),
-                        vendor: None, model: None, firmware: None,
+                        vendor: None,
+                        model: None,
+                        firmware: None,
                         hostnames: vec![],
                         protocols: vec!["ethernet_ip".to_string(), "cip".to_string()],
                         identifiers: ids,
@@ -191,10 +226,13 @@ impl SessionDecoder for EipIoDecoder {
                 ));
             }
 
-            self.connections.insert(key, ConnectionState {
-                seq_last: cpf.sequence_number,
-                packet_count: 1,
-            });
+            self.connections.insert(
+                key,
+                ConnectionState {
+                    seq_last: cpf.sequence_number,
+                    packet_count: 1,
+                },
+            );
         }
     }
 }
@@ -230,23 +268,27 @@ fn parse_cpf(data: &[u8]) -> Result<ParsedCpf<'_>, &'static str> {
 
         match item_type {
             ITEM_SEQUENCED_ADDR => {
-                if item_len < 8 { return Err("Sequenced Address Item too short"); }
+                if item_len < 8 {
+                    return Err("Sequenced Address Item too short");
+                }
                 connection_id = Some(u32::from_le_bytes(item_data[..4].try_into().unwrap()));
                 sequence_number = Some(u32::from_le_bytes(item_data[4..8].try_into().unwrap()));
             }
             ITEM_CONNECTED_ADDR => {
-                if item_len < 4 { return Err("Connected Address Item too short"); }
-                connection_id.get_or_insert_with(|| {
-                    u32::from_le_bytes(item_data[..4].try_into().unwrap())
-                });
+                if item_len < 4 {
+                    return Err("Connected Address Item too short");
+                }
+                connection_id
+                    .get_or_insert_with(|| u32::from_le_bytes(item_data[..4].try_into().unwrap()));
             }
             ITEM_CONNECTED_DATA => {
-                if item_len < 2 { return Err("Connected Data Item too short for CIP seq count"); }
+                if item_len < 2 {
+                    return Err("Connected Data Item too short for CIP seq count");
+                }
                 // If no Sequenced Address Item was present, use the 16-bit CIP
                 // sequence count (widened to u32) as the tracked sequence value.
-                sequence_number.get_or_insert_with(|| {
-                    u16::from_le_bytes([item_data[0], item_data[1]]) as u32
-                });
+                sequence_number
+                    .get_or_insert_with(|| u16::from_le_bytes([item_data[0], item_data[1]]) as u32);
                 io_data = Some(&item_data[2..]);
             }
             _ => { /* unknown item type — skip */ }
@@ -284,30 +326,41 @@ inventory::submit!(crate::engine::decoders::DecoderRegistration {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
-    use chrono::{TimeZone, Utc};
     use super::*;
     use crate::bronze::{AssetObservation, BronzeEventFamily, ProtocolTransaction};
     use crate::engine::{DecoderInterest, StreamChunk};
     use crate::registry::PacketContext;
+    use chrono::{TimeZone, Utc};
+    use std::net::{IpAddr, Ipv4Addr};
 
     fn ctx(src: [u8; 4], dst: [u8; 4]) -> PacketContext {
         PacketContext {
-            src_mac: [0u8; 6], dst_mac: [0u8; 6],
+            src_mac: [0u8; 6],
+            dst_mac: [0u8; 6],
             src_ip: IpAddr::V4(Ipv4Addr::from(src)),
             dst_ip: IpAddr::V4(Ipv4Addr::from(dst)),
-            src_port: 2222, dst_port: 2222,
-            vlan_id: None, timestamp: 1_700_000_000_000_000,
+            src_port: 2222,
+            dst_port: 2222,
+            vlan_id: None,
+            timestamp: 1_700_000_000_000_000,
         }
     }
 
     fn chunk<'a>(payload: &'a [u8], context: PacketContext, sk: &str) -> StreamChunk<'a> {
         StreamChunk {
-            capture_id: "test", segment_hash: "seg", interface_id: 0, frame_index: 1,
+            capture_id: "test",
+            segment_hash: "seg",
+            interface_id: 0,
+            frame_index: 1,
             timestamp: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
-            context, ethertype: 0x0800, ip_proto: Some(17), llc: None,
-            transport: TransportProtocol::Udp, payload,
-            session_key: sk.to_string(), captured_len: payload.len() as u64,
+            context,
+            ethertype: 0x0800,
+            ip_proto: Some(17),
+            llc: None,
+            transport: TransportProtocol::Udp,
+            payload,
+            session_key: sk.to_string(),
+            captured_len: payload.len() as u64,
         }
     }
 
@@ -328,21 +381,42 @@ mod tests {
     }
 
     fn txns(events: &[BronzeEvent]) -> Vec<&ProtocolTransaction> {
-        events.iter().filter_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(ref tx) = e.family { Some(tx) } else { None }
-        }).collect()
+        events
+            .iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(ref tx) = e.family {
+                    Some(tx)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn assets(events: &[BronzeEvent]) -> Vec<&AssetObservation> {
-        events.iter().filter_map(|e| {
-            if let BronzeEventFamily::AssetObservation(ref a) = e.family { Some(a) } else { None }
-        }).collect()
+        events
+            .iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::AssetObservation(ref a) = e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn anomalies(events: &[BronzeEvent]) -> Vec<&crate::bronze::ParseAnomaly> {
-        events.iter().filter_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(ref a) = e.family { Some(a) } else { None }
-        }).collect()
+        events
+            .iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::ParseAnomaly(ref a) = e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     // 1. First datagram → open event + two AssetObservations.
@@ -351,21 +425,39 @@ mod tests {
         let p = cpf_seq(0x1234_5678, 0, &[0x01, 0xAB]);
         let mut dec = EipIoDecoder::default();
         let mut ev = Vec::new();
-        dec.on_datagram(&chunk(&p, ctx([10,0,0,1], [10,0,0,2]), "sk1"), &mut ev);
+        dec.on_datagram(
+            &chunk(&p, ctx([10, 0, 0, 1], [10, 0, 0, 2]), "sk1"),
+            &mut ev,
+        );
 
         let tx = txns(&ev);
         assert_eq!(tx.len(), 1);
         assert_eq!(tx[0].operation, "eip_io_class1_open");
         assert_eq!(tx[0].status, "observed");
-        assert_eq!(tx[0].attributes.get("connection_id").map(String::as_str), Some("0x12345678"));
-        assert_eq!(tx[0].attributes.get("sequence_number_initial").map(String::as_str), Some("0"));
-        assert_eq!(tx[0].attributes.get("run_idle").map(String::as_str), Some("run"));
+        assert_eq!(
+            tx[0].attributes.get("connection_id").map(String::as_str),
+            Some("0x12345678")
+        );
+        assert_eq!(
+            tx[0]
+                .attributes
+                .get("sequence_number_initial")
+                .map(String::as_str),
+            Some("0")
+        );
+        assert_eq!(
+            tx[0].attributes.get("run_idle").map(String::as_str),
+            Some("run")
+        );
 
         let a = assets(&ev);
         assert_eq!(a.len(), 2);
         for obs in &a {
             assert_eq!(obs.role.as_deref(), Some("eip_io_endpoint"));
-            assert_eq!(obs.identifiers.get("connection_id").map(String::as_str), Some("0x12345678"));
+            assert_eq!(
+                obs.identifiers.get("connection_id").map(String::as_str),
+                Some("0x12345678")
+            );
         }
     }
 
@@ -375,9 +467,23 @@ mod tests {
         let conn_id = 0xDEAD_BEEF;
         let mut dec = EipIoDecoder::default();
         let mut ev = Vec::new();
-        dec.on_datagram(&chunk(&cpf_seq(conn_id, 0, &[0x00]), ctx([10,0,1,1],[10,0,1,2]), "sk2"), &mut ev);
+        dec.on_datagram(
+            &chunk(
+                &cpf_seq(conn_id, 0, &[0x00]),
+                ctx([10, 0, 1, 1], [10, 0, 1, 2]),
+                "sk2",
+            ),
+            &mut ev,
+        );
         ev.clear();
-        dec.on_datagram(&chunk(&cpf_seq(conn_id, 1, &[0x00]), ctx([10,0,1,1],[10,0,1,2]), "sk2"), &mut ev);
+        dec.on_datagram(
+            &chunk(
+                &cpf_seq(conn_id, 1, &[0x00]),
+                ctx([10, 0, 1, 1], [10, 0, 1, 2]),
+                "sk2",
+            ),
+            &mut ev,
+        );
         assert!(ev.is_empty(), "sequential datagram must emit no events");
     }
 
@@ -387,9 +493,23 @@ mod tests {
         let conn_id = 0xCAFE_BABE;
         let mut dec = EipIoDecoder::default();
         let mut ev = Vec::new();
-        dec.on_datagram(&chunk(&cpf_seq(conn_id, 10, &[0x00]), ctx([10,0,2,1],[10,0,2,2]), "sk3"), &mut ev);
+        dec.on_datagram(
+            &chunk(
+                &cpf_seq(conn_id, 10, &[0x00]),
+                ctx([10, 0, 2, 1], [10, 0, 2, 2]),
+                "sk3",
+            ),
+            &mut ev,
+        );
         ev.clear();
-        dec.on_datagram(&chunk(&cpf_seq(conn_id, 99, &[0x00]), ctx([10,0,2,1],[10,0,2,2]), "sk3"), &mut ev);
+        dec.on_datagram(
+            &chunk(
+                &cpf_seq(conn_id, 99, &[0x00]),
+                ctx([10, 0, 2, 1], [10, 0, 2, 2]),
+                "sk3",
+            ),
+            &mut ev,
+        );
 
         let tx = txns(&ev);
         assert_eq!(tx.len(), 1);
@@ -407,15 +527,38 @@ mod tests {
     fn test_two_connections_independent() {
         let mut dec = EipIoDecoder::default();
         let mut ev = Vec::new();
-        dec.on_datagram(&chunk(&cpf_seq(0xAAAA_0001, 0, &[0x00]), ctx([10,0,3,1],[10,0,3,2]), "sk4"), &mut ev);
-        dec.on_datagram(&chunk(&cpf_seq(0xBBBB_0002, 0, &[0x00]), ctx([10,0,3,1],[10,0,3,2]), "sk4"), &mut ev);
+        dec.on_datagram(
+            &chunk(
+                &cpf_seq(0xAAAA_0001, 0, &[0x00]),
+                ctx([10, 0, 3, 1], [10, 0, 3, 2]),
+                "sk4",
+            ),
+            &mut ev,
+        );
+        dec.on_datagram(
+            &chunk(
+                &cpf_seq(0xBBBB_0002, 0, &[0x00]),
+                ctx([10, 0, 3, 1], [10, 0, 3, 2]),
+                "sk4",
+            ),
+            &mut ev,
+        );
 
-        let opens: Vec<_> = txns(&ev).into_iter().filter(|t| t.operation == "eip_io_class1_open").collect();
+        let opens: Vec<_> = txns(&ev)
+            .into_iter()
+            .filter(|t| t.operation == "eip_io_class1_open")
+            .collect();
         assert_eq!(opens.len(), 2);
         assert_eq!(assets(&ev).len(), 4);
 
-        let ids: Vec<_> = opens.iter()
-            .map(|t| t.attributes.get("connection_id").map(String::as_str).unwrap_or(""))
+        let ids: Vec<_> = opens
+            .iter()
+            .map(|t| {
+                t.attributes
+                    .get("connection_id")
+                    .map(String::as_str)
+                    .unwrap_or("")
+            })
             .collect();
         assert!(ids.contains(&"0xaaaa0001"));
         assert!(ids.contains(&"0xbbbb0002"));
@@ -428,12 +571,18 @@ mod tests {
         let bad: Vec<u8> = vec![0x0A, 0x00, 0xAB, 0xCD, 0xEF, 0x01, 0x02, 0x03];
         let mut dec = EipIoDecoder::default();
         let mut ev = Vec::new();
-        dec.on_datagram(&chunk(&bad, ctx([10,0,4,1],[10,0,4,2]), "sk5"), &mut ev);
+        dec.on_datagram(
+            &chunk(&bad, ctx([10, 0, 4, 1], [10, 0, 4, 2]), "sk5"),
+            &mut ev,
+        );
 
         let an = anomalies(&ev);
         assert_eq!(an.len(), 1);
         assert_eq!(an[0].severity, "medium");
-        assert!(txns(&ev).is_empty(), "no transaction for malformed datagram");
+        assert!(
+            txns(&ev).is_empty(),
+            "no transaction for malformed datagram"
+        );
     }
 
     // 6. Run/Idle bit: set→"run", clear→"idle", empty payload→"unknown".
@@ -443,13 +592,33 @@ mod tests {
 
         // run
         let mut ev = Vec::new();
-        dec.on_datagram(&chunk(&cpf_seq(0x01, 0, &[0x01]), ctx([10,0,5,1],[10,0,5,2]), "sk6a"), &mut ev);
-        assert_eq!(txns(&ev)[0].attributes.get("run_idle").map(String::as_str), Some("run"));
+        dec.on_datagram(
+            &chunk(
+                &cpf_seq(0x01, 0, &[0x01]),
+                ctx([10, 0, 5, 1], [10, 0, 5, 2]),
+                "sk6a",
+            ),
+            &mut ev,
+        );
+        assert_eq!(
+            txns(&ev)[0].attributes.get("run_idle").map(String::as_str),
+            Some("run")
+        );
 
         // idle
         ev.clear();
-        dec.on_datagram(&chunk(&cpf_seq(0x02, 0, &[0x00]), ctx([10,0,5,1],[10,0,5,2]), "sk6b"), &mut ev);
-        assert_eq!(txns(&ev)[0].attributes.get("run_idle").map(String::as_str), Some("idle"));
+        dec.on_datagram(
+            &chunk(
+                &cpf_seq(0x02, 0, &[0x00]),
+                ctx([10, 0, 5, 1], [10, 0, 5, 2]),
+                "sk6b",
+            ),
+            &mut ev,
+        );
+        assert_eq!(
+            txns(&ev)[0].attributes.get("run_idle").map(String::as_str),
+            Some("idle")
+        );
 
         // unknown — Connected Data Item with only the 2-byte CIP seq count, no I/O.
         ev.clear();
@@ -462,7 +631,13 @@ mod tests {
         no_io.extend_from_slice(&ITEM_CONNECTED_DATA.to_le_bytes());
         no_io.extend_from_slice(&2u16.to_le_bytes()); // only CIP seq count, no I/O
         no_io.extend_from_slice(&0u16.to_le_bytes());
-        dec.on_datagram(&chunk(&no_io, ctx([10,0,5,1],[10,0,5,2]), "sk6c"), &mut ev);
-        assert_eq!(txns(&ev)[0].attributes.get("run_idle").map(String::as_str), Some("unknown"));
+        dec.on_datagram(
+            &chunk(&no_io, ctx([10, 0, 5, 1], [10, 0, 5, 2]), "sk6c"),
+            &mut ev,
+        );
+        assert_eq!(
+            txns(&ev)[0].attributes.get("run_idle").map(String::as_str),
+            Some("unknown")
+        );
     }
 }

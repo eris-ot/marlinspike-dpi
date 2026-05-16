@@ -115,20 +115,20 @@ impl MqttDissector {
                     offset += prop_bytes + prop_len;
                 }
 
-                if rest.len() > offset {
-                    if let Some((client_id, cid_len)) = read_mqtt_string(&rest[offset..]) {
-                        fields.client_id = Some(client_id);
-                        offset += cid_len;
-                    }
+                if rest.len() > offset
+                    && let Some((client_id, cid_len)) = read_mqtt_string(&rest[offset..])
+                {
+                    fields.client_id = Some(client_id);
+                    offset += cid_len;
                 }
 
                 // Skip will topic/message if present.
                 if connect_flags & 0x04 != 0 && rest.len() > offset {
                     // MQTT 5.0: will properties
-                    if version == 5 {
-                        if let Some((plen, pbytes)) = decode_remaining_length(&rest[offset..]) {
-                            offset += pbytes + plen;
-                        }
+                    if version == 5
+                        && let Some((plen, pbytes)) = decode_remaining_length(&rest[offset..])
+                    {
+                        offset += pbytes + plen;
                     }
                     // Will topic
                     if let Some((_, wt_len)) = read_mqtt_string(rest.get(offset..)?) {
@@ -136,16 +136,16 @@ impl MqttDissector {
                     }
                     // Will payload
                     if rest.len() > offset + 2 {
-                        let wp_len =
-                            u16::from_be_bytes([rest[offset], rest[offset + 1]]) as usize;
+                        let wp_len = u16::from_be_bytes([rest[offset], rest[offset + 1]]) as usize;
                         offset += 2 + wp_len;
                     }
                 }
 
-                if has_username && rest.len() > offset {
-                    if let Some((username, _)) = read_mqtt_string(&rest[offset..]) {
-                        fields.username = Some(username);
-                    }
+                if has_username
+                    && rest.len() > offset
+                    && let Some((username, _)) = read_mqtt_string(&rest[offset..])
+                {
+                    fields.username = Some(username);
                 }
             }
             3 => {
@@ -341,7 +341,10 @@ mod tests {
         assert_eq!(fields.qos, Some(0));
         assert_eq!(fields.topic.as_deref(), Some("sensors/temp"));
         // QoS 0: payload starts immediately after topic — no packet id consumed.
-        assert_eq!(fields.payload.as_deref(), Some([0x01, 0x02, 0x03].as_slice()));
+        assert_eq!(
+            fields.payload.as_deref(),
+            Some([0x01, 0x02, 0x03].as_slice())
+        );
     }
 
     #[test]
@@ -388,7 +391,9 @@ mod tests {
     fn binary_payload_roundtrip_sparkplug_shaped() {
         let dissector = MqttDissector;
         // Sparkplug-style topic + arbitrary binary bytes (non-UTF-8 sequence).
-        let body = vec![0x08, 0xCD, 0x9E, 0xC9, 0xC4, 0x84, 0xB1, 0xA8, 0x06, 0x10, 0x07];
+        let body = vec![
+            0x08, 0xCD, 0x9E, 0xC9, 0xC4, 0x84, 0xB1, 0xA8, 0x06, 0x10, 0x07,
+        ];
         let pkt = build_publish_qos0(b"spBv1.0/Plant1/NDATA/PLC-A", &body);
         let fields = dissector.parse_fields(&pkt).expect("mqtt fields");
         assert_eq!(fields.payload.as_ref(), Some(&body));

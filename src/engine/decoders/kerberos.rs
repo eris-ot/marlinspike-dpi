@@ -27,7 +27,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -44,6 +44,7 @@ const TAG_KRB_ERROR: u8 = 0x7E;
 // Universal BER tags.
 const TAG_SEQUENCE: u8 = 0x30;
 const TAG_INTEGER: u8 = 0x02;
+#[cfg(test)]
 const TAG_OCTET_STRING: u8 = 0x04;
 const TAG_GENERAL_STRING: u8 = 0x1B;
 const TAG_GENERALIZED_TIME: u8 = 0x18;
@@ -78,7 +79,7 @@ fn ber_length(buf: &[u8]) -> Option<(usize, usize)> {
 
 /// Read a TLV header: `(tag, content_slice, bytes_consumed_total)`.
 /// Returns `None` if truncated.
-fn ber_tlv<'a>(buf: &'a [u8]) -> Option<(u8, &'a [u8], usize)> {
+fn ber_tlv(buf: &[u8]) -> Option<(u8, &[u8], usize)> {
     if buf.is_empty() {
         return None;
     }
@@ -124,14 +125,12 @@ impl<'a> TlvIter<'a> {
 impl<'a> Iterator for TlvIter<'a> {
     type Item = (u8, &'a [u8]);
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if self.buf.is_empty() {
-                return None;
-            }
-            let (tag, content, total) = ber_tlv(self.buf)?;
-            self.buf = &self.buf[total..];
-            return Some((tag, content));
+        if self.buf.is_empty() {
+            return None;
         }
+        let (tag, content, total) = ber_tlv(self.buf)?;
+        self.buf = &self.buf[total..];
+        Some((tag, content))
     }
 }
 
@@ -367,12 +366,11 @@ fn parse_kdc_rep(content: &[u8]) -> KrbMsg {
         parse_ticket_fields(ticket_ctx, &mut m);
     }
     // [6] enc-part EncryptedData — only grab etype (etype [0] INTEGER).
-    if let Some(enc_ctx) = ctx_inner(seq, 6) {
-        if let Some(enc_seq) = find_child(enc_ctx, TAG_SEQUENCE) {
-            if let Some(et_ctx) = ctx_inner(enc_seq, 0) {
-                m.enc_etype = find_child(et_ctx, TAG_INTEGER).and_then(ber_integer);
-            }
-        }
+    if let Some(enc_ctx) = ctx_inner(seq, 6)
+        && let Some(enc_seq) = find_child(enc_ctx, TAG_SEQUENCE)
+        && let Some(et_ctx) = ctx_inner(enc_seq, 0)
+    {
+        m.enc_etype = find_child(et_ctx, TAG_INTEGER).and_then(ber_integer);
     }
     m
 }
@@ -529,7 +527,16 @@ fn tcp_payload(buf: &[u8]) -> Option<&[u8]> {
 
 #[inline]
 fn is_krb_tag(b: u8) -> bool {
-    matches!(b, TAG_AS_REQ | TAG_AS_REP | TAG_TGS_REQ | TAG_TGS_REP | TAG_AP_REQ | TAG_AP_REP | TAG_KRB_ERROR)
+    matches!(
+        b,
+        TAG_AS_REQ
+            | TAG_AS_REP
+            | TAG_TGS_REQ
+            | TAG_TGS_REP
+            | TAG_AP_REQ
+            | TAG_AP_REP
+            | TAG_KRB_ERROR
+    )
 }
 
 // ── Decoder ───────────────────────────────────────────────────────────────────
@@ -1020,9 +1027,9 @@ mod tests {
 
     fn integer(v: i64) -> Vec<u8> {
         // Minimal encoding for small non-negative values.
-        if v >= 0 && v < 0x80 {
+        if (0..0x80).contains(&v) {
             tlv(TAG_INTEGER, &[v as u8])
-        } else if v >= 0 && v < 0x8000 {
+        } else if (0..0x8000).contains(&v) {
             tlv(TAG_INTEGER, &[(v >> 8) as u8, v as u8])
         } else {
             tlv(TAG_INTEGER, &v.to_be_bytes())
@@ -1044,7 +1051,10 @@ mod tests {
     fn bit_string(flags: u32) -> Vec<u8> {
         // 4 flag bytes + 1 unused-bits byte (=0).
         let bytes = flags.to_be_bytes();
-        tlv(TAG_BIT_STRING, &[0x00, bytes[0], bytes[1], bytes[2], bytes[3]])
+        tlv(
+            TAG_BIT_STRING,
+            &[0x00, bytes[0], bytes[1], bytes[2], bytes[3]],
+        )
     }
 
     fn principal_name(name_type: i64, parts: &[&str]) -> Vec<u8> {
@@ -1146,7 +1156,10 @@ mod tests {
         seq_content.extend_from_slice(&ctx_wrap(6, &integer(error_code)));
         seq_content.extend_from_slice(&ctx_wrap(9, &general_string(realm)));
         seq_content.extend_from_slice(&ctx_wrap(10, &principal_name(2, sname_parts)));
-        seq_content.extend_from_slice(&ctx_wrap(11, &general_string("Client not found in Kerberos database")));
+        seq_content.extend_from_slice(&ctx_wrap(
+            11,
+            &general_string("Client not found in Kerberos database"),
+        ));
         tlv(TAG_KRB_ERROR, &seq(&seq_content))
     }
 
@@ -1154,17 +1167,34 @@ mod tests {
 
     #[test]
     fn test_as_req_parse() {
-        let payload = as_req_payload(&["alice"], "CORP.LOCAL", &["krbtgt", "CORP.LOCAL"], &[18, 17, 23]);
+        let payload = as_req_payload(
+            &["alice"],
+            "CORP.LOCAL",
+            &["krbtgt", "CORP.LOCAL"],
+            &[18, 17, 23],
+        );
         let mut dec = KerberosDecoder::default();
         let mut evs = Vec::new();
         dec.on_datagram(&chunk_udp(&payload, 54321, 88), &mut evs);
         let tx = get_tx(&evs).unwrap();
         assert_eq!(tx.operation, "kerberos_as_req");
         assert_eq!(tx.status, "request_only");
-        assert_eq!(tx.attributes.get("cname").map(String::as_str), Some("alice"));
-        assert_eq!(tx.attributes.get("realm").map(String::as_str), Some("CORP.LOCAL"));
-        assert_eq!(tx.attributes.get("etypes").map(String::as_str), Some("18,17,23"));
-        assert_eq!(tx.attributes.get("nonce").map(String::as_str), Some("0x12345678"));
+        assert_eq!(
+            tx.attributes.get("cname").map(String::as_str),
+            Some("alice")
+        );
+        assert_eq!(
+            tx.attributes.get("realm").map(String::as_str),
+            Some("CORP.LOCAL")
+        );
+        assert_eq!(
+            tx.attributes.get("etypes").map(String::as_str),
+            Some("18,17,23")
+        );
+        assert_eq!(
+            tx.attributes.get("nonce").map(String::as_str),
+            Some("0x12345678")
+        );
     }
 
     // ── Test: AS-REP parse ────────────────────────────────────────────────────
@@ -1178,9 +1208,18 @@ mod tests {
         let tx = get_tx(&evs).unwrap();
         assert_eq!(tx.operation, "kerberos_as_rep");
         assert_eq!(tx.status, "response_only");
-        assert_eq!(tx.attributes.get("cname").map(String::as_str), Some("alice"));
-        assert_eq!(tx.attributes.get("realm").map(String::as_str), Some("CORP.LOCAL"));
-        assert_eq!(tx.attributes.get("enc_etype").map(String::as_str), Some("18"));
+        assert_eq!(
+            tx.attributes.get("cname").map(String::as_str),
+            Some("alice")
+        );
+        assert_eq!(
+            tx.attributes.get("realm").map(String::as_str),
+            Some("CORP.LOCAL")
+        );
+        assert_eq!(
+            tx.attributes.get("enc_etype").map(String::as_str),
+            Some("18")
+        );
         // Ticket sname should be extracted.
         assert_eq!(
             tx.attributes.get("ticket_sname").map(String::as_str),
@@ -1193,7 +1232,12 @@ mod tests {
     #[test]
     fn test_tgs_req_parse() {
         // TGS-REQ shares the KDC-REQ structure; only tag changes.
-        let inner = as_req_payload(&["alice"], "CORP.LOCAL", &["cifs", "fileserver.corp.local"], &[18]);
+        let inner = as_req_payload(
+            &["alice"],
+            "CORP.LOCAL",
+            &["cifs", "fileserver.corp.local"],
+            &[18],
+        );
         // Patch the outer tag from AS-REQ (0x6A) to TGS-REQ (0x6C).
         let mut pkt = inner.clone();
         pkt[0] = TAG_TGS_REQ;
@@ -1202,7 +1246,10 @@ mod tests {
         dec.on_datagram(&chunk_udp(&pkt, 54321, 88), &mut evs);
         let tx = get_tx(&evs).unwrap();
         assert_eq!(tx.operation, "kerberos_tgs_req");
-        assert_eq!(tx.attributes.get("sname").map(String::as_str), Some("cifs/fileserver.corp.local"));
+        assert_eq!(
+            tx.attributes.get("sname").map(String::as_str),
+            Some("cifs/fileserver.corp.local")
+        );
     }
 
     // ── Test: AP-REQ parse ────────────────────────────────────────────────────
@@ -1215,11 +1262,14 @@ mod tests {
         ticket_seq_c.extend_from_slice(&ctx_wrap(0, &integer(5)));
         ticket_seq_c.extend_from_slice(&ctx_wrap(1, &general_string("CORP.LOCAL")));
         ticket_seq_c.extend_from_slice(&ctx_wrap(2, &ticket_sname));
-        ticket_seq_c.extend_from_slice(&ctx_wrap(3, &seq(&{
-            let mut v = ctx_wrap(0, &integer(18));
-            v.extend_from_slice(&ctx_wrap(2, &tlv(TAG_OCTET_STRING, b"ticketblob")));
-            v
-        })));
+        ticket_seq_c.extend_from_slice(&ctx_wrap(
+            3,
+            &seq(&{
+                let mut v = ctx_wrap(0, &integer(18));
+                v.extend_from_slice(&ctx_wrap(2, &tlv(TAG_OCTET_STRING, b"ticketblob")));
+                v
+            }),
+        ));
         let ticket = tlv(0x61, &seq(&ticket_seq_c));
 
         let mut seq_c = Vec::new();
@@ -1227,11 +1277,14 @@ mod tests {
         seq_c.extend_from_slice(&ctx_wrap(1, &integer(14)));
         seq_c.extend_from_slice(&ctx_wrap(2, &bit_string(0x20000000)));
         seq_c.extend_from_slice(&ctx_wrap(3, &ticket));
-        seq_c.extend_from_slice(&ctx_wrap(4, &seq(&{
-            let mut v = ctx_wrap(0, &integer(18));
-            v.extend_from_slice(&ctx_wrap(2, &tlv(TAG_OCTET_STRING, b"authblob")));
-            v
-        })));
+        seq_c.extend_from_slice(&ctx_wrap(
+            4,
+            &seq(&{
+                let mut v = ctx_wrap(0, &integer(18));
+                v.extend_from_slice(&ctx_wrap(2, &tlv(TAG_OCTET_STRING, b"authblob")));
+                v
+            }),
+        ));
 
         let pkt = tlv(TAG_AP_REQ, &seq(&seq_c));
         let mut dec = KerberosDecoder::default();
@@ -1265,8 +1318,14 @@ mod tests {
         let tx = get_tx(&evs).unwrap();
         assert_eq!(tx.operation, "kerberos_error");
         assert_eq!(tx.status, "error");
-        assert_eq!(tx.attributes.get("error_code").map(String::as_str), Some("25"));
-        assert_eq!(tx.attributes.get("svc_realm").map(String::as_str), Some("CORP.LOCAL"));
+        assert_eq!(
+            tx.attributes.get("error_code").map(String::as_str),
+            Some("25")
+        );
+        assert_eq!(
+            tx.attributes.get("svc_realm").map(String::as_str),
+            Some("CORP.LOCAL")
+        );
         // Also emits a ParseAnomaly at medium severity.
         let anomaly = get_anomaly(&evs).unwrap();
         assert_eq!(anomaly.severity, "medium");
@@ -1277,7 +1336,12 @@ mod tests {
 
     #[test]
     fn test_tcp_framing() {
-        let asn1 = as_req_payload(&["bob"], "AD.EXAMPLE.COM", &["krbtgt", "AD.EXAMPLE.COM"], &[18]);
+        let asn1 = as_req_payload(
+            &["bob"],
+            "AD.EXAMPLE.COM",
+            &["krbtgt", "AD.EXAMPLE.COM"],
+            &[18],
+        );
         let mut pkt = (asn1.len() as u32).to_be_bytes().to_vec();
         pkt.extend_from_slice(&asn1);
 
@@ -1287,7 +1351,10 @@ mod tests {
         let tx = get_tx(&evs).unwrap();
         assert_eq!(tx.operation, "kerberos_as_req");
         assert_eq!(tx.attributes.get("cname").map(String::as_str), Some("bob"));
-        assert_eq!(tx.attributes.get("realm").map(String::as_str), Some("AD.EXAMPLE.COM"));
+        assert_eq!(
+            tx.attributes.get("realm").map(String::as_str),
+            Some("AD.EXAMPLE.COM")
+        );
     }
 
     // ── Test: UDP datagram (no length prefix) ─────────────────────────────────
@@ -1353,7 +1420,12 @@ mod tests {
 
     #[test]
     fn test_realm_extraction() {
-        let payload = as_req_payload(&["svc_sql"], "FOREST.EXAMPLE.ORG", &["krbtgt", "FOREST.EXAMPLE.ORG"], &[18]);
+        let payload = as_req_payload(
+            &["svc_sql"],
+            "FOREST.EXAMPLE.ORG",
+            &["krbtgt", "FOREST.EXAMPLE.ORG"],
+            &[18],
+        );
         let mut dec = KerberosDecoder::default();
         let mut evs = Vec::new();
         dec.on_datagram(&chunk_udp(&payload, 54321, 88), &mut evs);
@@ -1375,10 +1447,22 @@ mod tests {
         let assets = get_assets(&evs);
         // Expect two AssetObservations: kdc_server and kerberos_client.
         assert_eq!(assets.len(), 2);
-        let kdc = assets.iter().find(|a| a.role.as_deref() == Some("kdc_server")).unwrap();
-        let client = assets.iter().find(|a| a.role.as_deref() == Some("kerberos_client")).unwrap();
-        assert_eq!(kdc.identifiers.get("realm").map(String::as_str), Some("CORP.LOCAL"));
-        assert_eq!(client.identifiers.get("cname").map(String::as_str), Some("dave"));
+        let kdc = assets
+            .iter()
+            .find(|a| a.role.as_deref() == Some("kdc_server"))
+            .unwrap();
+        let client = assets
+            .iter()
+            .find(|a| a.role.as_deref() == Some("kerberos_client"))
+            .unwrap();
+        assert_eq!(
+            kdc.identifiers.get("realm").map(String::as_str),
+            Some("CORP.LOCAL")
+        );
+        assert_eq!(
+            client.identifiers.get("cname").map(String::as_str),
+            Some("dave")
+        );
     }
 
     // ── Test: AS-REP + TGS-REP: enc_etype in attributes ─────────────────────
@@ -1393,6 +1477,9 @@ mod tests {
         dec.on_datagram(&chunk_udp(&pkt, 88, 54321), &mut evs);
         let tx = get_tx(&evs).unwrap();
         assert_eq!(tx.operation, "kerberos_tgs_rep");
-        assert_eq!(tx.attributes.get("enc_etype").map(String::as_str), Some("17"));
+        assert_eq!(
+            tx.attributes.get("enc_etype").map(String::as_str),
+            Some("17")
+        );
     }
 }

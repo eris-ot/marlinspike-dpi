@@ -62,10 +62,7 @@ impl ProtocolDissector for IcmpDissector {
             // Redirect: gateway IP(4) + original datagram header
             5 => {
                 let gw = if data.len() >= 8 {
-                    Some(format!(
-                        "{}.{}.{}.{}",
-                        data[4], data[5], data[6], data[7]
-                    ))
+                    Some(format!("{}.{}.{}.{}", data[4], data[5], data[6], data[7]))
                 } else {
                     None
                 };

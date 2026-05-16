@@ -14,7 +14,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── WS-Management action URI → canonical operation name ──────────────────────
@@ -24,17 +24,23 @@ use crate::engine::{
 /// emits `"winrm_unknown_action"`).
 fn wsm_action_name(uri: &str) -> Option<&'static str> {
     match uri {
-        "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get"           => Some("winrm_get"),
-        "http://schemas.xmlsoap.org/ws/2004/09/transfer/Put"           => Some("winrm_put"),
-        "http://schemas.xmlsoap.org/ws/2004/09/transfer/Create"        => Some("winrm_create"),
-        "http://schemas.xmlsoap.org/ws/2004/09/transfer/Delete"        => Some("winrm_delete"),
-        "http://schemas.xmlsoap.org/ws/2004/09/enumeration/Enumerate"  => Some("winrm_enumerate"),
-        "http://schemas.xmlsoap.org/ws/2004/09/enumeration/Pull"       => Some("winrm_pull"),
-        "http://schemas.xmlsoap.org/ws/2004/09/transfer/CommandLine"   => Some("winrm_command"),
-        "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command" => Some("winrm_shell_command"),
-        "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive" => Some("winrm_shell_receive"),
-        "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Send"    => Some("winrm_shell_send"),
-        "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Signal"  => Some("winrm_shell_signal"),
+        "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get" => Some("winrm_get"),
+        "http://schemas.xmlsoap.org/ws/2004/09/transfer/Put" => Some("winrm_put"),
+        "http://schemas.xmlsoap.org/ws/2004/09/transfer/Create" => Some("winrm_create"),
+        "http://schemas.xmlsoap.org/ws/2004/09/transfer/Delete" => Some("winrm_delete"),
+        "http://schemas.xmlsoap.org/ws/2004/09/enumeration/Enumerate" => Some("winrm_enumerate"),
+        "http://schemas.xmlsoap.org/ws/2004/09/enumeration/Pull" => Some("winrm_pull"),
+        "http://schemas.xmlsoap.org/ws/2004/09/transfer/CommandLine" => Some("winrm_command"),
+        "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command" => {
+            Some("winrm_shell_command")
+        }
+        "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive" => {
+            Some("winrm_shell_receive")
+        }
+        "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Send" => Some("winrm_shell_send"),
+        "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Signal" => {
+            Some("winrm_shell_signal")
+        }
         _ => None,
     }
 }
@@ -49,7 +55,7 @@ fn find_bytes_ci(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     }
     'outer: for i in 0..=(haystack.len() - needle.len()) {
         for (j, &nb) in needle.iter().enumerate() {
-            if haystack[i + j].to_ascii_lowercase() != nb.to_ascii_lowercase() {
+            if !haystack[i + j].eq_ignore_ascii_case(&nb) {
                 continue 'outer;
             }
         }
@@ -63,9 +69,7 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 /// Extract the value of an HTTP header from the raw payload.
@@ -126,15 +130,18 @@ fn extract_soap_action(payload: &[u8]) -> Option<&str> {
             let rel = find_bytes(&payload[search_from..], open_needle)?;
             let abs = search_from + rel;
             let sb = abs.saturating_sub(10);
-            if let Some(ltp) = payload[sb..abs].iter().rposition(|&b| b == b'<').map(|p| p + sb) {
-                if payload.get(ltp + 1).copied() != Some(b'/') {
-                    // Found a genuine open tag; reposition `pos` logic below
-                    let value_start = abs + open_needle.len();
-                    let close_needle = b"</";
-                    let close_pos = find_bytes(&payload[value_start..], close_needle)?;
-                    let raw = &payload[value_start..value_start + close_pos];
-                    return std::str::from_utf8(raw).ok().map(str::trim);
-                }
+            if let Some(ltp) = payload[sb..abs]
+                .iter()
+                .rposition(|&b| b == b'<')
+                .map(|p| p + sb)
+                && payload.get(ltp + 1).copied() != Some(b'/')
+            {
+                // Found a genuine open tag; reposition `pos` logic below
+                let value_start = abs + open_needle.len();
+                let close_needle = b"</";
+                let close_pos = find_bytes(&payload[value_start..], close_needle)?;
+                let raw = &payload[value_start..value_start + close_pos];
+                return std::str::from_utf8(raw).ok().map(str::trim);
             }
             search_from = abs + 1;
             if search_from >= payload.len() {
@@ -154,7 +161,8 @@ fn extract_soap_action(payload: &[u8]) -> Option<&str> {
 /// Returns true when the payload begins with `POST /wsman` (with or without
 /// trailing slash or query string). Comparison is ASCII case-sensitive per RFC.
 fn is_wsman_post(payload: &[u8]) -> bool {
-    payload.starts_with(b"POST /wsman/") || payload.starts_with(b"POST /wsman\r\n")
+    payload.starts_with(b"POST /wsman/")
+        || payload.starts_with(b"POST /wsman\r\n")
         || payload.starts_with(b"POST /wsman ")
 }
 
@@ -163,8 +171,16 @@ fn is_wsman_post(payload: &[u8]) -> bool {
 fn looks_like_http(payload: &[u8]) -> bool {
     let prefix = &payload[..payload.len().min(16)];
     // Common HTTP methods
-    for method in &[b"GET " as &[u8], b"POST ", b"PUT ", b"DELETE ", b"HEAD ",
-                    b"OPTIONS ", b"PATCH ", b"HTTP/"] {
+    for method in &[
+        b"GET " as &[u8],
+        b"POST ",
+        b"PUT ",
+        b"DELETE ",
+        b"HEAD ",
+        b"OPTIONS ",
+        b"PATCH ",
+        b"HTTP/",
+    ] {
         if prefix.starts_with(method) {
             return true;
         }
@@ -195,7 +211,10 @@ impl SessionDecoder for WinRmDecoder {
     }
 
     fn interest(&self) -> &'static [DecoderInterest] {
-        &[DecoderInterest::TcpPort(5985), DecoderInterest::TcpPort(5986)]
+        &[
+            DecoderInterest::TcpPort(5985),
+            DecoderInterest::TcpPort(5986),
+        ]
     }
 
     fn on_stream_chunk(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
@@ -250,21 +269,23 @@ impl SessionDecoder for WinRmDecoder {
             ));
 
             // Emit one ProtocolTransaction per session for 5986.
-            let session = self
-                .sessions
-                .entry(chunk.session_key.clone())
-                .or_default();
+            let session = self.sessions.entry(chunk.session_key.clone()).or_default();
             if !session.https_emitted {
                 session.https_emitted = true;
                 let mut attributes = BTreeMap::new();
-                attributes.insert("note".to_string(), "TLS-encrypted, payload opaque".to_string());
+                attributes.insert(
+                    "note".to_string(),
+                    "TLS-encrypted, payload opaque".to_string(),
+                );
                 out.push(new_event(
                     chunk.capture_id.to_string(),
                     envelope,
                     BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                         operation: "winrm_https_session".to_string(),
                         status: "observed".to_string(),
-                        request_summary: Some("WinRM/HTTPS session (5986, payload opaque)".to_string()),
+                        request_summary: Some(
+                            "WinRM/HTTPS session (5986, payload opaque)".to_string(),
+                        ),
                         response_summary: None,
                         object_refs: Vec::new(),
                         values: Vec::new(),
@@ -342,11 +363,9 @@ impl SessionDecoder for WinRmDecoder {
 
         // Derive operation name from the resolved action URI.
         let operation = match &action_uri {
-            Some(uri) if !uri.is_empty() => {
-                wsm_action_name(uri)
-                    .unwrap_or("winrm_unknown_action")
-                    .to_string()
-            }
+            Some(uri) if !uri.is_empty() => wsm_action_name(uri)
+                .unwrap_or("winrm_unknown_action")
+                .to_string(),
             _ => "winrm_request_no_action".to_string(),
         };
 
@@ -524,8 +543,7 @@ mod tests {
     #[test]
     fn test_winrm_enumerate_action() {
         let mut decoder = WinRmDecoder::default();
-        let payload =
-            wsman_post("http://schemas.xmlsoap.org/ws/2004/09/enumeration/Enumerate");
+        let payload = wsman_post("http://schemas.xmlsoap.org/ws/2004/09/enumeration/Enumerate");
         let chunk = chunk_with_ctx(&payload, ctx_5985());
         let mut out = Vec::new();
         decoder.on_stream_chunk(&chunk, &mut out);
@@ -537,7 +555,10 @@ mod tests {
                 None
             }
         });
-        assert_eq!(tx.expect("ProtocolTransaction").operation, "winrm_enumerate");
+        assert_eq!(
+            tx.expect("ProtocolTransaction").operation,
+            "winrm_enumerate"
+        );
     }
 
     // ── Test 3: Shell Command action ──────────────────────────────────────────
@@ -545,8 +566,7 @@ mod tests {
     #[test]
     fn test_winrm_shell_command_action() {
         let mut decoder = WinRmDecoder::default();
-        let payload =
-            wsman_post("http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command");
+        let payload = wsman_post("http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command");
         let chunk = chunk_with_ctx(&payload, ctx_5985());
         let mut out = Vec::new();
         decoder.on_stream_chunk(&chunk, &mut out);
@@ -640,7 +660,10 @@ mod tests {
             .iter()
             .filter(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
             .count();
-        assert_eq!(tx_count, 0, "second 5986 chunk should not re-emit ProtocolTransaction");
+        assert_eq!(
+            tx_count, 0,
+            "second 5986 chunk should not re-emit ProtocolTransaction"
+        );
     }
 
     // ── Test 6: Non-HTTP traffic on 5985 → ParseAnomaly severity="low" ────────
@@ -649,8 +672,10 @@ mod tests {
     fn test_winrm_5985_non_http_anomaly() {
         let mut decoder = WinRmDecoder::default();
         // Binary garbage — clearly not HTTP.
-        let payload: Vec<u8> = vec![0xFF, 0xFE, 0x00, 0x01, 0xDE, 0xAD, 0xBE, 0xEF,
-                                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let payload: Vec<u8> = vec![
+            0xFF, 0xFE, 0x00, 0x01, 0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
         let chunk = chunk_with_ctx(&payload, ctx_5985());
         let mut out = Vec::new();
         decoder.on_stream_chunk(&chunk, &mut out);

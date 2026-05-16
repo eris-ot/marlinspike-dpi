@@ -54,7 +54,7 @@ impl PrpDissector {
             let value = &data[value_start..value_start + tlv_len];
 
             match tlv_type {
-                20 | 21 | 22 | 23 => {
+                20..=23 => {
                     // Node TLV: mac(6)
                     supervision_type = Some(tlv_type);
                     if value.len() >= 6 {
@@ -171,10 +171,7 @@ mod tests {
         let fields = dissector.parse_fields(&pkt).expect("prp fields");
         assert_eq!(fields.supervision_type, 20);
         assert_eq!(fields.supervision_type_name, "PRP_Node");
-        assert_eq!(
-            fields.source_mac.as_deref(),
-            Some("aa:bb:cc:11:22:33")
-        );
+        assert_eq!(fields.source_mac.as_deref(), Some("aa:bb:cc:11:22:33"));
     }
 
     #[test]

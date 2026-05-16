@@ -22,33 +22,31 @@
 
 use std::collections::BTreeMap;
 
-use chrono::Utc;
-
+use crate::bronze::TransportProtocol;
 use crate::bronze::{AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction};
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
-use crate::bronze::TransportProtocol;
 
 // ── Performative code constants ───────────────────────────────────────────────
 
 /// AMQP performative codes (byte following `0x00 0x53` in frame body).
-const PERF_OPEN: u8        = 0x10;
-const PERF_BEGIN: u8       = 0x11;
-const PERF_ATTACH: u8      = 0x12;
-const PERF_FLOW: u8        = 0x13;
-const PERF_TRANSFER: u8    = 0x14;
+const PERF_OPEN: u8 = 0x10;
+const PERF_BEGIN: u8 = 0x11;
+const PERF_ATTACH: u8 = 0x12;
+const PERF_FLOW: u8 = 0x13;
+const PERF_TRANSFER: u8 = 0x14;
 const PERF_DISPOSITION: u8 = 0x15;
-const PERF_DETACH: u8      = 0x16;
-const PERF_END: u8         = 0x17;
-const PERF_CLOSE: u8       = 0x18;
+const PERF_DETACH: u8 = 0x16;
+const PERF_END: u8 = 0x17;
+const PERF_CLOSE: u8 = 0x18;
 
 /// SASL performative codes (frame type=1).
-const SASL_MECHANISMS: u8  = 0x40;
-const SASL_INIT: u8        = 0x41;
-const SASL_CHALLENGE: u8   = 0x42;
-const SASL_RESPONSE: u8    = 0x43;
-const SASL_OUTCOME: u8     = 0x44;
+const SASL_MECHANISMS: u8 = 0x40;
+const SASL_INIT: u8 = 0x41;
+const SASL_CHALLENGE: u8 = 0x42;
+const SASL_RESPONSE: u8 = 0x43;
+const SASL_OUTCOME: u8 = 0x44;
 
 // ── Decoder state ─────────────────────────────────────────────────────────────
 
@@ -121,8 +119,8 @@ impl SessionDecoder for AmqpDecoder {
         // Check for 8-byte AMQP protocol header: b"AMQP" | proto_id | 1 | 0 | 0
         if payload.len() >= 8 && &payload[0..4] == b"AMQP" {
             let proto_id = payload[4];
-            let major    = payload[5];
-            let minor    = payload[6];
+            let major = payload[5];
+            let minor = payload[6];
             let revision = payload[7];
 
             // Validate version bytes; emit anomaly if major != 1 (AMQP 1.0)
@@ -214,12 +212,15 @@ impl AmqpDecoder {
 
         while cursor + 8 <= data.len() {
             // Frame header: size(4) | doff(1) | type(1) | channel/reserved(2)
-            let frame_size =
-                u32::from_be_bytes([data[cursor], data[cursor+1], data[cursor+2], data[cursor+3]])
-                    as usize;
-            let doff      = data[cursor + 4];
+            let frame_size = u32::from_be_bytes([
+                data[cursor],
+                data[cursor + 1],
+                data[cursor + 2],
+                data[cursor + 3],
+            ]) as usize;
+            let doff = data[cursor + 4];
             let frame_type = data[cursor + 5];
-            let channel   = u16::from_be_bytes([data[cursor + 6], data[cursor + 7]]);
+            let channel = u16::from_be_bytes([data[cursor + 6], data[cursor + 7]]);
 
             // DOFF < 2 means a header shorter than 8 bytes — malformed.
             if doff < 2 {
@@ -382,23 +383,23 @@ impl AmqpDecoder {
 fn performative_operation(frame_type: u8, code: u8) -> String {
     match (frame_type, code) {
         // AMQP connection/session/link performatives (type=0)
-        (0, PERF_OPEN)        => "amqp_open".to_string(),
-        (0, PERF_BEGIN)       => "amqp_begin".to_string(),
-        (0, PERF_ATTACH)      => "amqp_attach".to_string(),
-        (0, PERF_FLOW)        => "amqp_flow".to_string(),
-        (0, PERF_TRANSFER)    => "amqp_transfer".to_string(),
+        (0, PERF_OPEN) => "amqp_open".to_string(),
+        (0, PERF_BEGIN) => "amqp_begin".to_string(),
+        (0, PERF_ATTACH) => "amqp_attach".to_string(),
+        (0, PERF_FLOW) => "amqp_flow".to_string(),
+        (0, PERF_TRANSFER) => "amqp_transfer".to_string(),
         (0, PERF_DISPOSITION) => "amqp_disposition".to_string(),
-        (0, PERF_DETACH)      => "amqp_detach".to_string(),
-        (0, PERF_END)         => "amqp_end".to_string(),
-        (0, PERF_CLOSE)       => "amqp_close".to_string(),
+        (0, PERF_DETACH) => "amqp_detach".to_string(),
+        (0, PERF_END) => "amqp_end".to_string(),
+        (0, PERF_CLOSE) => "amqp_close".to_string(),
         // SASL performatives (type=1)
-        (1, SASL_MECHANISMS)  => "amqp_sasl_mechanisms".to_string(),
-        (1, SASL_INIT)        => "amqp_sasl_init".to_string(),
-        (1, SASL_CHALLENGE)   => "amqp_sasl_challenge".to_string(),
-        (1, SASL_RESPONSE)    => "amqp_sasl_response".to_string(),
-        (1, SASL_OUTCOME)     => "amqp_sasl_outcome".to_string(),
+        (1, SASL_MECHANISMS) => "amqp_sasl_mechanisms".to_string(),
+        (1, SASL_INIT) => "amqp_sasl_init".to_string(),
+        (1, SASL_CHALLENGE) => "amqp_sasl_challenge".to_string(),
+        (1, SASL_RESPONSE) => "amqp_sasl_response".to_string(),
+        (1, SASL_OUTCOME) => "amqp_sasl_outcome".to_string(),
         // Unknown descriptor on either frame type
-        (_, c)                => format!("amqp_unknown_descriptor_0x{:02x}", c),
+        (_, c) => format!("amqp_unknown_descriptor_0x{:02x}", c),
     }
 }
 
@@ -460,9 +461,9 @@ mod tests {
         let mut frame = Vec::new();
         // Total frame size = 8-byte header + 3-byte described-type prefix = 11
         let size: u32 = 11;
-        frame.extend_from_slice(&size.to_be_bytes());    // size
-        frame.push(2);                                    // doff = 2 (8-byte header)
-        frame.push(frame_type);                           // type: 0=AMQP, 1=SASL
+        frame.extend_from_slice(&size.to_be_bytes()); // size
+        frame.push(2); // doff = 2 (8-byte header)
+        frame.push(frame_type); // type: 0=AMQP, 1=SASL
         frame.extend_from_slice(&channel.to_be_bytes()); // channel / reserved
         // Performative body: described-type prefix 0x00 0x53 <code>
         frame.push(0x00); // described-type marker
@@ -491,8 +492,14 @@ mod tests {
         });
         let tx = tx.expect("expected amqp_protocol_header transaction");
         assert_eq!(tx.status, "observed");
-        assert_eq!(tx.attributes.get("protocol_id").map(String::as_str), Some("0"));
-        assert_eq!(tx.attributes.get("version").map(String::as_str), Some("1.0.0"));
+        assert_eq!(
+            tx.attributes.get("protocol_id").map(String::as_str),
+            Some("0")
+        );
+        assert_eq!(
+            tx.attributes.get("version").map(String::as_str),
+            Some("1.0.0")
+        );
     }
 
     // ── Test 2: AMQP frame with OPEN descriptor ───────────────────────────────
@@ -549,7 +556,10 @@ mod tests {
         });
         assert!(tx.is_some(), "expected amqp_transfer transaction");
         let tx = tx.unwrap();
-        assert_eq!(tx.attributes.get("frame_type").map(String::as_str), Some("amqp"));
+        assert_eq!(
+            tx.attributes.get("frame_type").map(String::as_str),
+            Some("amqp")
+        );
         assert_eq!(tx.attributes.get("channel").map(String::as_str), Some("1"));
     }
 
@@ -571,9 +581,15 @@ mod tests {
             }
         });
         let tx = tx.expect("expected amqp_sasl_init transaction");
-        assert_eq!(tx.attributes.get("frame_type").map(String::as_str), Some("sasl"));
+        assert_eq!(
+            tx.attributes.get("frame_type").map(String::as_str),
+            Some("sasl")
+        );
         // SASL frames should not expose a channel attribute
-        assert!(!tx.attributes.contains_key("channel"), "SASL frames must not carry channel");
+        assert!(
+            !tx.attributes.contains_key("channel"),
+            "SASL frames must not carry channel"
+        );
     }
 
     // ── Test 5: TLS port (5671) emits amqp_tls_session ───────────────────────
@@ -609,10 +625,10 @@ mod tests {
         let mut frame = Vec::new();
         let size: u32 = 11;
         frame.extend_from_slice(&size.to_be_bytes()); // size
-        frame.push(1);            // doff = 1 — INVALID (minimum is 2)
-        frame.push(0);            // frame type = AMQP
+        frame.push(1); // doff = 1 — INVALID (minimum is 2)
+        frame.push(0); // frame type = AMQP
         frame.extend_from_slice(&0u16.to_be_bytes()); // channel = 0
-        frame.push(0x00);         // described-type marker
+        frame.push(0x00); // described-type marker
         frame.push(0x53);
         frame.push(PERF_OPEN);
 
@@ -629,7 +645,10 @@ mod tests {
         });
         let anomaly = anomaly.expect("expected ParseAnomaly for DOFF < 2");
         assert_eq!(anomaly.severity, "low");
-        assert!(anomaly.reason.contains("DOFF"), "reason should mention DOFF");
+        assert!(
+            anomaly.reason.contains("DOFF"),
+            "reason should mention DOFF"
+        );
     }
 
     // ── Test 7: TLS session record emitted only once per session ─────────────
@@ -654,5 +673,4 @@ mod tests {
             .count();
         assert_eq!(count, 1, "amqp_tls_session should be emitted exactly once");
     }
-
 }

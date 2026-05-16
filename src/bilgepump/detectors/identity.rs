@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use crate::bilgepump::alerts::{AlertKind, AlertSeverity, BilgepumpAlert};
 use crate::bilgepump::config::BilgepumpConfig;
 use crate::bilgepump::state::{CdpIdentityRecord, LldpIdentityRecord};
-use crate::registry::{format_mac, CdpFields, LldpFields};
+use crate::registry::{CdpFields, LldpFields, format_mac};
 
 /// Stateful identity conflict detector.
 #[derive(Debug, Default)]
@@ -32,18 +32,19 @@ impl IdentityDetector {
 
         let mut alerts = Vec::new();
 
-        if let Some(existing) = self.lldp.get(src_mac) {
-            if existing.chassis_id != fields.chassis_id && !fields.chassis_id.is_empty() {
-                alerts.push(BilgepumpAlert {
-                    kind: AlertKind::LldpIdentityConflict {
-                        src_mac: format_mac(src_mac),
-                        current_chassis_id: fields.chassis_id.clone(),
-                        previous_chassis_id: existing.chassis_id.clone(),
-                    },
-                    severity: AlertSeverity::High,
-                    decoder: "bilgepump:lldp_conflict",
-                });
-            }
+        if let Some(existing) = self.lldp.get(src_mac)
+            && existing.chassis_id != fields.chassis_id
+            && !fields.chassis_id.is_empty()
+        {
+            alerts.push(BilgepumpAlert {
+                kind: AlertKind::LldpIdentityConflict {
+                    src_mac: format_mac(src_mac),
+                    current_chassis_id: fields.chassis_id.clone(),
+                    previous_chassis_id: existing.chassis_id.clone(),
+                },
+                severity: AlertSeverity::High,
+                decoder: "bilgepump:lldp_conflict",
+            });
         }
 
         self.lldp.insert(
@@ -52,11 +53,7 @@ impl IdentityDetector {
                 chassis_id: fields.chassis_id.clone(),
                 system_name: fields.system_name.clone(),
                 src_mac: *src_mac,
-                first_seen: self
-                    .lldp
-                    .get(src_mac)
-                    .map(|r| r.first_seen)
-                    .unwrap_or(now),
+                first_seen: self.lldp.get(src_mac).map(|r| r.first_seen).unwrap_or(now),
                 last_seen: now,
             },
         );
@@ -77,18 +74,19 @@ impl IdentityDetector {
 
         let mut alerts = Vec::new();
 
-        if let Some(existing) = self.cdp.get(src_mac) {
-            if existing.device_id != fields.device_id && !fields.device_id.is_empty() {
-                alerts.push(BilgepumpAlert {
-                    kind: AlertKind::CdpIdentityConflict {
-                        src_mac: format_mac(src_mac),
-                        current_device_id: fields.device_id.clone(),
-                        previous_device_id: existing.device_id.clone(),
-                    },
-                    severity: AlertSeverity::High,
-                    decoder: "bilgepump:cdp_conflict",
-                });
-            }
+        if let Some(existing) = self.cdp.get(src_mac)
+            && existing.device_id != fields.device_id
+            && !fields.device_id.is_empty()
+        {
+            alerts.push(BilgepumpAlert {
+                kind: AlertKind::CdpIdentityConflict {
+                    src_mac: format_mac(src_mac),
+                    current_device_id: fields.device_id.clone(),
+                    previous_device_id: existing.device_id.clone(),
+                },
+                severity: AlertSeverity::High,
+                decoder: "bilgepump:cdp_conflict",
+            });
         }
 
         self.cdp.insert(
@@ -97,11 +95,7 @@ impl IdentityDetector {
                 device_id: fields.device_id.clone(),
                 platform: fields.platform.clone(),
                 src_mac: *src_mac,
-                first_seen: self
-                    .cdp
-                    .get(src_mac)
-                    .map(|r| r.first_seen)
-                    .unwrap_or(now),
+                first_seen: self.cdp.get(src_mac).map(|r| r.first_seen).unwrap_or(now),
                 last_seen: now,
             },
         );
@@ -155,7 +149,9 @@ mod tests {
         };
         let alerts = det.observe_lldp(&fields2, &mac, &config, t2);
         assert!(
-            alerts.iter().any(|a| a.decoder == "bilgepump:lldp_conflict"),
+            alerts
+                .iter()
+                .any(|a| a.decoder == "bilgepump:lldp_conflict"),
             "expected LLDP identity conflict"
         );
     }

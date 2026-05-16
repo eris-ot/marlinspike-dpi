@@ -15,7 +15,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 const TLS_CHANGE_CIPHER_SPEC: u8 = 0x14;
@@ -61,7 +61,10 @@ impl SessionDecoder for RadSecDecoder {
         };
 
         let first = payload[0];
-        if !matches!(first, TLS_CHANGE_CIPHER_SPEC | TLS_ALERT | TLS_HANDSHAKE | TLS_APPLICATION_DATA) {
+        if !matches!(
+            first,
+            TLS_CHANGE_CIPHER_SPEC | TLS_ALERT | TLS_HANDSHAKE | TLS_APPLICATION_DATA
+        ) {
             out.push(parse_anomaly_event(
                 chunk.capture_id.to_string(),
                 make_env(),
@@ -167,7 +170,11 @@ mod tests {
         }
     }
 
-    fn make_chunk<'a>(payload: &'a [u8], ctx: &'a PacketContext, session_key: &'a str) -> StreamChunk<'a> {
+    fn make_chunk<'a>(
+        payload: &'a [u8],
+        ctx: &'a PacketContext,
+        session_key: &'a str,
+    ) -> StreamChunk<'a> {
         StreamChunk {
             capture_id: "test_cap",
             segment_hash: "deadbeef",
@@ -216,7 +223,11 @@ mod tests {
         let ctx = make_context();
         dec.on_stream_chunk(&make_chunk(&payload, &ctx, "sess-1"), &mut out);
 
-        assert_eq!(out.len(), 2, "expected ProtocolTransaction + AssetObservation");
+        assert_eq!(
+            out.len(),
+            2,
+            "expected ProtocolTransaction + AssetObservation"
+        );
         let tx = as_transaction(&out[0]);
         assert_eq!(tx.operation, "radsec_tls_session");
         assert_eq!(tx.status, "observed");
@@ -237,7 +248,10 @@ mod tests {
         assert_eq!(out.len(), 2);
         let asset = as_asset(&out[1]);
         assert_eq!(asset.role.as_deref(), Some("radsec_server"));
-        assert_eq!(asset.identifiers.get("port").map(String::as_str), Some("2083"));
+        assert_eq!(
+            asset.identifiers.get("port").map(String::as_str),
+            Some("2083")
+        );
         assert_eq!(asset.asset_key, "10.0.0.2");
     }
 
@@ -267,7 +281,11 @@ mod tests {
         assert_eq!(out.len(), 1);
         let anomaly = as_anomaly(&out[0]);
         assert_eq!(anomaly.severity, "low");
-        assert!(anomaly.reason.contains("TLS record byte"), "got: {}", anomaly.reason);
+        assert!(
+            anomaly.reason.contains("TLS record byte"),
+            "got: {}",
+            anomaly.reason
+        );
     }
 
     // Test 5: Interest list is exactly TCP/2083.

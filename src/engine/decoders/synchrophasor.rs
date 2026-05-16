@@ -3,9 +3,7 @@
 //! this module just bridges that to the engine's dispatch surface.
 
 use crate::bronze::BronzeEvent;
-use crate::engine::{
-    build_envelope, DecoderInterest, SessionDecoder, StreamChunk,
-};
+use crate::engine::{DecoderInterest, SessionDecoder, StreamChunk, build_envelope};
 
 #[derive(Default)]
 pub(crate) struct SynchrophasorDecoderWrapper {

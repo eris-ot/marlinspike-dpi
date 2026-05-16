@@ -6,8 +6,8 @@ use crate::bronze::{
 };
 use crate::dissectors::s7comm::S7commDissector;
 use crate::engine::{
-    artifact_event, build_envelope, new_event, parse_anomaly_event, DecoderInterest,
-    SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
+    parse_anomaly_event,
 };
 use crate::registry::{PacketContext, ProtocolData, ProtocolDissector, S7commFields};
 
@@ -59,8 +59,13 @@ impl SessionDecoder for S7commDecoderWrapper {
                 attributes.insert("parameter_length".to_string(), parameter.len().to_string());
                 attributes.insert("data_length".to_string(), data.len().to_string());
 
-                let protocol_fields =
-                    s7comm_bronze_fields(rosctr, function, &parameter, chunk.payload, &chunk.context);
+                let protocol_fields = s7comm_bronze_fields(
+                    rosctr,
+                    function,
+                    &parameter,
+                    chunk.payload,
+                    &chunk.context,
+                );
 
                 let envelope = build_envelope(
                     &chunk.context,
@@ -209,14 +214,13 @@ fn s7comm_bronze_fields(
     };
 
     // Userdata fields: parameter[7] carries group (high nibble) + subcode (low nibble).
-    let (userdata_function_group, userdata_function_subcode) = if rosctr == 0x07
-        && parameter.len() >= 8
-    {
-        let byte = parameter[7];
-        (Some((byte >> 4) & 0x0F), Some(byte & 0x0F))
-    } else {
-        (None, None)
-    };
+    let (userdata_function_group, userdata_function_subcode) =
+        if rosctr == 0x07 && parameter.len() >= 8 {
+            let byte = parameter[7];
+            (Some((byte >> 4) & 0x0F), Some(byte & 0x0F))
+        } else {
+            (None, None)
+        };
 
     // For Read Var (0x04) / Write Var (0x05): parameter[1] is item_count;
     // each S7 Any-Pointer item is 12 bytes, and area is at item_offset + 3.
@@ -312,10 +316,13 @@ mod tests {
         let mut parameter = vec![function];
         parameter.extend_from_slice(param_extra);
 
-        let s7_header_size: usize = if rosctr == 0x02 || rosctr == 0x03 { 12 } else { 10 };
+        let s7_header_size: usize = if rosctr == 0x02 || rosctr == 0x03 {
+            12
+        } else {
+            10
+        };
         let cotp_len: u8 = 2;
-        let tpkt_payload =
-            1 + cotp_len as usize + s7_header_size + parameter.len() + s7_data.len();
+        let tpkt_payload = 1 + cotp_len as usize + s7_header_size + parameter.len() + s7_data.len();
         let tpkt_total = (TPKT_HEADER_SIZE + tpkt_payload) as u16;
 
         let mut pkt = Vec::new();
@@ -357,8 +364,7 @@ mod tests {
         parameter.extend_from_slice(param_extra);
         let s7_header_size = 12usize;
         let cotp_len: u8 = 2;
-        let tpkt_payload =
-            1 + cotp_len as usize + s7_header_size + parameter.len() + s7_data.len();
+        let tpkt_payload = 1 + cotp_len as usize + s7_header_size + parameter.len() + s7_data.len();
         let tpkt_total = (TPKT_HEADER_SIZE + tpkt_payload) as u16;
 
         let mut pkt = Vec::new();
@@ -381,7 +387,10 @@ mod tests {
         pkt
     }
 
-    fn decode_first(payload: &[u8], ctx: PacketContext) -> Option<crate::bronze::ProtocolTransaction> {
+    fn decode_first(
+        payload: &[u8],
+        ctx: PacketContext,
+    ) -> Option<crate::bronze::ProtocolTransaction> {
         let mut decoder = S7commDecoderWrapper::default();
         let mut out = Vec::new();
         let chunk = StreamChunk {
@@ -414,7 +423,13 @@ mod tests {
     #[test]
     fn typed_setup_communication_job() {
         // ROSCTR=Job, function=0xF0 (Setup Communication).
-        let pkt = build_s7_packet(0x01, 0x0042, 0xF0, &[0x00, 0x00, 0x01, 0x00, 0x01, 0xE0], &[]);
+        let pkt = build_s7_packet(
+            0x01,
+            0x0042,
+            0xF0,
+            &[0x00, 0x00, 0x01, 0x00, 0x01, 0xE0],
+            &[],
+        );
         let tx = decode_first(&pkt, ctx_request()).expect("expected ProtocolTransaction");
 
         match tx.protocol_fields.expect("protocol_fields must be Some") {
@@ -441,7 +456,9 @@ mod tests {
         //   + area(1) + address(3) = total 10 bytes (variable spec), plus var_spec_length(2)
         //   pre-pended. We use a realistic 12-byte item: var_spec=0x12, length=0x0A, syntax=0x10,
         //   transport_size=0x02 (BYTE), len=0x0001, db_num=0x0005, area=0x84 (DB), addr=[0,0,0].
-        let item: &[u8] = &[0x12, 0x0A, 0x10, 0x02, 0x00, 0x01, 0x00, 0x05, 0x84, 0x00, 0x00, 0x00];
+        let item: &[u8] = &[
+            0x12, 0x0A, 0x10, 0x02, 0x00, 0x01, 0x00, 0x05, 0x84, 0x00, 0x00, 0x00,
+        ];
         // param_extra after function byte: item_count(1) + item(12)
         let mut param_extra = vec![0x01u8]; // item_count
         param_extra.extend_from_slice(item);
@@ -475,7 +492,9 @@ mod tests {
     #[test]
     fn typed_write_var_job() {
         // ROSCTR=Job, function=0x05 (Write Var), 2 items.
-        let item: &[u8] = &[0x12, 0x0A, 0x10, 0x04, 0x00, 0x01, 0x00, 0x05, 0x84, 0x00, 0x00, 0x00];
+        let item: &[u8] = &[
+            0x12, 0x0A, 0x10, 0x04, 0x00, 0x01, 0x00, 0x05, 0x84, 0x00, 0x00, 0x00,
+        ];
         let mut param_extra = vec![0x02u8]; // item_count=2
         param_extra.extend_from_slice(item);
         let pkt = build_s7_packet(0x01, 0x0003, 0x05, &param_extra, &[0xAA, 0xBB]);
@@ -539,10 +558,22 @@ mod tests {
         let pkt = build_s7_packet(0x01, 0x0001, 0xF0, &[], &[]);
         let tx = decode_first(&pkt, ctx_request()).expect("expected ProtocolTransaction");
 
-        assert!(tx.attributes.contains_key("rosctr"), "rosctr must remain in attributes");
-        assert!(tx.attributes.contains_key("rosctr_name"), "rosctr_name must remain in attributes");
-        assert!(tx.attributes.contains_key("function"), "function must remain in attributes");
-        assert!(tx.protocol_fields.is_some(), "protocol_fields must also be set");
+        assert!(
+            tx.attributes.contains_key("rosctr"),
+            "rosctr must remain in attributes"
+        );
+        assert!(
+            tx.attributes.contains_key("rosctr_name"),
+            "rosctr_name must remain in attributes"
+        );
+        assert!(
+            tx.attributes.contains_key("function"),
+            "function must remain in attributes"
+        );
+        assert!(
+            tx.protocol_fields.is_some(),
+            "protocol_fields must also be set"
+        );
     }
 
     #[test]

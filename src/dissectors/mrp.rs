@@ -74,7 +74,7 @@ impl MrpDissector {
                         });
                     }
                 }
-                0x0002 | 0x0003 | 0x0004 => {
+                0x0002..=0x0004 => {
                     // TopologyChange / LinkDown / LinkUp: sa(6) + port_role(2)
                     if value.len() >= 6 {
                         source_mac = Some(format!(
@@ -114,11 +114,22 @@ impl MrpDissector {
 fn format_uuid(bytes: &[u8]) -> String {
     format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        bytes[0], bytes[1], bytes[2], bytes[3],
-        bytes[4], bytes[5],
-        bytes[6], bytes[7],
-        bytes[8], bytes[9],
-        bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
     )
 }
 
@@ -203,10 +214,7 @@ mod tests {
         assert_eq!(fields.frame_type_name, "MRP_Test");
         assert_eq!(fields.ring_state.as_deref(), Some("closed"));
         assert_eq!(fields.priority, Some(0x8000));
-        assert_eq!(
-            fields.source_mac.as_deref(),
-            Some("aa:bb:cc:11:22:33")
-        );
+        assert_eq!(fields.source_mac.as_deref(), Some("aa:bb:cc:11:22:33"));
     }
 
     #[test]

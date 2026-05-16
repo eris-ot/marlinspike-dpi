@@ -25,7 +25,7 @@ impl VtpDissector {
         }
 
         let version = data[0];
-        if !matches!(version, 1 | 2 | 3) {
+        if !matches!(version, 1..=3) {
             return None;
         }
         let code = data[1];
@@ -45,15 +45,13 @@ impl VtpDissector {
             0x01 => {
                 // Summary: after domain(32), revision(4), updater_identity(4), update_timestamp(12), md5(16)
                 if data.len() >= 40 {
-                    revision =
-                        Some(u32::from_be_bytes([data[36], data[37], data[38], data[39]]));
+                    revision = Some(u32::from_be_bytes([data[36], data[37], data[38], data[39]]));
                 }
             }
             0x02 => {
                 // Subset: after domain(32), revision(4), then VLAN info entries.
                 if data.len() >= 40 {
-                    revision =
-                        Some(u32::from_be_bytes([data[36], data[37], data[38], data[39]]));
+                    revision = Some(u32::from_be_bytes([data[36], data[37], data[38], data[39]]));
                 }
                 let mut offset = 40;
                 while offset + 4 <= data.len() {
@@ -62,8 +60,7 @@ impl VtpDissector {
                         break;
                     }
                     if offset + 6 <= data.len() {
-                        let vlan_id =
-                            u16::from_be_bytes([data[offset + 2], data[offset + 3]]);
+                        let vlan_id = u16::from_be_bytes([data[offset + 2], data[offset + 3]]);
                         vlans.push(vlan_id);
                     }
                     offset += entry_len;
@@ -92,7 +89,7 @@ impl ProtocolDissector for VtpDissector {
         if src_port != 0 || dst_port != 0 {
             return false;
         }
-        data.len() >= 36 && matches!(data[0], 1 | 2 | 3)
+        data.len() >= 36 && matches!(data[0], 1..=3)
     }
 
     fn parse(&self, data: &[u8], _context: &PacketContext) -> Option<ProtocolData> {

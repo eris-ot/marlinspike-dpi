@@ -17,7 +17,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 // ── CIP service codes of interest ───────────────────────────────────────────
@@ -94,7 +94,8 @@ impl SessionDecoder for CipSafetyDecoder {
                 break;
             }
             let item_type = u16::from_le_bytes([cip_data[offset], cip_data[offset + 1]]);
-            let item_len = u16::from_le_bytes([cip_data[offset + 2], cip_data[offset + 3]]) as usize;
+            let item_len =
+                u16::from_le_bytes([cip_data[offset + 2], cip_data[offset + 3]]) as usize;
             offset += 4;
             if offset + item_len > cip_data.len() {
                 break;
@@ -180,11 +181,11 @@ impl SessionDecoder for CipSafetyDecoder {
         let b = &msg[fo_start..];
 
         // b[0]: priority_time_tick, b[1]: timeout_ticks
-        let ot_conn_id    = u32::from_le_bytes([b[2],  b[3],  b[4],  b[5]]);
-        let _to_conn_id   = u32::from_le_bytes([b[6],  b[7],  b[8],  b[9]]);
-        let conn_serial   = u16::from_le_bytes([b[10], b[11]]);
-        let vendor_id     = u16::from_le_bytes([b[12], b[13]]);
-        let orig_serial   = u32::from_le_bytes([b[14], b[15], b[16], b[17]]);
+        let ot_conn_id = u32::from_le_bytes([b[2], b[3], b[4], b[5]]);
+        let _to_conn_id = u32::from_le_bytes([b[6], b[7], b[8], b[9]]);
+        let conn_serial = u16::from_le_bytes([b[10], b[11]]);
+        let vendor_id = u16::from_le_bytes([b[12], b[13]]);
+        let orig_serial = u32::from_le_bytes([b[14], b[15], b[16], b[17]]);
         // b[18]: conn_timeout_multiplier, b[19..21]: reserved
 
         let (ot_rpi, to_rpi, transport_type, conn_path_size_words) = if is_large {
@@ -272,7 +273,11 @@ impl SessionDecoder for CipSafetyDecoder {
                     let link_addr_size = conn_path[cp_offset + 1] as usize;
                     let total = 2 + link_addr_size;
                     // Pad to even
-                    if total % 2 != 0 { total + 1 } else { total }
+                    if !total.is_multiple_of(2) {
+                        total + 1
+                    } else {
+                        total
+                    }
                 }
                 0b001 => {
                     // Logical segment: format = low 2 bits of seg_type
@@ -299,7 +304,11 @@ impl SessionDecoder for CipSafetyDecoder {
                     }
                     let sym_size = conn_path[cp_offset + 1] as usize;
                     let total = 2 + sym_size;
-                    if total % 2 != 0 { total + 1 } else { total }
+                    if !total.is_multiple_of(2) {
+                        total + 1
+                    } else {
+                        total
+                    }
                 }
                 0b100 | 0b101 => {
                     // Data segment or data type: type(1) + length_in_words(1) + data
@@ -330,13 +339,22 @@ impl SessionDecoder for CipSafetyDecoder {
         };
 
         let mut attributes = BTreeMap::new();
-        attributes.insert("service_code".to_string(),     format!("{:#04x}", service));
-        attributes.insert("connection_serial".to_string(), format!("{:#06x}", conn_serial));
-        attributes.insert("vendor_id".to_string(),        format!("{:#06x}", vendor_id));
-        attributes.insert("originator_serial".to_string(), format!("{:#010x}", orig_serial));
-        attributes.insert("ot_rpi_us".to_string(),        ot_rpi.to_string());
-        attributes.insert("to_rpi_us".to_string(),        to_rpi.to_string());
-        attributes.insert("transport_type".to_string(),   format!("{:#04x}", transport_type));
+        attributes.insert("service_code".to_string(), format!("{:#04x}", service));
+        attributes.insert(
+            "connection_serial".to_string(),
+            format!("{:#06x}", conn_serial),
+        );
+        attributes.insert("vendor_id".to_string(), format!("{:#06x}", vendor_id));
+        attributes.insert(
+            "originator_serial".to_string(),
+            format!("{:#010x}", orig_serial),
+        );
+        attributes.insert("ot_rpi_us".to_string(), ot_rpi.to_string());
+        attributes.insert("to_rpi_us".to_string(), to_rpi.to_string());
+        attributes.insert(
+            "transport_type".to_string(),
+            format!("{:#04x}", transport_type),
+        );
         attributes.insert("safety_segment_present".to_string(), "true".to_string());
 
         // Suppress unused variable warning — ot_conn_id is available for
@@ -365,7 +383,10 @@ impl SessionDecoder for CipSafetyDecoder {
                     "{operation} serial={conn_serial:#06x} vendor={vendor_id:#06x}"
                 )),
                 response_summary: None,
-                object_refs: vec!["cip_service:forward_open".to_string(), "cip_safety".to_string()],
+                object_refs: vec![
+                    "cip_service:forward_open".to_string(),
+                    "cip_safety".to_string(),
+                ],
                 values: Vec::new(),
                 attributes,
                 modbus: None,
@@ -381,9 +402,12 @@ impl SessionDecoder for CipSafetyDecoder {
         if !self.seen_safety_devices.contains(&dst_key) {
             self.seen_safety_devices.insert(dst_key.clone());
             let mut identifiers = BTreeMap::new();
-            identifiers.insert("ip".to_string(),               dst_key.clone());
-            identifiers.insert("cip_vendor_id".to_string(),    format!("{:#06x}", vendor_id));
-            identifiers.insert("originator_serial".to_string(), format!("{:#010x}", orig_serial));
+            identifiers.insert("ip".to_string(), dst_key.clone());
+            identifiers.insert("cip_vendor_id".to_string(), format!("{:#06x}", vendor_id));
+            identifiers.insert(
+                "originator_serial".to_string(),
+                format!("{:#010x}", orig_serial),
+            );
             out.push(new_event(
                 chunk.capture_id.to_string(),
                 envelope,
@@ -394,7 +418,11 @@ impl SessionDecoder for CipSafetyDecoder {
                     model: None,
                     firmware: None,
                     hostnames: Vec::new(),
-                    protocols: vec!["ethernet_ip".to_string(), "cip".to_string(), "cip_safety".to_string()],
+                    protocols: vec![
+                        "ethernet_ip".to_string(),
+                        "cip".to_string(),
+                        "cip_safety".to_string(),
+                    ],
                     identifiers,
                 }),
             ));
@@ -453,9 +481,9 @@ mod tests {
         frame.extend_from_slice(&CMD_SEND_RR_DATA.to_le_bytes()); // command 0x6F
         frame.extend_from_slice(&(cpf.len() as u16).to_le_bytes()); // data length
         frame.extend_from_slice(&0x0000_0001u32.to_le_bytes()); // session_handle
-        frame.extend_from_slice(&0u32.to_le_bytes());            // status (success)
-        frame.extend_from_slice(&[0u8; 8]);                      // sender_context
-        frame.extend_from_slice(&0u32.to_le_bytes());            // options
+        frame.extend_from_slice(&0u32.to_le_bytes()); // status (success)
+        frame.extend_from_slice(&[0u8; 8]); // sender_context
+        frame.extend_from_slice(&0u32.to_le_bytes()); // options
         frame.extend_from_slice(&cpf);
 
         frame
@@ -463,6 +491,7 @@ mod tests {
 
     /// Build the CIP Forward_Open request bytes (service header + body).
     /// `connection_path` is the raw EPATH bytes (must be even length).
+    #[allow(clippy::too_many_arguments)]
     fn build_forward_open(
         service: u8,
         conn_serial: u16,
@@ -473,7 +502,10 @@ mod tests {
         transport_type: u8,
         connection_path: &[u8],
     ) -> Vec<u8> {
-        assert!(connection_path.len() % 2 == 0, "connection_path must be word-aligned");
+        assert!(
+            connection_path.len().is_multiple_of(2),
+            "connection_path must be word-aligned"
+        );
         let conn_path_words = (connection_path.len() / 2) as u8;
 
         // CIP service header:
@@ -589,29 +621,48 @@ mod tests {
 
         let fo = build_forward_open(
             SERVICE_FORWARD_OPEN,
-            0xABCD,  // conn_serial
-            0x0001,  // vendor_id (Rockwell)
+            0xABCD,      // conn_serial
+            0x0001,      // vendor_id (Rockwell)
             0xDEAD_BEEF, // orig_serial
-            125_000, // ot_rpi  (125 ms in µs)
-            125_000, // to_rpi
-            0xA3,    // transport_type: class 3 server (safety typical)
+            125_000,     // ot_rpi  (125 ms in µs)
+            125_000,     // to_rpi
+            0xA3,        // transport_type: class 3 server (safety typical)
             &path_with_safety(),
         );
         let frame = build_enip_frame(&fo);
         let chunk = make_chunk(&frame, 49152, 44818, Ipv4Addr::new(192, 168, 1, 10));
         dec.on_stream_chunk(&chunk, &mut out);
 
-        assert_eq!(out.len(), 2, "expected ProtocolTransaction + AssetObservation; got {}", out.len());
+        assert_eq!(
+            out.len(),
+            2,
+            "expected ProtocolTransaction + AssetObservation; got {}",
+            out.len()
+        );
 
         // First event: ProtocolTransaction.
         let BronzeEventFamily::ProtocolTransaction(ref tx) = out[0].family else {
-            panic!("expected ProtocolTransaction, got {:?}", out[0].family_name());
+            panic!(
+                "expected ProtocolTransaction, got {:?}",
+                out[0].family_name()
+            );
         };
         assert_eq!(tx.operation, "cip_safety_forward_open");
         assert_eq!(tx.status, "observed");
-        assert_eq!(tx.attributes.get("safety_segment_present").map(String::as_str), Some("true"));
-        assert_eq!(tx.attributes.get("vendor_id").map(String::as_str), Some("0x0001"));
-        assert_eq!(tx.attributes.get("connection_serial").map(String::as_str), Some("0xabcd"));
+        assert_eq!(
+            tx.attributes
+                .get("safety_segment_present")
+                .map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            tx.attributes.get("vendor_id").map(String::as_str),
+            Some("0x0001")
+        );
+        assert_eq!(
+            tx.attributes.get("connection_serial").map(String::as_str),
+            Some("0xabcd")
+        );
 
         // Second event: AssetObservation.
         let BronzeEventFamily::AssetObservation(ref ao) = out[1].family else {
@@ -644,7 +695,11 @@ mod tests {
         let chunk = make_chunk(&frame, 49153, 44818, Ipv4Addr::new(192, 168, 1, 20));
         dec.on_stream_chunk(&chunk, &mut out);
 
-        assert!(out.is_empty(), "non-safety Forward_Open must not emit events; got {}", out.len());
+        assert!(
+            out.is_empty(),
+            "non-safety Forward_Open must not emit events; got {}",
+            out.len()
+        );
     }
 
     // ── Test 3 ───────────────────────────────────────────────────────────────
@@ -669,12 +724,19 @@ mod tests {
         let chunk = make_chunk(&frame, 49154, 44818, Ipv4Addr::new(10, 0, 1, 1));
         dec.on_stream_chunk(&chunk, &mut out);
 
-        assert!(out.len() >= 1, "expected at least one event; got {}", out.len());
+        assert!(
+            !out.is_empty(),
+            "expected at least one event; got {}",
+            out.len()
+        );
         let BronzeEventFamily::ProtocolTransaction(ref tx) = out[0].family else {
             panic!("expected ProtocolTransaction");
         };
         assert_eq!(tx.operation, "cip_safety_forward_open_large");
-        assert_eq!(tx.attributes.get("service_code").map(String::as_str), Some("0x5b"));
+        assert_eq!(
+            tx.attributes.get("service_code").map(String::as_str),
+            Some("0x5b")
+        );
     }
 
     // ── Test 4 ───────────────────────────────────────────────────────────────
@@ -688,7 +750,7 @@ mod tests {
         let req_path: &[u8] = &[0x20, 0x06, 0x24, 0x01];
         let mut fc: Vec<u8> = Vec::new();
         fc.push(0x4E); // Forward_Close
-        fc.push(2u8);  // req_path_size (2 words)
+        fc.push(2u8); // req_path_size (2 words)
         fc.extend_from_slice(req_path);
         // Forward_Close body (simplified, no safety check attempted):
         fc.push(0x0A); // priority_time_tick
@@ -703,7 +765,11 @@ mod tests {
         let chunk = make_chunk(&frame, 49155, 44818, Ipv4Addr::new(10, 0, 1, 2));
         dec.on_stream_chunk(&chunk, &mut out);
 
-        assert!(out.is_empty(), "Forward_Close must not emit events; got {}", out.len());
+        assert!(
+            out.is_empty(),
+            "Forward_Close must not emit events; got {}",
+            out.len()
+        );
     }
 
     // ── Test 5 ───────────────────────────────────────────────────────────────
@@ -774,13 +840,19 @@ mod tests {
             .iter()
             .filter(|e| matches!(e.family, BronzeEventFamily::AssetObservation(_)))
             .count();
-        assert_eq!(asset_obs_count, 1, "AssetObservation should be emitted exactly once per dst IP");
+        assert_eq!(
+            asset_obs_count, 1,
+            "AssetObservation should be emitted exactly once per dst IP"
+        );
 
         let tx_count = out
             .iter()
             .filter(|e| matches!(e.family, BronzeEventFamily::ProtocolTransaction(_)))
             .count();
-        assert_eq!(tx_count, 3, "ProtocolTransaction should be emitted once per Forward_Open");
+        assert_eq!(
+            tx_count, 3,
+            "ProtocolTransaction should be emitted once per Forward_Open"
+        );
     }
 
     // ── Test 7 (bonus) ───────────────────────────────────────────────────────

@@ -12,12 +12,8 @@ use crate::registry::{ArpFields, CdpFields, DhcpFields, LldpFields, StpFields};
 use super::alerts::BilgepumpAlert;
 use super::config::BilgepumpConfig;
 use super::detectors::{
-    arp::ArpDetector,
-    dhcp::DhcpDetector,
-    identity::IdentityDetector,
-    mac::MacDetector,
-    stp::StpDetector,
-    vlan::inspect_vlan_tags,
+    arp::ArpDetector, dhcp::DhcpDetector, identity::IdentityDetector, mac::MacDetector,
+    stp::StpDetector, vlan::inspect_vlan_tags,
 };
 
 /// Stateful L2 monitor. Accumulates state across frames and captures.
@@ -44,11 +40,7 @@ impl BilgepumpMonitor {
 
     /// Pre-VLAN-unwrap inspection of raw Ethernet frame.
     /// Called before the engine strips VLAN tags and before protocol dispatch.
-    pub fn inspect_l2_frame(
-        &self,
-        raw_frame: &[u8],
-        src_mac: &[u8; 6],
-    ) -> Vec<BilgepumpAlert> {
+    pub fn inspect_l2_frame(&self, raw_frame: &[u8], src_mac: &[u8; 6]) -> Vec<BilgepumpAlert> {
         if !self.config.enabled {
             return Vec::new();
         }
@@ -94,11 +86,7 @@ impl BilgepumpMonitor {
     }
 
     /// Observe a parsed STP BPDU.
-    pub fn observe_stp(
-        &mut self,
-        fields: &StpFields,
-        now: DateTime<Utc>,
-    ) -> Vec<BilgepumpAlert> {
+    pub fn observe_stp(&mut self, fields: &StpFields, now: DateTime<Utc>) -> Vec<BilgepumpAlert> {
         if !self.config.enabled {
             return Vec::new();
         }
@@ -120,12 +108,11 @@ impl BilgepumpMonitor {
         alerts.extend(self.dhcp.observe(fields, src_mac, &self.config, now));
 
         // If DHCP Ack with yiaddr, record the binding in ARP detector
-        if fields.message_type == Some(5) {
-            if let Some(ref yiaddr) = fields.yiaddr {
-                if let Some(ip) = parse_ipv4(yiaddr) {
-                    self.arp.record_dhcp_binding(fields.client_mac, ip, now);
-                }
-            }
+        if fields.message_type == Some(5)
+            && let Some(ref yiaddr) = fields.yiaddr
+            && let Some(ip) = parse_ipv4(yiaddr)
+        {
+            self.arp.record_dhcp_binding(fields.client_mac, ip, now);
         }
 
         alerts
@@ -141,7 +128,8 @@ impl BilgepumpMonitor {
         if !self.config.enabled {
             return Vec::new();
         }
-        self.identity.observe_lldp(fields, src_mac, &self.config, now)
+        self.identity
+            .observe_lldp(fields, src_mac, &self.config, now)
     }
 
     /// Observe a parsed CDP frame.
@@ -154,7 +142,8 @@ impl BilgepumpMonitor {
         if !self.config.enabled {
             return Vec::new();
         }
-        self.identity.observe_cdp(fields, src_mac, &self.config, now)
+        self.identity
+            .observe_cdp(fields, src_mac, &self.config, now)
     }
 
     /// Evict expired state across all detectors.

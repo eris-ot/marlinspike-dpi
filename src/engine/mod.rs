@@ -8,22 +8,19 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::bronze::{
-    BronzeBatch, BronzeEvent, BronzeEventFamily, EventEnvelope,
-    ExtractedArtifact, ParseAnomaly,
-    SegmentCheckpoint, TransportProtocol, BRONZE_SCHEMA_VERSION,
-};
 use crate::bilgepump::alerts::BilgepumpAlert;
 use crate::bilgepump::config::BilgepumpConfig;
 use crate::bilgepump::monitor::BilgepumpMonitor;
+use crate::bronze::{
+    BRONZE_SCHEMA_VERSION, BronzeBatch, BronzeEvent, BronzeEventFamily, EventEnvelope,
+    ExtractedArtifact, ParseAnomaly, SegmentCheckpoint, TransportProtocol,
+};
 use crate::dedup::DedupEngine;
 use crate::icmpeeker::IcmpeekerConfig;
+use crate::registry::{PacketContext, ProtocolData, format_mac};
 use crate::stovetop::config::StovetopConfig;
 use crate::stovetop::findings::FrameFinding;
 use crate::stovetop::frame_inspector::FrameInspector;
-use crate::registry::{
-    format_mac, PacketContext, ProtocolData, ProtocolDissector,
-};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DpiError {
@@ -112,6 +109,7 @@ pub(crate) trait SessionDecoder: Send {
     fn interest(&self) -> &'static [DecoderInterest];
     fn on_datagram(&mut self, _chunk: &StreamChunk<'_>, _out: &mut Vec<BronzeEvent>) {}
     fn on_stream_chunk(&mut self, _chunk: &StreamChunk<'_>, _out: &mut Vec<BronzeEvent>) {}
+    #[expect(dead_code, reason = "reserved for future stream-gap handling")]
     fn on_gap(
         &mut self,
         _session_key: &str,
@@ -283,6 +281,7 @@ impl DpiEngine {
             .events)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn process_packet_record(
         &mut self,
         meta: &SegmentMeta,
@@ -444,9 +443,9 @@ impl DpiEngine {
                     if let Some(ProtocolData::Arp(ref fields)) =
                         arp_d.parse(l2_payload, &chunk.context)
                     {
-                        let bp_alerts = self.bilgepump.observe_arp(
-                            fields, &src_mac, vlan_id, timestamp,
-                        );
+                        let bp_alerts = self
+                            .bilgepump
+                            .observe_arp(fields, &src_mac, vlan_id, timestamp);
                         for alert in &bp_alerts {
                             out.push(bilgepump_alert_to_event(
                                 alert,
@@ -468,9 +467,7 @@ impl DpiEngine {
                     if let Some(ProtocolData::Lldp(ref fields)) =
                         lldp_d.parse(l2_payload, &chunk.context)
                     {
-                        let bp_alerts = self.bilgepump.observe_lldp(
-                            fields, &src_mac, timestamp,
-                        );
+                        let bp_alerts = self.bilgepump.observe_lldp(fields, &src_mac, timestamp);
                         for alert in &bp_alerts {
                             out.push(bilgepump_alert_to_event(
                                 alert,
@@ -645,8 +642,7 @@ impl DpiEngine {
                         }
                     }
                     1 => {
-                        let session_key =
-                            make_ip_session_key(src_ip, dst_ip, 0, 0, "icmp");
+                        let session_key = make_ip_session_key(src_ip, dst_ip, 0, 0, "icmp");
                         let chunk = StreamChunk {
                             capture_id: &meta.capture_id,
                             segment_hash,
@@ -679,16 +675,10 @@ impl DpiEngine {
                         }
 
                         // ICMPeeker anomaly detection
-                        let icmp_findings = crate::icmpeeker::inspect(
-                            &self.icmpeeker_config,
-                            transport_payload,
-                        );
+                        let icmp_findings =
+                            crate::icmpeeker::inspect(&self.icmpeeker_config, transport_payload);
                         for finding in &icmp_findings {
-                            out.push(stovetop_finding_to_event(
-                                finding,
-                                &meta.capture_id,
-                                &chunk,
-                            ));
+                            out.push(stovetop_finding_to_event(finding, &meta.capture_id, &chunk));
                         }
                     }
                     other => {
@@ -696,8 +686,7 @@ impl DpiEngine {
                         // chance here. If none claim the packet, emit a low-
                         // severity anomaly so the operator sees the unsupported
                         // transport.
-                        let session_key =
-                            make_ip_session_key(src_ip, dst_ip, 0, 0, "ip");
+                        let session_key = make_ip_session_key(src_ip, dst_ip, 0, 0, "ip");
                         let chunk = StreamChunk {
                             capture_id: &meta.capture_id,
                             segment_hash,
@@ -988,7 +977,9 @@ impl DpiEngine {
                         "sparkplug:{group_id}:{edge_node_id}:{}:{}:{}",
                         device_id.as_deref().unwrap_or("-"),
                         metric_name.as_deref().unwrap_or("-"),
-                        alias.map(|a| a.to_string()).unwrap_or_else(|| "-".to_string())
+                        alias
+                            .map(|a| a.to_string())
+                            .unwrap_or_else(|| "-".to_string())
                     ),
                     crate::bronze::PointIdentifier::HartCommand { command, slot } => {
                         format!("hart_cmd:{command}:{slot:?}")
@@ -998,17 +989,13 @@ impl DpiEngine {
                         file_number,
                         element,
                         sub_element,
-                    } => format!(
-                        "pccc:{file_type:#04x}:{file_number}:{element}:{sub_element:?}"
-                    ),
+                    } => format!("pccc:{file_type:#04x}:{file_number}:{element}:{sub_element:?}"),
                     crate::bronze::PointIdentifier::SynchrophasorChannel {
                         idcode,
                         channel_index,
                         channel_type,
                         ..
-                    } => format!(
-                        "synphasor:{idcode}:{channel_index}:{channel_type:?}"
-                    ),
+                    } => format!("synphasor:{idcode}:{channel_index}:{channel_type:?}"),
                 };
                 format!("process_reading:{}:{pid_key}", reading.source_protocol)
             }
@@ -1371,6 +1358,7 @@ pub(crate) fn interest_matches(interests: &[DecoderInterest], chunk: &StreamChun
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_envelope(
     context: &PacketContext,
     interface_id: u32,
@@ -1448,11 +1436,7 @@ pub(crate) fn ip_to_string(ip: IpAddr) -> Option<String> {
 }
 
 pub(crate) fn non_zero_u16(value: u16) -> Option<u16> {
-    if value == 0 {
-        None
-    } else {
-        Some(value)
-    }
+    if value == 0 { None } else { Some(value) }
 }
 
 pub(crate) fn make_layer2_session_key(
@@ -1539,7 +1523,6 @@ pub(crate) fn artifact_event(
     )
 }
 
-
 /// Convert a stovetop finding to a BronzeEvent using a StreamChunk for envelope.
 fn stovetop_finding_to_event(
     finding: &FrameFinding,
@@ -1572,6 +1555,7 @@ fn stovetop_finding_to_event(
 
 /// Convert a stovetop finding to a BronzeEvent using raw frame context
 /// (for pre-dissector findings before a StreamChunk exists).
+#[allow(clippy::too_many_arguments)]
 fn stovetop_finding_to_event_raw(
     finding: &FrameFinding,
     capture_id: &str,
@@ -1608,6 +1592,7 @@ fn stovetop_finding_to_event_raw(
 }
 
 /// Convert a bilgepump alert to a BronzeEvent.
+#[allow(clippy::too_many_arguments)]
 fn bilgepump_alert_to_event(
     alert: &BilgepumpAlert,
     capture_id: &str,
@@ -1697,6 +1682,7 @@ mod tests {
         data
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn ethernet_ipv4_tcp(
         src_mac: [u8; 6],
         dst_mac: [u8; 6],
@@ -3037,17 +3023,26 @@ mod tests {
         // IPv4 header (20 bytes)
         let total_len = 20 + icmp_payload.len();
         frame.extend_from_slice(&[
-            0x45,                                    // version + IHL
-            0x00,                                    // DSCP
-            ((total_len >> 8) & 0xFF) as u8,         // total length hi
-            (total_len & 0xFF) as u8,                // total length lo
-            0x00, 0x01,                              // identification
-            0x00, 0x00,                              // flags + fragment offset
-            64,                                      // TTL
-            1,                                       // protocol = ICMP
-            0, 0,                                    // header checksum (skip)
-            10, 0, 0, 1,                             // src IP
-            10, 0, 0, 2,                             // dst IP
+            0x45,                            // version + IHL
+            0x00,                            // DSCP
+            ((total_len >> 8) & 0xFF) as u8, // total length hi
+            (total_len & 0xFF) as u8,        // total length lo
+            0x00,
+            0x01, // identification
+            0x00,
+            0x00, // flags + fragment offset
+            64,   // TTL
+            1,    // protocol = ICMP
+            0,
+            0, // header checksum (skip)
+            10,
+            0,
+            0,
+            1, // src IP
+            10,
+            0,
+            0,
+            2, // dst IP
         ]);
         frame.extend_from_slice(icmp_payload);
         frame
@@ -3071,7 +3066,10 @@ mod tests {
             "expected ICMP Echo Request transaction"
         );
         assert!(
-            output.events.iter().any(|event| event.protocol() == Some("icmp")),
+            output
+                .events
+                .iter()
+                .any(|event| event.protocol() == Some("icmp")),
             "expected protocol=icmp"
         );
     }
@@ -3174,11 +3172,7 @@ mod tests {
 
     // ── Bilgepump integration tests ───────────────────────────
 
-    fn ethernet_arp_reply(
-        src_mac: [u8; 6],
-        sender_mac: [u8; 6],
-        sender_ip: [u8; 4],
-    ) -> Vec<u8> {
+    fn ethernet_arp_reply(src_mac: [u8; 6], sender_mac: [u8; 6], sender_ip: [u8; 4]) -> Vec<u8> {
         let mut frame = Vec::new();
         frame.extend_from_slice(&[0xFF; 6]); // dst mac (broadcast)
         frame.extend_from_slice(&src_mac);
@@ -3186,8 +3180,8 @@ mod tests {
         frame.extend_from_slice(&[
             0x00, 0x01, // hardware type: Ethernet
             0x08, 0x00, // protocol type: IPv4
-            0x06,       // hardware size
-            0x04,       // protocol size
+            0x06, // hardware size
+            0x04, // protocol size
             0x00, 0x02, // operation: reply
         ]);
         frame.extend_from_slice(&sender_mac);
@@ -3254,11 +3248,26 @@ mod tests {
         // Minimal IPv4 header
         let total_len = 20u16;
         frame.extend_from_slice(&[
-            0x45, 0x00,
-            (total_len >> 8) as u8, (total_len & 0xFF) as u8,
-            0x00, 0x01, 0x00, 0x00, 64, 6, 0, 0,
-            10, 0, 0, 1,  // src
-            10, 0, 0, 2,  // dst
+            0x45,
+            0x00,
+            (total_len >> 8) as u8,
+            (total_len & 0xFF) as u8,
+            0x00,
+            0x01,
+            0x00,
+            0x00,
+            64,
+            6,
+            0,
+            0,
+            10,
+            0,
+            0,
+            1, // src
+            10,
+            0,
+            0,
+            2, // dst
         ]);
 
         let pcapng = build_pcapng(&frame);
@@ -3279,7 +3288,7 @@ mod tests {
 
     #[test]
     fn mqtt_decoder_dispatches_sparkplug_publish_to_payload_decoder() {
-        use crate::sparkplug::proto::payload::{metric, Metric as PbMetric};
+        use crate::sparkplug::proto::payload::{Metric as PbMetric, metric};
         use crate::sparkplug::proto::{DataType, Payload as PbPayload};
         use prost::Message as _;
         use std::net::{IpAddr, Ipv4Addr};
@@ -3333,8 +3342,8 @@ mod tests {
         mqtt_frame.extend_from_slice(&variable);
 
         // Drive MqttDecoder directly with a synthetic StreamChunk.
-        let timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp(1_700_000_000, 1_000)
-            .unwrap();
+        let timestamp =
+            chrono::DateTime::<chrono::Utc>::from_timestamp(1_700_000_000, 1_000).unwrap();
         let chunk = StreamChunk {
             capture_id: "test-cap",
             segment_hash: "seg",
@@ -3379,15 +3388,22 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(readings.len(), 2, "expected 2 ProcessReadings, got {}", readings.len());
+        assert_eq!(
+            readings.len(),
+            2,
+            "expected 2 ProcessReadings, got {}",
+            readings.len()
+        );
         // Find Tank1.Level and verify it decoded correctly.
         let tank = readings
             .iter()
-            .find(|r| matches!(
-                &r.point_id,
-                crate::bronze::PointIdentifier::SparkplugMetric { metric_name: Some(n), .. }
-                    if n == "Tank1.Level"
-            ))
+            .find(|r| {
+                matches!(
+                    &r.point_id,
+                    crate::bronze::PointIdentifier::SparkplugMetric { metric_name: Some(n), .. }
+                        if n == "Tank1.Level"
+                )
+            })
             .expect("Tank1.Level reading");
         assert_eq!(tank.source_protocol, "sparkplug_b");
         assert_eq!(tank.value, crate::bronze::PointValue::Double(72.5));
@@ -3424,7 +3440,7 @@ mod tests {
 
     #[test]
     fn engine_end_to_end_sparkplug_birth_then_data() {
-        use crate::sparkplug::proto::payload::{metric, Metric as PbMetric};
+        use crate::sparkplug::proto::payload::{Metric as PbMetric, metric};
         use crate::sparkplug::proto::{DataType, Payload as PbPayload};
         use prost::Message as _;
 
@@ -3506,7 +3522,10 @@ mod tests {
 
         let mut engine = DpiEngine::new();
         let output = engine
-            .process_segment_to_vec(&SegmentMeta::new("sparkplug-corpus"), std::io::Cursor::new(pcapng))
+            .process_segment_to_vec(
+                &SegmentMeta::new("sparkplug-corpus"),
+                std::io::Cursor::new(pcapng),
+            )
             .expect("process");
 
         let readings: Vec<_> = output
@@ -3518,7 +3537,12 @@ mod tests {
             })
             .collect();
         // BIRTH carries 2 metrics (bdSeq + Tank1.Level), DATA carries 1.
-        assert_eq!(readings.len(), 3, "expected 3 ProcessReadings, got {}", readings.len());
+        assert_eq!(
+            readings.len(),
+            3,
+            "expected 3 ProcessReadings, got {}",
+            readings.len()
+        );
         // The DATA reading should resolve alias 10 to "Tank1.Level" via state
         // populated by the prior BIRTH frame.
         let data_reading = readings
@@ -3526,7 +3550,9 @@ mod tests {
             .find(|r| r.observed_ts == 1_700_000_001_000_001)
             .expect("DATA-frame reading");
         match &data_reading.point_id {
-            crate::bronze::PointIdentifier::SparkplugMetric { metric_name, alias, .. } => {
+            crate::bronze::PointIdentifier::SparkplugMetric {
+                metric_name, alias, ..
+            } => {
                 assert_eq!(metric_name.as_deref(), Some("Tank1.Level"));
                 assert_eq!(*alias, Some(10));
             }
@@ -3565,10 +3591,14 @@ mod tests {
             .unwrap();
         // The smb2 deep decoder takes over: expect a smb2_negotiate_request or
         // a ParseAnomaly from the "smb2" decoder. No longer emits "smb2_message".
-        let has_smb2_event = output.events.iter().any(|ev| {
-            ev.envelope.protocol.as_deref() == Some("smb2")
-        });
-        assert!(has_smb2_event, "expected at least one event with protocol=smb2 from deep decoder");
+        let has_smb2_event = output
+            .events
+            .iter()
+            .any(|ev| ev.envelope.protocol.as_deref() == Some("smb2"));
+        assert!(
+            has_smb2_event,
+            "expected at least one event with protocol=smb2 from deep decoder"
+        );
     }
 
     #[test]
@@ -3684,7 +3714,10 @@ mod tests {
         let pcapng = build_pcapng(&frame);
         let mut engine = DpiEngine::new();
         let output = engine
-            .process_segment_to_vec(&SegmentMeta::new("ldaps-test"), std::io::Cursor::new(pcapng))
+            .process_segment_to_vec(
+                &SegmentMeta::new("ldaps-test"),
+                std::io::Cursor::new(pcapng),
+            )
             .unwrap();
         assert!(output.events.iter().any(|ev| matches!(
             &ev.family,
@@ -3817,7 +3850,10 @@ mod tests {
 
         let mut engine = DpiEngine::new();
         let output = engine
-            .process_segment_to_vec(&SegmentMeta::new("opcua-corpus"), std::io::Cursor::new(pcapng))
+            .process_segment_to_vec(
+                &SegmentMeta::new("opcua-corpus"),
+                std::io::Cursor::new(pcapng),
+            )
             .expect("process");
 
         let readings: Vec<_> = output
@@ -3828,37 +3864,49 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(readings.len(), 2, "expected 2 ProcessReadings, got {}", readings.len());
+        assert_eq!(
+            readings.len(),
+            2,
+            "expected 2 ProcessReadings, got {}",
+            readings.len()
+        );
 
         // First reading: NodeId ns=2 id=1234 paired with value 50.0.
         let first = readings
             .iter()
-            .find(|r| matches!(
-                &r.point_id,
-                crate::bronze::PointIdentifier::OpcUaNode { namespace_index: 2, identifier }
-                    if *identifier == crate::bronze::OpcUaNodeId::Numeric(1234)
-            ))
+            .find(|r| {
+                matches!(
+                    &r.point_id,
+                    crate::bronze::PointIdentifier::OpcUaNode { namespace_index: 2, identifier }
+                        if *identifier == crate::bronze::OpcUaNodeId::Numeric(1234)
+                )
+            })
             .expect("expected NodeId 1234");
         assert_eq!(first.source_protocol, "opc_ua");
         assert_eq!(first.value, crate::bronze::PointValue::Double(50.0));
-        assert!(matches!(first.quality, crate::bronze::RawQuality::OpcUaStatusCode(0)));
+        assert!(matches!(
+            first.quality,
+            crate::bronze::RawQuality::OpcUaStatusCode(0)
+        ));
         assert_eq!(first.observed_ts, 1_700_000_000_500_001);
 
         // Second reading should be 5678 → 51.5.
         let second = readings
             .iter()
-            .find(|r| matches!(
-                &r.point_id,
-                crate::bronze::PointIdentifier::OpcUaNode { namespace_index: 2, identifier }
-                    if *identifier == crate::bronze::OpcUaNodeId::Numeric(5678)
-            ))
+            .find(|r| {
+                matches!(
+                    &r.point_id,
+                    crate::bronze::PointIdentifier::OpcUaNode { namespace_index: 2, identifier }
+                        if *identifier == crate::bronze::OpcUaNodeId::Numeric(5678)
+                )
+            })
             .expect("expected NodeId 5678");
         assert_eq!(second.value, crate::bronze::PointValue::Double(51.5));
     }
 
     #[test]
     fn engine_end_to_end_sparkplug_data_without_birth_emits_anomaly() {
-        use crate::sparkplug::proto::payload::{metric, Metric as PbMetric};
+        use crate::sparkplug::proto::payload::{Metric as PbMetric, metric};
         use crate::sparkplug::proto::{DataType, Payload as PbPayload};
         use prost::Message as _;
 
@@ -3885,7 +3933,10 @@ mod tests {
 
         let mut engine = DpiEngine::new();
         let output = engine
-            .process_segment_to_vec(&SegmentMeta::new("sparkplug-corpus-gap"), std::io::Cursor::new(pcapng))
+            .process_segment_to_vec(
+                &SegmentMeta::new("sparkplug-corpus-gap"),
+                std::io::Cursor::new(pcapng),
+            )
             .expect("process");
 
         // Should see one ProcessReading (with metric_name=None) and one
@@ -3894,12 +3945,18 @@ mod tests {
             &ev.family,
             BronzeEventFamily::ParseAnomaly(a) if a.decoder == "sparkplug_b"
         )));
-        let unresolved = output.events.iter().find_map(|ev| match &ev.family {
-            BronzeEventFamily::ProcessReading(r) => Some(r),
-            _ => None,
-        }).expect("ProcessReading present");
+        let unresolved = output
+            .events
+            .iter()
+            .find_map(|ev| match &ev.family {
+                BronzeEventFamily::ProcessReading(r) => Some(r),
+                _ => None,
+            })
+            .expect("ProcessReading present");
         match &unresolved.point_id {
-            crate::bronze::PointIdentifier::SparkplugMetric { metric_name, alias, .. } => {
+            crate::bronze::PointIdentifier::SparkplugMetric {
+                metric_name, alias, ..
+            } => {
                 assert!(metric_name.is_none());
                 assert_eq!(*alias, Some(99));
             }

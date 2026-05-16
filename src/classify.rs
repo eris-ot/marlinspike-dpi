@@ -112,10 +112,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x0A, // start addr, qty
         ];
         let c = RegistryClassifier::new();
-        assert_eq!(
-            c.classify(&payload, 12345, 502),
-            Some(ProtocolId::Modbus),
-        );
+        assert_eq!(c.classify(&payload, 12345, 502), Some(ProtocolId::Modbus),);
     }
 
     #[test]

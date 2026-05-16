@@ -160,14 +160,13 @@ impl FrameInspector {
 
         if let Some((expected, actual, valid)) =
             validate_ethernet_fcs(raw_frame, captured_len, orig_len)
+            && !valid
         {
-            if !valid {
-                findings.push(FrameFinding {
-                    kind: FindingKind::FcsInvalid { expected, actual },
-                    severity: FindingSeverity::High,
-                    decoder: "stovetop:fcs",
-                });
-            }
+            findings.push(FrameFinding {
+                kind: FindingKind::FcsInvalid { expected, actual },
+                severity: FindingSeverity::High,
+                decoder: "stovetop:fcs",
+            });
         }
     }
 }
@@ -244,8 +243,8 @@ mod tests {
         frame[16] = 0x00;
         frame[17] = 0x1C; // total_length = 28 (20 header + 8 payload)
         // Padding starts at 14 + 28 = 42. Put non-zero data there.
-        for i in 42..60 {
-            frame[i] = 0xAA;
+        for byte in frame.iter_mut().take(60).skip(42) {
+            *byte = 0xAA;
         }
         let l2_payload = &frame[14..];
         let findings = inspector.inspect_frame(&frame, 60, 60, 0x0800, l2_payload, 14);

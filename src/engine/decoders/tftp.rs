@@ -10,7 +10,7 @@ use crate::bronze::{
     AssetObservation, BronzeEvent, BronzeEventFamily, ProtocolTransaction, TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 const OP_RRQ: u16 = 1;
@@ -25,9 +25,7 @@ const OP_ERROR: u16 = 5;
 /// technique: a WRQ with no authentication can silently overwrite PLC or
 /// switch firmware. We emit a high-severity ParseAnomaly so analysts can
 /// correlate with approved change windows and investigate unexpected writes.
-const FIRMWARE_SIGNALS: &[&str] = &[
-    ".bin", ".hex", ".elf", ".fw", "firmware", ".rom", ".img",
-];
+const FIRMWARE_SIGNALS: &[&str] = &[".bin", ".hex", ".elf", ".fw", "firmware", ".rom", ".img"];
 
 // ── Decoder ───────────────────────────────────────────────────────────────────
 
@@ -35,7 +33,9 @@ const FIRMWARE_SIGNALS: &[&str] = &[
 pub(crate) struct TftpDecoder;
 
 impl SessionDecoder for TftpDecoder {
-    fn name(&self) -> &'static str { "tftp" }
+    fn name(&self) -> &'static str {
+        "tftp"
+    }
 
     fn interest(&self) -> &'static [DecoderInterest] {
         &[DecoderInterest::UdpPort(69)]
@@ -50,14 +50,18 @@ impl SessionDecoder for TftpDecoder {
         let opcode = u16::from_be_bytes([p[0], p[1]]);
         match opcode {
             OP_RRQ | OP_WRQ => decode_request(chunk, opcode, out),
-            OP_ERROR        => decode_error(chunk, out),
+            OP_ERROR => decode_error(chunk, out),
             OP_DATA | OP_ACK => out.push(anomaly(
-                chunk, "low", "tftp DATA/ACK unexpected on port 69", p,
+                chunk,
+                "low",
+                "tftp DATA/ACK unexpected on port 69",
+                p,
             )),
             n => {
                 let env = envelope(chunk);
                 out.push(new_event(
-                    chunk.capture_id.to_string(), env,
+                    chunk.capture_id.to_string(),
+                    env,
                     BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                         operation: format!("tftp_unknown_opcode_{n}"),
                         status: "observed".to_string(),
@@ -84,7 +88,10 @@ fn decode_request(chunk: &StreamChunk<'_>, opcode: u16, out: &mut Vec<BronzeEven
         Some(v) => v,
         None => {
             out.push(anomaly(
-                chunk, "low", "tftp RRQ/WRQ missing null terminator on filename", chunk.payload,
+                chunk,
+                "low",
+                "tftp RRQ/WRQ missing null terminator on filename",
+                chunk.payload,
             ));
             return;
         }
@@ -93,7 +100,10 @@ fn decode_request(chunk: &StreamChunk<'_>, opcode: u16, out: &mut Vec<BronzeEven
         Some(v) => v,
         None => {
             out.push(anomaly(
-                chunk, "low", "tftp RRQ/WRQ missing null terminator on mode", chunk.payload,
+                chunk,
+                "low",
+                "tftp RRQ/WRQ missing null terminator on mode",
+                chunk.payload,
             ));
             return;
         }
@@ -107,12 +117,16 @@ fn decode_request(chunk: &StreamChunk<'_>, opcode: u16, out: &mut Vec<BronzeEven
     let env = envelope(chunk);
 
     out.push(new_event(
-        chunk.capture_id.to_string(), env.clone(),
+        chunk.capture_id.to_string(),
+        env.clone(),
         BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
             operation,
             status: "observed".to_string(),
             request_summary: Some(format!(
-                "TFTP {} {} mode={}", if is_write { "WRQ" } else { "RRQ" }, filename, mode
+                "TFTP {} {} mode={}",
+                if is_write { "WRQ" } else { "RRQ" },
+                filename,
+                mode
             )),
             response_summary: None,
             object_refs: vec![filename.clone()],
@@ -127,7 +141,8 @@ fn decode_request(chunk: &StreamChunk<'_>, opcode: u16, out: &mut Vec<BronzeEven
     // See FIRMWARE_SIGNALS doc for threat context.
     if is_write && looks_like_firmware(&filename) {
         out.push(anomaly(
-            chunk, "high",
+            chunk,
+            "high",
             "TFTP firmware-shaped WRQ observed — potential unauthorized firmware push",
             chunk.payload,
         ));
@@ -136,11 +151,15 @@ fn decode_request(chunk: &StreamChunk<'_>, opcode: u16, out: &mut Vec<BronzeEven
     // The destination is the TFTP server (accepts the RRQ/WRQ).
     let server_ip = chunk.context.dst_ip.to_string();
     out.push(new_event(
-        chunk.capture_id.to_string(), env,
+        chunk.capture_id.to_string(),
+        env,
         BronzeEventFamily::AssetObservation(AssetObservation {
             asset_key: server_ip.clone(),
             role: Some("tftp_server".to_string()),
-            vendor: None, model: None, firmware: None, hostnames: vec![],
+            vendor: None,
+            model: None,
+            firmware: None,
+            hostnames: vec![],
             protocols: vec!["tftp".to_string()],
             identifiers: BTreeMap::from([("ip".to_string(), server_ip)]),
         }),
@@ -165,7 +184,8 @@ fn decode_error(chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
     attrs.insert("error_message".to_string(), msg.clone());
 
     out.push(new_event(
-        chunk.capture_id.to_string(), envelope(chunk),
+        chunk.capture_id.to_string(),
+        envelope(chunk),
         BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
             operation: "tftp_error".to_string(),
             status: format!("tftp_error_{error_code}"),
@@ -184,7 +204,10 @@ fn decode_error(chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
 
 fn cstr(buf: &[u8]) -> Option<(String, &[u8])> {
     let n = buf.iter().position(|&b| b == 0)?;
-    Some((String::from_utf8_lossy(&buf[..n]).into_owned(), &buf[n + 1..]))
+    Some((
+        String::from_utf8_lossy(&buf[..n]).into_owned(),
+        &buf[n + 1..],
+    ))
 }
 
 fn looks_like_firmware(name: &str) -> bool {
@@ -194,16 +217,26 @@ fn looks_like_firmware(name: &str) -> bool {
 
 fn envelope(chunk: &StreamChunk<'_>) -> crate::bronze::EventEnvelope {
     build_envelope(
-        &chunk.context, chunk.interface_id, chunk.frame_index, chunk.timestamp,
-        chunk.segment_hash, TransportProtocol::Udp, Some("tftp"),
-        chunk.captured_len, chunk.session_key.clone(),
+        &chunk.context,
+        chunk.interface_id,
+        chunk.frame_index,
+        chunk.timestamp,
+        chunk.segment_hash,
+        TransportProtocol::Udp,
+        Some("tftp"),
+        chunk.captured_len,
+        chunk.session_key.clone(),
     )
 }
 
 fn anomaly(chunk: &StreamChunk<'_>, severity: &str, reason: &str, raw: &[u8]) -> BronzeEvent {
     parse_anomaly_event(
-        chunk.capture_id.to_string(), envelope(chunk),
-        "tftp", severity, reason, raw,
+        chunk.capture_id.to_string(),
+        envelope(chunk),
+        "tftp",
+        severity,
+        reason,
+        raw,
     )
 }
 
@@ -211,7 +244,7 @@ fn anomaly(chunk: &StreamChunk<'_>, severity: &str, reason: &str, raw: &[u8]) ->
 
 inventory::submit!(crate::engine::decoders::DecoderRegistration {
     name: "tftp",
-    factory: || Box::new(TftpDecoder::default()),
+    factory: || Box::new(TftpDecoder),
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -219,45 +252,62 @@ inventory::submit!(crate::engine::decoders::DecoderRegistration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr};
-    use chrono::Utc;
     use crate::bronze::BronzeEventFamily;
     use crate::engine::{DecoderInterest, SessionDecoder, StreamChunk};
     use crate::registry::PacketContext;
+    use chrono::Utc;
+    use std::net::{IpAddr, Ipv4Addr};
 
     const CLIENT: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 5);
     const SERVER: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 1);
 
     fn chunk(payload: &[u8]) -> StreamChunk<'_> {
         StreamChunk {
-            capture_id: "cap", segment_hash: "seg", interface_id: 0, frame_index: 1,
+            capture_id: "cap",
+            segment_hash: "seg",
+            interface_id: 0,
+            frame_index: 1,
             timestamp: Utc::now(),
             context: PacketContext {
-                src_mac: [0u8; 6], dst_mac: [0u8; 6],
-                src_ip: IpAddr::V4(CLIENT), dst_ip: IpAddr::V4(SERVER),
-                src_port: 49152, dst_port: 69, vlan_id: None, timestamp: 0,
+                src_mac: [0u8; 6],
+                dst_mac: [0u8; 6],
+                src_ip: IpAddr::V4(CLIENT),
+                dst_ip: IpAddr::V4(SERVER),
+                src_port: 49152,
+                dst_port: 69,
+                vlan_id: None,
+                timestamp: 0,
             },
-            ethertype: 0x0800, ip_proto: Some(17), llc: None,
+            ethertype: 0x0800,
+            ip_proto: Some(17),
+            llc: None,
             transport: TransportProtocol::Udp,
-            payload, session_key: "s".into(), captured_len: payload.len() as u64,
+            payload,
+            session_key: "s".into(),
+            captured_len: payload.len() as u64,
         }
     }
 
     fn req(op: u16, file: &str, mode: &str) -> Vec<u8> {
         let mut b = op.to_be_bytes().to_vec();
-        b.extend_from_slice(file.as_bytes()); b.push(0);
-        b.extend_from_slice(mode.as_bytes()); b.push(0); b
+        b.extend_from_slice(file.as_bytes());
+        b.push(0);
+        b.extend_from_slice(mode.as_bytes());
+        b.push(0);
+        b
     }
 
     fn err_pkt(code: u16, msg: &str) -> Vec<u8> {
         let mut b = 5u16.to_be_bytes().to_vec();
         b.extend_from_slice(&code.to_be_bytes());
-        b.extend_from_slice(msg.as_bytes()); b.push(0); b
+        b.extend_from_slice(msg.as_bytes());
+        b.push(0);
+        b
     }
 
     fn run(payload: &[u8]) -> Vec<BronzeEvent> {
         let c = chunk(payload);
-        let mut d = TftpDecoder::default();
+        let mut d = TftpDecoder;
         let mut out = Vec::new();
         d.on_datagram(&c, &mut out);
         out
@@ -265,13 +315,21 @@ mod tests {
 
     fn find_tx(events: &[BronzeEvent]) -> Option<&crate::bronze::ProtocolTransaction> {
         events.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(t) = &e.family { Some(t) } else { None }
+            if let BronzeEventFamily::ProtocolTransaction(t) = &e.family {
+                Some(t)
+            } else {
+                None
+            }
         })
     }
 
     fn find_anomaly(events: &[BronzeEvent]) -> Option<&crate::bronze::ParseAnomaly> {
         events.iter().find_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(a) = &e.family { Some(a) } else { None }
+            if let BronzeEventFamily::ParseAnomaly(a) = &e.family {
+                Some(a)
+            } else {
+                None
+            }
         })
     }
 
@@ -282,7 +340,10 @@ mod tests {
         let tx = find_tx(&events).expect("ProtocolTransaction");
         assert_eq!(tx.operation, "tftp_read");
         assert_eq!(tx.status, "observed");
-        assert_eq!(tx.attributes.get("filename").map(String::as_str), Some("config.txt"));
+        assert_eq!(
+            tx.attributes.get("filename").map(String::as_str),
+            Some("config.txt")
+        );
         assert_eq!(tx.attributes.get("mode").map(String::as_str), Some("octet"));
         assert_eq!(tx.object_refs, vec!["config.txt"]);
     }
@@ -304,8 +365,14 @@ mod tests {
         let tx = find_tx(&events).expect("tx");
         assert_eq!(tx.operation, "tftp_error");
         assert_eq!(tx.status, "tftp_error_1");
-        assert_eq!(tx.attributes.get("error_code").map(String::as_str), Some("1"));
-        assert_eq!(tx.attributes.get("error_message").map(String::as_str), Some("File not found"));
+        assert_eq!(
+            tx.attributes.get("error_code").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            tx.attributes.get("error_message").map(String::as_str),
+            Some("File not found")
+        );
     }
 
     // 4. WRQ "report.txt" → tftp_write, no firmware anomaly
@@ -313,18 +380,28 @@ mod tests {
     fn wrq_report_txt_no_firmware_alert() {
         let events = run(&req(OP_WRQ, "report.txt", "octet"));
         assert_eq!(find_tx(&events).expect("tx").operation, "tftp_write");
-        assert!(!events.iter().any(|e| {
-            matches!(&e.family, BronzeEventFamily::ParseAnomaly(a) if a.severity == "high")
-        }), "report.txt must not trigger firmware alert");
+        assert!(
+            !events.iter().any(|e| {
+                matches!(&e.family, BronzeEventFamily::ParseAnomaly(a) if a.severity == "high")
+            }),
+            "report.txt must not trigger firmware alert"
+        );
     }
 
     // 5. AssetObservation for server IP with role="tftp_server"
     #[test]
     fn asset_observation_for_server() {
         let events = run(&req(OP_RRQ, "config.txt", "octet"));
-        let asset = events.iter().find_map(|e| {
-            if let BronzeEventFamily::AssetObservation(a) = &e.family { Some(a) } else { None }
-        }).expect("AssetObservation");
+        let asset = events
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::AssetObservation(a) = &e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .expect("AssetObservation");
         assert_eq!(asset.role.as_deref(), Some("tftp_server"));
         assert_eq!(asset.asset_key, SERVER.to_string());
     }
@@ -341,6 +418,10 @@ mod tests {
     // 7. Decoder interest must include UDP/69
     #[test]
     fn interest_udp_69() {
-        assert!(TftpDecoder::default().interest().contains(&DecoderInterest::UdpPort(69)));
+        assert!(
+            TftpDecoder
+                .interest()
+                .contains(&DecoderInterest::UdpPort(69))
+        );
     }
 }

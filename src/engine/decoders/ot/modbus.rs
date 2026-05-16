@@ -8,8 +8,8 @@ use crate::bronze::{
 };
 use crate::dissectors::modbus::ModbusDissector;
 use crate::engine::{
-    artifact_event, build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder,
-    StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, artifact_event, build_envelope, new_event,
+    parse_anomaly_event,
 };
 use crate::registry::{ModbusFields, ModbusPdu, ProtocolData, ProtocolDissector};
 
@@ -17,7 +17,9 @@ use crate::registry::{ModbusFields, ModbusPdu, ProtocolData, ProtocolDissector};
 struct PendingModbus {
     capture_id: String,
     envelope: EventEnvelope,
+    #[expect(dead_code, reason = "reserved for future richer response validation")]
     transaction_id: u16,
+    #[expect(dead_code, reason = "reserved for future richer response validation")]
     unit_id: u8,
     operation: String,
     request_summary: String,
@@ -228,12 +230,7 @@ impl SessionDecoder for ModbusDecoder {
                         object_refs: pending.object_refs,
                         values: pending.values,
                         attributes: pending.attributes,
-                        modbus: modbus_bronze_fields(
-                            pending.request_pdu.as_ref(),
-                            None,
-                            false,
-                            0,
-                        ),
+                        modbus: modbus_bronze_fields(pending.request_pdu.as_ref(), None, false, 0),
                         protocol_fields: None,
                     }),
                 ));
@@ -287,7 +284,11 @@ fn modbus_bronze_fields(
         start_addr,
         qty,
         values,
-        exception_code: if is_exception { Some(exception_code) } else { None },
+        exception_code: if is_exception {
+            Some(exception_code)
+        } else {
+            None
+        },
         direction,
     })
 }

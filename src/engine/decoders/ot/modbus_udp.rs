@@ -24,7 +24,7 @@ use crate::bronze::{
     TransportProtocol,
 };
 use crate::engine::{
-    build_envelope, new_event, parse_anomaly_event, DecoderInterest, SessionDecoder, StreamChunk,
+    DecoderInterest, SessionDecoder, StreamChunk, build_envelope, new_event, parse_anomaly_event,
 };
 
 const FC_UMAS: u8 = 0x5A;
@@ -62,10 +62,10 @@ pub(crate) struct ModbusUdpDecoder {
 
 impl ModbusUdpDecoder {
     fn park(&mut self, req: PReq) {
-        if self.pending.len() >= MAX_PENDING {
-            if let Some(k) = self.order.pop_front() {
-                self.pending.remove(&k);
-            }
+        if self.pending.len() >= MAX_PENDING
+            && let Some(k) = self.order.pop_front()
+        {
+            self.pending.remove(&k);
         }
         if self.pending.contains_key(&req.key) {
             self.order.retain(|k| k != &req.key);
@@ -82,7 +82,9 @@ impl ModbusUdpDecoder {
 }
 
 impl SessionDecoder for ModbusUdpDecoder {
-    fn name(&self) -> &'static str { "modbus_udp" }
+    fn name(&self) -> &'static str {
+        "modbus_udp"
+    }
 
     fn interest(&self) -> &'static [DecoderInterest] {
         &[DecoderInterest::UdpPort(502)]
@@ -91,27 +93,39 @@ impl SessionDecoder for ModbusUdpDecoder {
     fn on_datagram(&mut self, chunk: &StreamChunk<'_>, out: &mut Vec<BronzeEvent>) {
         let p = chunk.payload;
         if p.len() < MBAP_LEN + 1 {
-            out.push(anomaly(chunk, "medium", "modbus/udp datagram shorter than minimum MBAP+FC"));
+            out.push(anomaly(
+                chunk,
+                "medium",
+                "modbus/udp datagram shorter than minimum MBAP+FC",
+            ));
             return;
         }
 
-        let txn_id   = u16::from_be_bytes([p[0], p[1]]);
+        let txn_id = u16::from_be_bytes([p[0], p[1]]);
         let proto_id = u16::from_be_bytes([p[2], p[3]]);
         let mbap_len = u16::from_be_bytes([p[4], p[5]]) as usize;
-        let unit_id  = p[6];
-        let fc       = p[7];
-        let pdu      = &p[MBAP_LEN..]; // [fc, payload…]
+        let unit_id = p[6];
+        let fc = p[7];
+        let pdu = &p[MBAP_LEN..]; // [fc, payload…]
 
         if proto_id != 0 {
-            out.push(anomaly(chunk, "medium",
-                &format!("modbus/udp non-zero protocol_id={proto_id:#06x}")));
+            out.push(anomaly(
+                chunk,
+                "medium",
+                &format!("modbus/udp non-zero protocol_id={proto_id:#06x}"),
+            ));
             return;
         }
         // MBAP length = unit_id(1) + PDU bytes; total datagram = 6 + mbap_len.
         if 6 + mbap_len != p.len() {
-            out.push(anomaly(chunk, "medium",
-                &format!("modbus/udp MBAP length={mbap_len} disagrees with datagram length={}",
-                    p.len() - 6)));
+            out.push(anomaly(
+                chunk,
+                "medium",
+                &format!(
+                    "modbus/udp MBAP length={mbap_len} disagrees with datagram length={}",
+                    p.len() - 6
+                ),
+            ));
             // Continue — anomaly noted but data may still parse.
         }
 
@@ -132,29 +146,53 @@ impl SessionDecoder for ModbusUdpDecoder {
                 dst_ip: chunk.context.src_ip,
                 txn_id,
             };
-            let (operation, start_addr, qty, direction) =
-                if let Some(req) = self.pop(&req_key) {
-                    let op = req.operation.clone();
-                    let sa = req.start_addr;
-                    let q  = req.qty;
-                    let merged = merge(&req.envelope, &env);
-                    out.push(tx_event(req.capture_id, merged, op.clone(),
-                        format!("exception_0x{exc_code:02x}"),
-                        unit_id, txn_id, base_fc, sa, q, vec![], Some(exc_code), "paired"));
-                    return;
-                } else {
-                    (fc_name(base_fc), None, None, "response")
-                };
-            out.push(tx_event(chunk.capture_id.to_string(), env, operation,
+            let (operation, start_addr, qty, direction) = if let Some(req) = self.pop(&req_key) {
+                let op = req.operation.clone();
+                let sa = req.start_addr;
+                let q = req.qty;
+                let merged = merge(&req.envelope, &env);
+                out.push(tx_event(
+                    req.capture_id,
+                    merged,
+                    op.clone(),
+                    format!("exception_0x{exc_code:02x}"),
+                    unit_id,
+                    txn_id,
+                    base_fc,
+                    sa,
+                    q,
+                    vec![],
+                    Some(exc_code),
+                    "paired",
+                ));
+                return;
+            } else {
+                (fc_name(base_fc), None, None, "response")
+            };
+            out.push(tx_event(
+                chunk.capture_id.to_string(),
+                env,
+                operation,
                 format!("exception_0x{exc_code:02x}"),
-                unit_id, txn_id, base_fc, start_addr, qty, vec![], Some(exc_code), direction));
+                unit_id,
+                txn_id,
+                base_fc,
+                start_addr,
+                qty,
+                vec![],
+                Some(exc_code),
+                direction,
+            ));
             return;
         }
 
         // Emit ParseAnomaly for unrecognised FCs (0x5A already skipped above).
         if !is_known_fc(fc) {
-            out.push(anomaly(chunk, "low",
-                &format!("modbus/udp unknown function code 0x{fc:02x}")));
+            out.push(anomaly(
+                chunk,
+                "low",
+                &format!("modbus/udp unknown function code 0x{fc:02x}"),
+            ));
         }
 
         let operation = fc_name(fc);
@@ -162,10 +200,18 @@ impl SessionDecoder for ModbusUdpDecoder {
         if is_request {
             let (start_addr, qty) = req_addr_qty(fc, pdu);
             self.park(PReq {
-                key: PKey { src_ip: chunk.context.src_ip, dst_ip: chunk.context.dst_ip, txn_id },
+                key: PKey {
+                    src_ip: chunk.context.src_ip,
+                    dst_ip: chunk.context.dst_ip,
+                    txn_id,
+                },
                 capture_id: chunk.capture_id.to_string(),
                 envelope: env,
-                unit_id, fc, operation, start_addr, qty,
+                unit_id,
+                fc,
+                operation,
+                start_addr,
+                qty,
             });
         } else {
             let values = resp_values(fc, pdu);
@@ -177,15 +223,55 @@ impl SessionDecoder for ModbusUdpDecoder {
             };
             if let Some(req) = self.pop(&req_key) {
                 let merged = merge(&req.envelope, &env);
-                emit_readings(fc, req.start_addr, req.unit_id, &values,
-                    chunk.capture_id, merged.clone(), obs_ts, out);
-                out.push(tx_event(req.capture_id, merged, req.operation, "ok".into(),
-                    unit_id, txn_id, fc, req.start_addr, req.qty, values, None, "paired"));
+                emit_readings(
+                    fc,
+                    req.start_addr,
+                    req.unit_id,
+                    &values,
+                    chunk.capture_id,
+                    merged.clone(),
+                    obs_ts,
+                    out,
+                );
+                out.push(tx_event(
+                    req.capture_id,
+                    merged,
+                    req.operation,
+                    "ok".into(),
+                    unit_id,
+                    txn_id,
+                    fc,
+                    req.start_addr,
+                    req.qty,
+                    values,
+                    None,
+                    "paired",
+                ));
             } else {
-                emit_readings(fc, None, unit_id, &values,
-                    chunk.capture_id, env.clone(), obs_ts, out);
-                out.push(tx_event(chunk.capture_id.to_string(), env, operation, "response_only".into(),
-                    unit_id, txn_id, fc, None, None, values, None, "response"));
+                emit_readings(
+                    fc,
+                    None,
+                    unit_id,
+                    &values,
+                    chunk.capture_id,
+                    env.clone(),
+                    obs_ts,
+                    out,
+                );
+                out.push(tx_event(
+                    chunk.capture_id.to_string(),
+                    env,
+                    operation,
+                    "response_only".into(),
+                    unit_id,
+                    txn_id,
+                    fc,
+                    None,
+                    None,
+                    values,
+                    None,
+                    "response",
+                ));
             }
         }
     }
@@ -194,9 +280,20 @@ impl SessionDecoder for ModbusUdpDecoder {
         let drained: Vec<PReq> = self.pending.drain().map(|(_, v)| v).collect();
         self.order.clear();
         for req in drained {
-            out.push(tx_event(req.capture_id, req.envelope, req.operation,
-                "request_only".into(), req.unit_id, req.key.txn_id,
-                req.fc, req.start_addr, req.qty, vec![], None, "request"));
+            out.push(tx_event(
+                req.capture_id,
+                req.envelope,
+                req.operation,
+                "request_only".into(),
+                req.unit_id,
+                req.key.txn_id,
+                req.fc,
+                req.start_addr,
+                req.qty,
+                vec![],
+                None,
+                "request",
+            ));
         }
     }
 }
@@ -205,14 +302,11 @@ impl SessionDecoder for ModbusUdpDecoder {
 
 fn req_addr_qty(fc: u8, pdu: &[u8]) -> (Option<u16>, Option<u16>) {
     match fc {
-        0x01 | 0x02 | 0x03 | 0x04 if pdu.len() >= 5 => (
+        0x01..=0x04 if pdu.len() >= 5 => (
             Some(u16::from_be_bytes([pdu[1], pdu[2]])),
             Some(u16::from_be_bytes([pdu[3], pdu[4]])),
         ),
-        0x05 | 0x06 if pdu.len() >= 5 => (
-            Some(u16::from_be_bytes([pdu[1], pdu[2]])),
-            None,
-        ),
+        0x05 | 0x06 if pdu.len() >= 5 => (Some(u16::from_be_bytes([pdu[1], pdu[2]])), None),
         0x0F | 0x10 if pdu.len() >= 5 => (
             Some(u16::from_be_bytes([pdu[1], pdu[2]])),
             Some(u16::from_be_bytes([pdu[3], pdu[4]])),
@@ -231,10 +325,11 @@ fn resp_values(fc: u8, pdu: &[u8]) -> Vec<u16> {
         0x03 | 0x04 | 0x17 if pdu.len() >= 2 => {
             let byte_count = pdu[1] as usize;
             let data = &pdu[2..];
-            if data.len() < byte_count || byte_count % 2 != 0 {
+            if data.len() < byte_count || !byte_count.is_multiple_of(2) {
                 return vec![];
             }
-            data[..byte_count].chunks_exact(2)
+            data[..byte_count]
+                .chunks_exact(2)
                 .map(|c| u16::from_be_bytes([c[0], c[1]]))
                 .collect()
         }
@@ -246,8 +341,13 @@ fn resp_values(fc: u8, pdu: &[u8]) -> Vec<u16> {
 
 #[allow(clippy::too_many_arguments)]
 fn emit_readings(
-    fc: u8, start_addr: Option<u16>, unit_id: u8, values: &[u16],
-    capture_id: &str, envelope: EventEnvelope, observed_ts: u64,
+    fc: u8,
+    start_addr: Option<u16>,
+    unit_id: u8,
+    values: &[u16],
+    capture_id: &str,
+    envelope: EventEnvelope,
+    observed_ts: u64,
     out: &mut Vec<BronzeEvent>,
 ) {
     let register_type = match fc {
@@ -278,11 +378,17 @@ fn emit_readings(
 
 #[allow(clippy::too_many_arguments)]
 fn tx_event(
-    capture_id: String, envelope: EventEnvelope,
-    operation: String, status: String,
-    unit_id: u8, txn_id: u16, fc: u8,
-    start_addr: Option<u16>, qty: Option<u16>,
-    values: Vec<u16>, exception_code: Option<u8>,
+    capture_id: String,
+    envelope: EventEnvelope,
+    operation: String,
+    status: String,
+    unit_id: u8,
+    txn_id: u16,
+    fc: u8,
+    start_addr: Option<u16>,
+    qty: Option<u16>,
+    values: Vec<u16>,
+    exception_code: Option<u8>,
     direction: &str,
 ) -> BronzeEvent {
     let mut attrs = BTreeMap::new();
@@ -291,23 +397,42 @@ fn tx_event(
     attrs.insert("function_code".into(), format!("0x{fc:02x}"));
     attrs.insert("transport".into(), "udp".into());
 
-    new_event(capture_id, envelope, BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
-        operation, status,
-        request_summary: None, response_summary: None,
-        object_refs: vec![], values: vec![],
-        attributes: attrs,
-        modbus: Some(ModbusBronzeFields {
-            fc: fc & 0x7F, start_addr, qty, values,
-            exception_code, direction: direction.into(),
+    new_event(
+        capture_id,
+        envelope,
+        BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
+            operation,
+            status,
+            request_summary: None,
+            response_summary: None,
+            object_refs: vec![],
+            values: vec![],
+            attributes: attrs,
+            modbus: Some(ModbusBronzeFields {
+                fc: fc & 0x7F,
+                start_addr,
+                qty,
+                values,
+                exception_code,
+                direction: direction.into(),
+            }),
+            protocol_fields: None,
         }),
-        protocol_fields: None,
-    }))
+    )
 }
 
 fn udp_env(chunk: &StreamChunk<'_>) -> EventEnvelope {
-    build_envelope(&chunk.context, chunk.interface_id, chunk.frame_index,
-        chunk.timestamp, chunk.segment_hash, TransportProtocol::Udp,
-        Some("modbus_udp"), chunk.captured_len, chunk.session_key.clone())
+    build_envelope(
+        &chunk.context,
+        chunk.interface_id,
+        chunk.frame_index,
+        chunk.timestamp,
+        chunk.segment_hash,
+        TransportProtocol::Udp,
+        Some("modbus_udp"),
+        chunk.captured_len,
+        chunk.session_key.clone(),
+    )
 }
 
 fn merge(req: &EventEnvelope, resp: &EventEnvelope) -> EventEnvelope {
@@ -318,8 +443,14 @@ fn merge(req: &EventEnvelope, resp: &EventEnvelope) -> EventEnvelope {
 }
 
 fn anomaly(chunk: &StreamChunk<'_>, severity: &str, reason: &str) -> BronzeEvent {
-    parse_anomaly_event(chunk.capture_id.to_string(), udp_env(chunk),
-        "modbus_udp", severity, reason, chunk.payload)
+    parse_anomaly_event(
+        chunk.capture_id.to_string(),
+        udp_env(chunk),
+        "modbus_udp",
+        severity,
+        reason,
+        chunk.payload,
+    )
 }
 
 fn fc_name(fc: u8) -> String {
@@ -335,13 +466,16 @@ fn fc_name(fc: u8) -> String {
         0x16 => "mask_write_register",
         0x17 => "read_write_multiple_registers",
         0x2B => "encapsulated_interface_transport",
-        n    => return format!("modbus_unknown_fc_{n}"),
-    }.into()
+        n => return format!("modbus_unknown_fc_{n}"),
+    }
+    .into()
 }
 
 fn is_known_fc(fc: u8) -> bool {
-    matches!(fc, 0x01 | 0x02 | 0x03 | 0x04 | 0x05 | 0x06
-               | 0x0F | 0x10 | 0x16 | 0x17 | 0x2B)
+    matches!(
+        fc,
+        0x01 | 0x02 | 0x03 | 0x04 | 0x05 | 0x06 | 0x0F | 0x10 | 0x16 | 0x17 | 0x2B
+    )
 }
 
 // ── Self-registration ─────────────────────────────────────────────────────────
@@ -355,12 +489,12 @@ inventory::submit!(crate::engine::decoders::DecoderRegistration {
 
 #[cfg(test)]
 mod tests {
-    use std::net::IpAddr;
-    use chrono::Utc;
+    use super::ModbusUdpDecoder;
     use crate::bronze::{BronzeEventFamily, ModbusRegKind, PointIdentifier, TransportProtocol};
     use crate::engine::{DecoderInterest, SessionDecoder, StreamChunk};
     use crate::registry::PacketContext;
-    use super::ModbusUdpDecoder;
+    use chrono::Utc;
+    use std::net::IpAddr;
 
     // ── Frame / context builders ──────────────────────────────────────────────
 
@@ -383,7 +517,9 @@ mod tests {
 
     fn pdu_rhr_resp(vals: &[u16]) -> Vec<u8> {
         let mut p = vec![0x03, (vals.len() * 2) as u8];
-        for &v in vals { p.extend_from_slice(&v.to_be_bytes()); }
+        for &v in vals {
+            p.extend_from_slice(&v.to_be_bytes());
+        }
         p
     }
 
@@ -393,8 +529,10 @@ mod tests {
             dst_mac: [0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb],
             src_ip: src.parse::<IpAddr>().unwrap(),
             dst_ip: dst.parse::<IpAddr>().unwrap(),
-            src_port: 49152, dst_port: 502,
-            vlan_id: None, timestamp: 0,
+            src_port: 49152,
+            dst_port: 502,
+            vlan_id: None,
+            timestamp: 0,
         }
     }
 
@@ -404,18 +542,24 @@ mod tests {
             dst_mac: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55],
             src_ip: src.parse::<IpAddr>().unwrap(),
             dst_ip: dst.parse::<IpAddr>().unwrap(),
-            src_port: 502, dst_port: 49152,
-            vlan_id: None, timestamp: 0,
+            src_port: 502,
+            dst_port: 49152,
+            vlan_id: None,
+            timestamp: 0,
         }
     }
 
     fn dgram<'a>(payload: &'a [u8], ctx: &'a PacketContext) -> StreamChunk<'a> {
         StreamChunk {
-            capture_id: "test", segment_hash: "hash",
-            interface_id: 0, frame_index: 1,
+            capture_id: "test",
+            segment_hash: "hash",
+            interface_id: 0,
+            frame_index: 1,
             timestamp: Utc::now(),
             context: ctx.clone(),
-            ethertype: 0x0800, ip_proto: Some(17), llc: None,
+            ethertype: 0x0800,
+            ip_proto: Some(17),
+            llc: None,
             transport: TransportProtocol::Udp,
             payload,
             session_key: "udp:10.0.0.10:49152:10.0.0.20:502".into(),
@@ -433,12 +577,19 @@ mod tests {
         d.on_datagram(&dgram(&req_f, &ctx_c("10.0.0.10", "10.0.0.20")), &mut out);
         assert!(out.is_empty(), "lone request must not emit");
 
-        let resp_f = frame(1, 1, &pdu_rhr_resp(&[1,2,3,4,5,6,7,8,9,10]));
+        let resp_f = frame(1, 1, &pdu_rhr_resp(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
         d.on_datagram(&dgram(&resp_f, &ctx_s("10.0.0.20", "10.0.0.10")), &mut out);
 
-        let tx = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(t) = &e.family { Some(t) } else { None }
-        }).expect("ProtocolTransaction required");
+        let tx = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(t) = &e.family {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .expect("ProtocolTransaction required");
 
         assert_eq!(tx.operation, "read_holding_registers");
         assert_eq!(tx.status, "ok");
@@ -452,22 +603,33 @@ mod tests {
     #[test]
     fn read_holding_registers_process_readings() {
         let mut d = ModbusUdpDecoder::default();
-        let req_f  = frame(2, 1, &pdu_rhr_req(40, 5));
+        let req_f = frame(2, 1, &pdu_rhr_req(40, 5));
         let mut out = vec![];
         d.on_datagram(&dgram(&req_f, &ctx_c("10.0.0.10", "10.0.0.20")), &mut out);
 
         let resp_f = frame(2, 1, &pdu_rhr_resp(&[100, 200, 300, 400, 500]));
         d.on_datagram(&dgram(&resp_f, &ctx_s("10.0.0.20", "10.0.0.10")), &mut out);
 
-        let readings: Vec<_> = out.iter().filter_map(|e| {
-            if let BronzeEventFamily::ProcessReading(r) = &e.family { Some(r) } else { None }
-        }).collect();
+        let readings: Vec<_> = out
+            .iter()
+            .filter_map(|e| {
+                if let BronzeEventFamily::ProcessReading(r) = &e.family {
+                    Some(r)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(readings.len(), 5);
 
         for (i, r) in readings.iter().enumerate() {
             assert_eq!(r.source_protocol, "modbus_udp");
             match &r.point_id {
-                PointIdentifier::ModbusRegister { unit_id, addr, register_type } => {
+                PointIdentifier::ModbusRegister {
+                    unit_id,
+                    addr,
+                    register_type,
+                } => {
                     assert_eq!(*unit_id, 1);
                     assert_eq!(*addr, 40 + i as u16);
                     assert_eq!(*register_type, ModbusRegKind::HoldingRegister);
@@ -491,9 +653,16 @@ mod tests {
         // Modbus FC06 response echoes the request.
         d.on_datagram(&dgram(&req_f, &ctx_s("10.0.0.20", "10.0.0.10")), &mut out);
 
-        let tx = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(t) = &e.family { Some(t) } else { None }
-        }).expect("ProtocolTransaction required");
+        let tx = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(t) = &e.family {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .expect("ProtocolTransaction required");
         assert_eq!(tx.operation, "write_single_register");
         assert_eq!(tx.status, "ok");
     }
@@ -510,9 +679,16 @@ mod tests {
         let exc_f = frame(4, 1, &[0x83, 0x02]);
         d.on_datagram(&dgram(&exc_f, &ctx_s("10.0.0.20", "10.0.0.10")), &mut out);
 
-        let tx = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(t) = &e.family { Some(t) } else { None }
-        }).expect("ProtocolTransaction required");
+        let tx = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(t) = &e.family {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .expect("ProtocolTransaction required");
         assert_eq!(tx.status, "exception_0x02");
         assert_eq!(tx.operation, "read_holding_registers");
         let mb = tx.modbus.as_ref().unwrap();
@@ -527,7 +703,10 @@ mod tests {
         let f = frame(5, 1, &[0x5A, 0x01, 0x02]);
         let mut out = vec![];
         d.on_datagram(&dgram(&f, &ctx_c("10.0.0.10", "10.0.0.20")), &mut out);
-        assert!(out.is_empty(), "UMAS FC must be silently skipped; got {out:?}");
+        assert!(
+            out.is_empty(),
+            "UMAS FC must be silently skipped; got {out:?}"
+        );
     }
 
     // ── Test 6: Unknown FC=0x42 → ParseAnomaly low + modbus_unknown_fc_66 ─────
@@ -539,17 +718,31 @@ mod tests {
         let mut out = vec![];
         d.on_datagram(&dgram(&f, &ctx_c("10.0.0.10", "10.0.0.20")), &mut out);
 
-        let a = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(a) = &e.family { Some(a) } else { None }
-        }).expect("ParseAnomaly required");
+        let a = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ParseAnomaly(a) = &e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .expect("ParseAnomaly required");
         assert_eq!(a.severity, "low");
         assert!(a.reason.contains("0x42"), "reason: {}", a.reason);
 
         let mut flush = vec![];
         d.on_idle_flush(Utc::now(), &mut flush);
-        let tx = flush.iter().find_map(|e| {
-            if let BronzeEventFamily::ProtocolTransaction(t) = &e.family { Some(t) } else { None }
-        }).expect("ProtocolTransaction on flush");
+        let tx = flush
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ProtocolTransaction(t) = &e.family {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .expect("ProtocolTransaction on flush");
         assert_eq!(tx.operation, "modbus_unknown_fc_66");
         assert_eq!(tx.status, "request_only");
     }
@@ -558,8 +751,11 @@ mod tests {
 
     #[test]
     fn interest_is_udp_502() {
-        assert!(ModbusUdpDecoder::default().interest()
-            .contains(&DecoderInterest::UdpPort(502)));
+        assert!(
+            ModbusUdpDecoder::default()
+                .interest()
+                .contains(&DecoderInterest::UdpPort(502))
+        );
     }
 
     // ── Test 8: MBAP length mismatch → medium ParseAnomaly ───────────────────
@@ -574,9 +770,16 @@ mod tests {
         let mut out = vec![];
         d.on_datagram(&dgram(&f, &ctx_c("10.0.0.10", "10.0.0.20")), &mut out);
 
-        let a = out.iter().find_map(|e| {
-            if let BronzeEventFamily::ParseAnomaly(a) = &e.family { Some(a) } else { None }
-        }).expect("ParseAnomaly required for MBAP length mismatch");
+        let a = out
+            .iter()
+            .find_map(|e| {
+                if let BronzeEventFamily::ParseAnomaly(a) = &e.family {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .expect("ParseAnomaly required for MBAP length mismatch");
         assert_eq!(a.severity, "medium");
     }
 }

@@ -45,7 +45,7 @@ impl RadiusDissector {
         let length = u16::from_be_bytes([data[2], data[3]]) as usize;
 
         // Sanity: length must be 20..=4096 and not exceed available data.
-        if length < 20 || length > 4096 || length > data.len() {
+        if !(20..=4096).contains(&length) || length > data.len() {
             return None;
         }
 
@@ -99,18 +99,15 @@ impl RadiusDissector {
                 }
                 30 => {
                     // Called-Station-Id
-                    fields.called_station_id =
-                        Some(String::from_utf8_lossy(value).to_string());
+                    fields.called_station_id = Some(String::from_utf8_lossy(value).to_string());
                 }
                 31 => {
                     // Calling-Station-Id
-                    fields.calling_station_id =
-                        Some(String::from_utf8_lossy(value).to_string());
+                    fields.calling_station_id = Some(String::from_utf8_lossy(value).to_string());
                 }
                 32 => {
                     // NAS-Identifier
-                    fields.nas_identifier =
-                        Some(String::from_utf8_lossy(value).to_string());
+                    fields.nas_identifier = Some(String::from_utf8_lossy(value).to_string());
                 }
                 61 => {
                     // NAS-Port-Type
