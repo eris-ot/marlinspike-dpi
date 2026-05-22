@@ -77,5 +77,8 @@ pub use crate::corpus::{
     CorpusValidationOptions, CorpusValidationSummary, FixtureResult, FixtureResultStatus,
     FixtureSpec, FixtureValidationObservation, ImplementationStatus, validate_corpus_manifest,
 };
-pub use crate::engine::{BronzeSink, DpiEngine, DpiError, DpiSegmentOutput, SegmentMeta};
+pub use crate::engine::{
+    BronzeSink, Classification, DpiEngine, DpiError, DpiSegmentOutput, DpiSession,
+    DpiSessionConfig, FlowKey, FlowTag, SegmentMeta,
+};
 pub use fathom_contracts::{Classifier, ProtocolId};

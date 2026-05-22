@@ -1,5 +1,9 @@
 //! Bronze v2 streaming DPI engine.
 
+pub mod streaming;
+
+pub use streaming::{Classification, DpiSession, DpiSessionConfig, FlowKey, FlowTag};
+
 use std::io::{self, Read, Seek, SeekFrom};
 use std::net::{IpAddr, Ipv4Addr};
 
