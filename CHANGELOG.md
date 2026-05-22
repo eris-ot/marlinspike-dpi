@@ -8,6 +8,22 @@ breaking changes will bump the major version (planned `v2.0` removes the depreca
 `attributes: BTreeMap<String, String>` escape hatch and the `modbus` sub-field on
 `ProtocolTransaction`).
 
+## [1.17.0] — 2026-05-22
+
+Inline-classification release. Adds a streaming per-packet engine path alongside the batch pcap engine, a port-indexed dispatch fast path, and a large expansion of typed Bronze protocol fields.
+
+### Added — streaming engine
+
+- **`DpiSession`** — per-packet, per-flow streaming classification entry point (`engine::streaming`). `feed()` takes a raw IPv4/IPv6 datagram, strips L3+L4 headers (including IPv6 extension-header chains), and returns a `Classification` (`NeedMore` / `Classified` / `Unknown`) via the existing dissector registry. Per-flow state caches the classification and short-circuits subsequent packets of a known flow; LRU eviction bounds the flow table (`DpiSessionConfig`). Lets inline consumers drive the engine packet-at-a-time without buffering a whole capture. New public exports: `DpiSession`, `DpiSessionConfig`, `Classification`, `FlowKey`, `FlowTag`.
+
+### Added — Bronze typed protocol fields
+
+- **28 new typed `*BronzeFields` structs** covering VPN/tunnel (WireGuard, OpenVPN, IKE, QUIC), VoIP (SIP, RTP, RTCP), IoT messaging (MQTT-SN, CoAP, AMQP), Windows/enterprise (SMB2, RDP, Kerberos, NTLMSSP, DCE-RPC, LDAP, NetBIOS, WinRM, VNC), AAA (RadSec, TACACS+), network infrastructure (IGMP, VTP, NetFlow), plus TFTP, SMTP, and discovery/recognition field shells. Extends the typed-field surface beyond the `attributes` string-map escape hatch.
+
+### Changed — performance
+
+- **Port-indexed dissector dispatch.** `DissectorRegistry` now routes packets on well-known L4 ports (Modbus 502, DNP3 20000, OPC UA 4840, S7comm 102, EtherNet/IP 44818, …) through an O(1) `HashMap` lookup instead of a linear walk over all ~30 dissectors. Floating-port and L2 protocols fall through to a free-list walk. Pure `classify_name` drops from ~800 ns to ~30 ns for port-pinned protocols. New `register_with_ports()` API; existing `register()` is unchanged (free-list path).
+
 ## [1.16.0] — 2026-05-11
 
 OT OSS community-enablement release. No new protocol decoders or schema changes; everything in this release lowers the eval, deploy, and contribute barrier for the OT defender / OSS analyst audience.
