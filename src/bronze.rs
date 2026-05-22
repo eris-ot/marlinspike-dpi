@@ -1042,6 +1042,584 @@ pub struct MqttBronzeFields {
     pub retain: Option<bool>,
 }
 
+/// WireGuard (UDP) typed fields. `message_type`: 1=init, 2=resp, 3=cookie, 4=transport.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WireGuardBronzeFields {
+    pub message_type: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receiver_index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counter: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_pubkey_hex: Option<String>,
+    pub payload_length: u32,
+}
+
+/// OpenVPN (UDP/TCP) typed fields. `opcode`/`key_id` are the 5/3-bit split of byte 0.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenVpnBronzeFields {
+    pub opcode: u8,
+    pub key_id: u8,
+    pub session_id_hex: String,
+    pub transport: String,
+    pub payload_length: u32,
+}
+
+/// IPsec IKE (UDP/500,4500) typed fields. IKEv1 (RFC 2409) + IKEv2 (RFC 7296).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IkeBronzeFields {
+    pub version_major: u8,
+    pub exchange_type: u8,
+    pub initiator_spi_hex: String,
+    pub responder_spi_hex: String,
+    pub message_id: u32,
+    pub flags: u8,
+    pub vendor_ids: Vec<String>,
+    pub malformed_payload_chain: bool,
+    pub direction: String,
+}
+
+/// RadSec (RADIUS-over-TLS, TCP/2083) recognition fields — TLS record fingerprint only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RadSecBronzeFields {
+    pub tls_record_type: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_version_hex: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_length: Option<u16>,
+}
+
+/// TACACS+ (TCP/49, RFC 8907) typed fields. AuthenStart plaintext fields present
+/// only when `pkt_type` is AUTHEN, `seq_no` == 1, and the body is unencrypted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TacacsBronzeFields {
+    pub version_byte: u8,
+    pub tacacs_type: u8,
+    pub seq_no: u8,
+    pub session_id: u32,
+    pub flags: u8,
+    pub body_length: u32,
+    pub body_unencrypted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authen_type: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priv_lvl: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rem_addr: Option<String>,
+    pub direction: String,
+}
+
+/// IGMP (IP proto 2) typed fields covering v1/v2/v3 query, report, and leave.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IgmpBronzeFields {
+    /// 1, 2, or 3.
+    pub version: u8,
+    /// `"query"`, `"v1_report"`, `"v2_report"`, `"v3_report"`, or `"leave"`.
+    pub message_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_address: Option<String>,
+    /// Max-response code (v3 decimal-seconds) or max-resp-time (v1/v2 deci-seconds).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_resp_decisec: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s_flag: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qrv: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qqic: Option<u32>,
+    pub source_addresses: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_count: Option<u32>,
+}
+
+/// Recognition-only marker for port/magic-byte fingerprinted protocols
+/// (SMB1, CC-Link IE, CODESYS, IO-Link Wireless).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecognitionBronzeFields {
+    pub protocol: String,
+    pub summary: String,
+}
+
+/// NetBIOS typed fields. `sub_protocol` selects NBNS (name service) vs NBDS
+/// (datagram service); fields not applicable to the active sub-protocol are `None`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetBiosBronzeFields {
+    /// `"nbns"` or `"nbds"`.
+    pub sub_protocol: String,
+    // --- NBNS ---
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flags: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opcode: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rcode: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qdcount: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ancount: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nscount: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arcount: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_response: Option<bool>,
+    pub decoded_names: Vec<String>,
+    // --- NBDS ---
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub msg_type: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub datagram_id: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dest_name: Option<String>,
+}
+
+/// NetFlow / IPFIX (UDP) typed fields. Export-only; fields vary by version and
+/// message kind, so most are optional.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetFlowBronzeFields {
+    /// 5, 9, or 10 (IPFIX). 0 for unknown-version frames.
+    pub version: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_count: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_sequence: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observation_domain_id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_id: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_options_template: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub export_time: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// mDNS / WS-Discovery (UDP/5353,3702) typed fields. `sub_protocol` selects mdns vs wsd.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscoveryBronzeFields {
+    /// `"mdns"` or `"wsd"`.
+    pub sub_protocol: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qdcount: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ancount: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nscount: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arcount: Option<u16>,
+    pub question_names: Vec<String>,
+    pub answer_names: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wsd_message_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub types: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub xaddrs: Option<String>,
+}
+
+/// VTP (Cisco VLAN Trunking Protocol, LLC) typed fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VtpBronzeFields {
+    pub version: u8,
+    pub message_type: u8,
+    pub message_type_name: String,
+    pub domain_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u32>,
+    pub vlans: Vec<u16>,
+}
+
+/// SIP (RFC 3261) typed fields. Request fields (`method`, `request_uri`) and
+/// response fields (`response_code`, `response_reason`) are mutually exclusive.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SipBronzeFields {
+    pub is_response: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_code: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_reason: Option<String>,
+    pub from: String,
+    pub to: String,
+    pub call_id: String,
+    pub cseq: String,
+    pub contact: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    pub direction: String,
+}
+
+/// RTP (RFC 3550) typed fields, emitted on first packet and every 1000th per stream.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RtpBronzeFields {
+    pub version: u8,
+    pub payload_type: u8,
+    pub payload_type_name: String,
+    pub ssrc: u32,
+    pub sequence_number_initial: u16,
+    pub marker_seen: bool,
+}
+
+/// RTCP (RFC 3550) typed fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RtcpBronzeFields {
+    pub packet_type: u8,
+    pub packet_type_name: String,
+}
+
+/// MQTT-SN v1.2 (UDP/1884) typed fields. Per-message-type fields are optional.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MqttSnBronzeFields {
+    pub msg_type: u8,
+    pub msg_type_name: String,
+    pub length: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_id: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radius: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_id: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub return_code: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub will_topic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic_id: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub msg_id: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_length: Option<u32>,
+}
+
+/// CoAP (RFC 7252, UDP/5683) typed fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoapBronzeFields {
+    pub version: u8,
+    pub msg_type: u8,
+    pub type_name: String,
+    pub code: u8,
+    pub code_class: u8,
+    pub code_detail: u8,
+    pub message_id: u16,
+    pub token_hex: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uri_host: Option<String>,
+    pub uri_path: Vec<String>,
+    pub uri_query: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_format: Option<u32>,
+    pub direction: String,
+}
+
+/// AMQP 1.0 typed fields covering the protocol-header preamble and performative frames.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AmqpBronzeFields {
+    /// `"protocol_header"` or `"performative"`.
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_id: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_type: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_type_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub descriptor_code: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_size: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<u16>,
+}
+
+/// TFTP (RFC 1350) typed fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TftpBronzeFields {
+    pub opcode: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_write: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+}
+
+/// SMTP (RFC 5321) typed fields covering banner and client commands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SmtpBronzeFields {
+    pub direction: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verb: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub argument: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_mechanism: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_code: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub banner_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_software: Option<String>,
+}
+
+/// WinRM / WS-Management (HTTP/5985) typed fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WinRmBronzeFields {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub soap_action_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_header: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+}
+
+/// QUIC (RFC 9000) long-header typed fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuicBronzeFields {
+    pub version: u32,
+    pub version_label: String,
+    pub dcid_hex: String,
+    pub dcid_length: u8,
+    pub scid_hex: String,
+    pub scid_length: u8,
+    pub type_bits: u8,
+    pub first_byte: u8,
+    pub supported_versions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_length: Option<u32>,
+}
+
+/// VNC / RFB (RFC 6143) handshake typed fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VncBronzeFields {
+    pub server_protocol_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_protocol_version: Option<String>,
+    pub security_types_offered: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chosen_security_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invalid_reason: Option<String>,
+    pub status: String,
+}
+
+/// LDAP (RFC 4511, TCP/389) typed fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LdapBronzeFields {
+    pub message_id: i64,
+    pub op_tag: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sasl_mechanism: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_code: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_dn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter_type: Option<String>,
+    pub attributes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extended_oid: Option<String>,
+    pub starttls: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_name: Option<String>,
+    pub direction: String,
+}
+
+/// DCE/RPC (MS-RPCE, TCP/135) typed fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DceRpcBronzeFields {
+    /// `"bind"`, `"alter_context"`, or `"request"`.
+    pub kind: String,
+    pub interfaces: Vec<String>,
+    pub call_id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_xmit_frag: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_recv_frag: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opnum: Option<u16>,
+    pub direction: String,
+}
+
+/// SMB2/3 (MS-SMB2, TCP/445) typed fields. Per-command fields are optional;
+/// `command`/`nt_status`/`is_response` are always present.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Smb2BronzeFields {
+    pub command: u16,
+    pub command_name: String,
+    pub message_id: u64,
+    pub tree_id: u32,
+    pub session_id: u64,
+    pub nt_status: u32,
+    pub is_response: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dialect_count: Option<u16>,
+    pub dialects_offered: Vec<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub negotiated_dialect: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tree_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_id_hex: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub desired_access: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share_access: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disposition: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_length: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_offset: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_length: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_offset: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctl_code: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security_blob_len: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_session_id: Option<u64>,
+    pub direction: String,
+}
+
+/// RDP (MS-RDPBCGR, TCP/3389) connection-handshake typed fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RdpBronzeFields {
+    pub tpdu_class: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_protocols: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mstshash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_protocol: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub negotiation_failure_code: Option<u32>,
+    /// `"neg_response"`, `"neg_failure"`, or `"bare"`.
+    pub cc_kind: String,
+    pub status: String,
+}
+
+/// NTLMSSP (MS-NLMP) typed fields. `message_type`: 1=Negotiate, 2=Challenge, 3=Authenticate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NtlmsspBronzeFields {
+    pub message_type: u32,
+    pub negotiate_flags: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workstation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_challenge_hex: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nb_computer_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nb_domain_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dns_computer_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dns_domain_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nt_response_len: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lm_response_len: Option<u32>,
+}
+
+/// Kerberos (RFC 4120, TCP/UDP 88) typed fields. `i64` integers match the
+/// ASN.1 decoder's return type and are kept un-narrowed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KerberosBronzeFields {
+    pub app_tag: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pvno: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub msg_type: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub realm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ticket_realm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ticket_sname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etypes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub till: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rtime: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enc_etype: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub e_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub svc_realm: Option<String>,
+    pub direction: String,
+}
+
 /// Typed protocol-specific fields on a [`ProtocolTransaction`]. Replaces the
 /// ad-hoc `attributes: BTreeMap<String, String>` escape hatch with a tagged
 /// enum that downstream consumers can pattern-match without string lookups.
@@ -1084,6 +1662,34 @@ pub enum ProtocolFields {
     Http(HttpBronzeFields),
     Tls(TlsBronzeFields),
     Mqtt(MqttBronzeFields),
+    WireGuard(WireGuardBronzeFields),
+    OpenVpn(OpenVpnBronzeFields),
+    Ike(IkeBronzeFields),
+    RadSec(RadSecBronzeFields),
+    Tacacs(TacacsBronzeFields),
+    Igmp(IgmpBronzeFields),
+    Recognition(RecognitionBronzeFields),
+    NetBios(NetBiosBronzeFields),
+    NetFlow(NetFlowBronzeFields),
+    Discovery(DiscoveryBronzeFields),
+    Vtp(VtpBronzeFields),
+    Sip(SipBronzeFields),
+    Rtp(RtpBronzeFields),
+    Rtcp(RtcpBronzeFields),
+    MqttSn(MqttSnBronzeFields),
+    Coap(CoapBronzeFields),
+    Amqp(AmqpBronzeFields),
+    Tftp(TftpBronzeFields),
+    Smtp(SmtpBronzeFields),
+    WinRm(WinRmBronzeFields),
+    Quic(QuicBronzeFields),
+    Vnc(VncBronzeFields),
+    Ldap(LdapBronzeFields),
+    DceRpc(DceRpcBronzeFields),
+    Smb2(Smb2BronzeFields),
+    Rdp(RdpBronzeFields),
+    Ntlmssp(NtlmsspBronzeFields),
+    Kerberos(KerberosBronzeFields),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
