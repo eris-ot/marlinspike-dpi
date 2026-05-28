@@ -1,4 +1,19 @@
 //! Bronze v2 streaming DPI engine.
+//!
+//! Two ways to drive the engine, sharing one per-frame dissection core:
+//!
+//! - **File / capture ingest** — [`DpiEngine::process_capture`],
+//!   [`DpiEngine::process_segment_to_vec`], and the back-pressured
+//!   [`DpiEngine::process_streaming`] consume PCAP/PCAPNG byte streams
+//!   (`Read + Seek`).
+//! - **Live ingest** — [`DpiEngine::live_session`] (push-style) and
+//!   [`DpiEngine::process_frames`] (iterator-style) accept parsed
+//!   [`CapturedFrame`]s directly, so a libpcap / AF_PACKET / XDP / FFI source
+//!   can feed the engine its native framing without re-wrapping packets as
+//!   fake file records. Link layer is selected per frame via [`LinkType`].
+//!
+//! For inline, per-flow protocol *classification only* (no Bronze event
+//! emission), see [`streaming::DpiSession`].
 
 pub mod streaming;
 
@@ -55,6 +70,69 @@ impl SegmentMeta {
 pub struct DpiSegmentOutput {
     pub checkpoint: SegmentCheckpoint,
     pub events: Vec<BronzeEvent>,
+}
+
+/// Link-layer framing of a captured frame's raw bytes.
+///
+/// The engine decodes L2 differently per link type before handing the L3
+/// payload to the dissector pipeline. This lets any source — a PCAP/PCAPNG
+/// file, libpcap, AF_PACKET, or XDP — drive the engine with its native
+/// framing instead of re-wrapping packets as fake Ethernet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkType {
+    /// DLT_EN10MB (1): standard Ethernet II / 802.3 framing.
+    Ethernet,
+    /// DLT_RAW (101): no link header; the frame begins at the IP header.
+    RawIp,
+    /// DLT_LINUX_SLL (113): Linux "cooked" 16-byte capture header.
+    LinuxSll,
+    /// DLT_LINUX_SLL2 (276): Linux "cooked" v2 20-byte capture header.
+    LinuxSll2,
+}
+
+impl LinkType {
+    /// Map a libpcap DLT number to a supported link type, if recognized.
+    pub fn from_dlt(dlt: u32) -> Option<Self> {
+        match dlt {
+            1 => Some(Self::Ethernet),
+            101 => Some(Self::RawIp),
+            113 => Some(Self::LinuxSll),
+            276 => Some(Self::LinuxSll2),
+            _ => None,
+        }
+    }
+
+    /// The libpcap DLT number for this link type.
+    pub fn dlt(self) -> u32 {
+        match self {
+            Self::Ethernet => 1,
+            Self::RawIp => 101,
+            Self::LinuxSll => 113,
+            Self::LinuxSll2 => 276,
+        }
+    }
+}
+
+/// One parsed link-layer frame ready to drive the engine.
+///
+/// This is the live-ingest primitive: a source supplies raw L2 bytes plus the
+/// per-frame metadata the engine already tracks internally (interface, capture
+/// timestamp, link type, lengths). See [`DpiEngine::live_session`] and
+/// [`DpiEngine::process_frames`].
+#[derive(Debug, Clone)]
+pub struct CapturedFrame<'a> {
+    /// Interface index the frame arrived on (0 when the source is single-homed).
+    pub interface_id: u32,
+    /// Capture timestamp.
+    pub timestamp: DateTime<Utc>,
+    /// Link-layer framing of `data`.
+    pub linktype: LinkType,
+    /// Number of bytes captured (length of `data`).
+    pub captured_len: usize,
+    /// Original on-wire length (may exceed `captured_len` if truncated).
+    pub orig_len: u32,
+    /// Raw link-layer bytes.
+    pub data: &'a [u8],
 }
 
 pub trait BronzeSink {
@@ -134,6 +212,78 @@ pub struct DpiEngine {
     bilgepump: BilgepumpMonitor,
 }
 
+/// Mutable streaming state carried across frames within a single segment or
+/// live session: the pending (unflushed) event buffer, counters, and the
+/// timestamp that drives idle eviction.
+struct StreamState {
+    pending_events: Vec<BronzeEvent>,
+    frames_processed: u64,
+    events_emitted: u64,
+    last_timestamp: DateTime<Utc>,
+}
+
+impl StreamState {
+    fn new() -> Self {
+        Self {
+            pending_events: Vec::new(),
+            frames_processed: 0,
+            events_emitted: 0,
+            last_timestamp: Utc::now(),
+        }
+    }
+}
+
+/// A live, frame-driven capture session bound to an engine and a sink.
+///
+/// Created via [`DpiEngine::live_session`]. Feed frames with [`push`], then
+/// call [`finish`] to drain decoder state and obtain the checkpoint. The
+/// `segment_hash` reported in batches and the final checkpoint is a rolling
+/// SHA-256 over the bytes of every frame pushed so far.
+///
+/// [`push`]: LiveSession::push
+/// [`finish`]: LiveSession::finish
+pub struct LiveSession<'a, S: BronzeSink> {
+    engine: &'a mut DpiEngine,
+    sink: &'a mut S,
+    meta: SegmentMeta,
+    state: StreamState,
+    hasher: Sha256,
+}
+
+impl<'a, S: BronzeSink> LiveSession<'a, S> {
+    /// Feed one parsed link-layer frame. Events may be flushed to the sink
+    /// immediately if the batch threshold is reached.
+    pub fn push(&mut self, frame: CapturedFrame<'_>) -> Result<(), DpiError> {
+        self.hasher.update(frame.data);
+        let segment_hash = format!("{:x}", self.hasher.clone().finalize());
+        self.engine.ingest_frame(
+            &self.meta,
+            &segment_hash,
+            &mut self.state,
+            frame.interface_id,
+            frame.linktype,
+            frame.timestamp,
+            frame.captured_len,
+            frame.orig_len,
+            frame.data,
+            self.sink,
+        )
+    }
+
+    /// Number of frames pushed so far.
+    pub fn frames_processed(&self) -> u64 {
+        self.state.frames_processed
+    }
+
+    /// Finalize the session: drain decoder idle state, flush remaining events,
+    /// and return the checkpoint carrying the full-stream rolling hash.
+    pub fn finish(mut self) -> Result<SegmentCheckpoint, DpiError> {
+        let segment_hash = format!("{:x}", self.hasher.clone().finalize());
+        self.engine
+            .finalize_stream(&self.meta, &segment_hash, &mut self.state, self.sink)
+    }
+}
+
 impl DpiEngine {
     pub fn new() -> Self {
         let stovetop_config = StovetopConfig::default();
@@ -195,63 +345,174 @@ impl DpiEngine {
         mut reader: R,
         sink: &mut S,
     ) -> Result<SegmentCheckpoint, DpiError> {
+        // File path: hash the whole capture up front (the segment identity)
+        // and feed each parsed frame through the same core the live path uses.
         let segment_hash = compute_segment_hash(&mut reader)?;
-        let mut pending_events = Vec::new();
-        let mut frames_processed = 0u64;
-        let mut events_emitted = 0u64;
-        let mut last_timestamp = Utc::now();
+        let mut state = StreamState::new();
 
         read_capture_packets(&mut reader, |packet| {
-            frames_processed += 1;
-            let frame_events = self.process_packet_record(
+            self.ingest_frame(
                 meta,
                 &segment_hash,
+                &mut state,
                 packet.interface_id,
-                frames_processed,
+                packet.linktype,
                 packet.timestamp,
                 packet.captured_len,
                 packet.orig_len,
                 &packet.data,
-            )?;
-            if let Some(ts) = frame_events.first().map(|event| event.envelope.timestamp) {
-                last_timestamp = ts;
-            }
-
-            for event in frame_events {
-                if self.should_emit(&event) {
-                    pending_events.push(event);
-                }
-            }
-
-            for decoder in &mut self.decoders {
-                decoder.evict_idle(last_timestamp, &mut pending_events);
-            }
-
-            if pending_events.len() >= self.batch_size {
-                events_emitted += flush_batch(
-                    meta.capture_id.clone(),
-                    segment_hash.clone(),
-                    &mut pending_events,
-                    frames_processed,
-                    sink,
-                )? as u64;
-            }
-            Ok(())
+                sink,
+            )
         })?;
 
-        for decoder in &mut self.decoders {
-            decoder.on_idle_flush(last_timestamp, &mut pending_events);
-            decoder.evict_idle(last_timestamp, &mut pending_events);
-        }
-        self.bilgepump.evict_expired(last_timestamp);
+        self.finalize_stream(meta, &segment_hash, &mut state, sink)
+    }
 
-        let final_pending = pending_events.len() as u64;
-        if !pending_events.is_empty() {
-            events_emitted += flush_batch(
+    /// Begin a live, frame-driven capture session.
+    ///
+    /// Returns a [`LiveSession`] that accepts one [`CapturedFrame`] at a time
+    /// via [`LiveSession::push`] and produces a [`SegmentCheckpoint`] on
+    /// [`LiveSession::finish`]. Use this for push-style sources (AF_PACKET poll
+    /// loops, XDP rings, FFI callbacks) that cannot express their stream as a
+    /// Rust iterator. Flow state, idle eviction, and batch back-pressure are
+    /// driven across the whole session — there is no per-frame finalization.
+    ///
+    /// A rolling SHA-256 over frame bytes stands in for the file hash, so live
+    /// checkpoints carry a real content-derived `segment_hash` rather than a
+    /// placeholder.
+    pub fn live_session<'a, S: BronzeSink>(
+        &'a mut self,
+        meta: SegmentMeta,
+        sink: &'a mut S,
+    ) -> LiveSession<'a, S> {
+        LiveSession {
+            engine: self,
+            sink,
+            meta,
+            state: StreamState::new(),
+            hasher: Sha256::new(),
+        }
+    }
+
+    /// Drive the engine from any iterator of [`CapturedFrame`]s.
+    ///
+    /// Convenience over [`DpiEngine::live_session`] for sources that *can* be
+    /// expressed as an iterator (a libpcap loop, a channel drained to
+    /// exhaustion). The iterator may block between items; flow/idle/flush logic
+    /// runs over the full lifetime and the session is finalized once the
+    /// iterator is exhausted.
+    pub fn process_frames<'f, I, S>(
+        &mut self,
+        meta: &SegmentMeta,
+        frames: I,
+        sink: &mut S,
+    ) -> Result<SegmentCheckpoint, DpiError>
+    where
+        I: IntoIterator<Item = CapturedFrame<'f>>,
+        S: BronzeSink,
+    {
+        let mut session = self.live_session(meta.clone(), sink);
+        for frame in frames {
+            session.push(frame)?;
+        }
+        session.finish()
+    }
+
+    /// Process a single live frame as a complete one-frame segment.
+    ///
+    /// This finalizes immediately (idle flush + eviction), so it does *not*
+    /// preserve cross-frame flow state. Prefer [`DpiEngine::live_session`] or
+    /// [`DpiEngine::process_frames`] for a real stream; use this only for
+    /// isolated single-frame classification.
+    pub fn process_frame<S: BronzeSink>(
+        &mut self,
+        meta: &SegmentMeta,
+        frame: CapturedFrame<'_>,
+        sink: &mut S,
+    ) -> Result<SegmentCheckpoint, DpiError> {
+        let mut session = self.live_session(meta.clone(), sink);
+        session.push(frame)?;
+        session.finish()
+    }
+
+    /// Ingest one parsed frame: dissect it, collect emittable events, run idle
+    /// eviction, and flush a batch when the threshold is reached. Shared by the
+    /// file and live paths. `segment_hash` is whatever identity the caller
+    /// holds for this frame (fixed file hash, or the rolling live hash).
+    #[allow(clippy::too_many_arguments)]
+    fn ingest_frame<S: BronzeSink>(
+        &mut self,
+        meta: &SegmentMeta,
+        segment_hash: &str,
+        state: &mut StreamState,
+        interface_id: u32,
+        linktype: LinkType,
+        timestamp: DateTime<Utc>,
+        captured_len: usize,
+        orig_len: u32,
+        data: &[u8],
+        sink: &mut S,
+    ) -> Result<(), DpiError> {
+        state.frames_processed += 1;
+        let frame_events = self.process_packet_record(
+            meta,
+            segment_hash,
+            interface_id,
+            state.frames_processed,
+            linktype,
+            timestamp,
+            captured_len,
+            orig_len,
+            data,
+        )?;
+        if let Some(ts) = frame_events.first().map(|event| event.envelope.timestamp) {
+            state.last_timestamp = ts;
+        }
+
+        for event in frame_events {
+            if self.should_emit(&event) {
+                state.pending_events.push(event);
+            }
+        }
+
+        for decoder in &mut self.decoders {
+            decoder.evict_idle(state.last_timestamp, &mut state.pending_events);
+        }
+
+        if state.pending_events.len() >= self.batch_size {
+            state.events_emitted += flush_batch(
                 meta.capture_id.clone(),
-                segment_hash.clone(),
-                &mut pending_events,
-                frames_processed,
+                segment_hash.to_string(),
+                &mut state.pending_events,
+                state.frames_processed,
+                sink,
+            )? as u64;
+        }
+        Ok(())
+    }
+
+    /// Drain decoder idle state, flush any remaining events, and produce the
+    /// segment checkpoint. Shared by the file and live paths.
+    fn finalize_stream<S: BronzeSink>(
+        &mut self,
+        meta: &SegmentMeta,
+        segment_hash: &str,
+        state: &mut StreamState,
+        sink: &mut S,
+    ) -> Result<SegmentCheckpoint, DpiError> {
+        for decoder in &mut self.decoders {
+            decoder.on_idle_flush(state.last_timestamp, &mut state.pending_events);
+            decoder.evict_idle(state.last_timestamp, &mut state.pending_events);
+        }
+        self.bilgepump.evict_expired(state.last_timestamp);
+
+        let final_pending = state.pending_events.len() as u64;
+        if !state.pending_events.is_empty() {
+            state.events_emitted += flush_batch(
+                meta.capture_id.clone(),
+                segment_hash.to_string(),
+                &mut state.pending_events,
+                state.frames_processed,
                 sink,
             )? as u64;
         }
@@ -259,9 +520,9 @@ impl DpiEngine {
         Ok(SegmentCheckpoint {
             capture_id: meta.capture_id.clone(),
             schema_version: BRONZE_SCHEMA_VERSION.to_string(),
-            segment_hash,
-            frames_processed,
-            events_emitted: events_emitted.max(final_pending),
+            segment_hash: segment_hash.to_string(),
+            frames_processed: state.frames_processed,
+            events_emitted: state.events_emitted.max(final_pending),
         })
     }
 
@@ -292,6 +553,7 @@ impl DpiEngine {
         segment_hash: &str,
         interface_id: u32,
         frame_index: u64,
+        linktype: LinkType,
         timestamp: DateTime<Utc>,
         captured_len: usize,
         orig_len: u32,
@@ -305,43 +567,57 @@ impl DpiEngine {
         let mut dst_mac = [0u8; 6];
         let mut src_mac = [0u8; 6];
         let mut vlan_id = None;
-        let (mut ethertype, mut l2_payload) = if pkt_data.len() >= 14 {
-            dst_mac.copy_from_slice(&pkt_data[0..6]);
-            src_mac.copy_from_slice(&pkt_data[6..12]);
+        let (ethertype, l2_payload) = match linktype {
+            LinkType::Ethernet => {
+                let (mut ethertype, mut l2_payload) = if pkt_data.len() >= 14 {
+                    dst_mac.copy_from_slice(&pkt_data[0..6]);
+                    src_mac.copy_from_slice(&pkt_data[6..12]);
 
-            let mut ethertype = u16::from_be_bytes([pkt_data[12], pkt_data[13]]);
-            let mut l2_payload = &pkt_data[14..];
-            while matches!(ethertype, 0x8100 | 0x88A8 | 0x9100) && l2_payload.len() >= 4 {
-                if vlan_id.is_none() {
-                    vlan_id = Some(u16::from_be_bytes([l2_payload[0], l2_payload[1]]) & 0x0FFF);
+                    let mut ethertype = u16::from_be_bytes([pkt_data[12], pkt_data[13]]);
+                    let mut l2_payload = &pkt_data[14..];
+                    while matches!(ethertype, 0x8100 | 0x88A8 | 0x9100) && l2_payload.len() >= 4 {
+                        if vlan_id.is_none() {
+                            vlan_id =
+                                Some(u16::from_be_bytes([l2_payload[0], l2_payload[1]]) & 0x0FFF);
+                        }
+                        ethertype = u16::from_be_bytes([l2_payload[2], l2_payload[3]]);
+                        l2_payload = &l2_payload[4..];
+                    }
+                    (ethertype, l2_payload)
+                } else {
+                    (0, &[][..])
+                };
+
+                if !matches!(ethertype, 0x0800 | 0x0806 | 0x88CC) {
+                    let prefixed = if ethertype <= 1500 {
+                        detect_prefixed_l3_payload(l2_payload)
+                            .or_else(|| detect_prefixed_l3_payload(pkt_data))
+                    } else {
+                        detect_prefixed_l3_payload(pkt_data)
+                    };
+                    if let Some((prefixed_ethertype, prefixed_payload)) = prefixed {
+                        // RiverFlow namespace capture can present packets with a
+                        // small pseudo-header ahead of the real L3 payload,
+                        // either directly or nested inside an 802.3-length frame.
+                        // When there is no outer Ethernet identity, leave src/dst
+                        // MAC zeroed and let IP/ARP-level identity drive asset
+                        // correlation.
+                        src_mac = [0u8; 6];
+                        dst_mac = [0u8; 6];
+                        ethertype = prefixed_ethertype;
+                        l2_payload = prefixed_payload;
+                    }
                 }
-                ethertype = u16::from_be_bytes([l2_payload[2], l2_payload[3]]);
-                l2_payload = &l2_payload[4..];
-            }
-            (ethertype, l2_payload)
-        } else {
-            (0, &[][..])
-        };
 
-        if !matches!(ethertype, 0x0800 | 0x0806 | 0x88CC) {
-            let prefixed = if ethertype <= 1500 {
-                detect_prefixed_l3_payload(l2_payload)
-                    .or_else(|| detect_prefixed_l3_payload(pkt_data))
-            } else {
-                detect_prefixed_l3_payload(pkt_data)
-            };
-            if let Some((prefixed_ethertype, prefixed_payload)) = prefixed {
-                // RiverFlow namespace capture can present packets with a small
-                // pseudo-header ahead of the real L3 payload, either directly
-                // or nested inside an 802.3-length frame. When there is no
-                // outer Ethernet identity, leave src/dst MAC zeroed and let
-                // IP/ARP-level identity drive asset correlation.
-                src_mac = [0u8; 6];
-                dst_mac = [0u8; 6];
-                ethertype = prefixed_ethertype;
-                l2_payload = prefixed_payload;
+                (ethertype, l2_payload)
             }
-        }
+            // Non-Ethernet framings carry no L2 identity, so MACs stay zeroed
+            // and IP/ARP-level identity drives correlation. VLAN tags, if any,
+            // are not exposed by these encapsulations.
+            LinkType::RawIp => decode_raw_ip(pkt_data),
+            LinkType::LinuxSll => decode_linux_sll(pkt_data),
+            LinkType::LinuxSll2 => decode_linux_sll2(pkt_data),
+        };
 
         if l2_payload.is_empty() {
             return Ok(vec![parse_anomaly_event(
@@ -367,44 +643,50 @@ impl DpiEngine {
 
         let mut out = Vec::new();
 
-        // Stovetop: pre-dissector frame-level inspection
-        let ethernet_header_len = pkt_data.len() - l2_payload.len();
-        let frame_findings = self.frame_inspector.inspect_frame(
-            pkt_data,
-            captured_len,
-            orig_len,
-            ethertype,
-            l2_payload,
-            ethernet_header_len,
-        );
-        for finding in &frame_findings {
-            out.push(stovetop_finding_to_event_raw(
-                finding,
-                &meta.capture_id,
-                interface_id,
-                frame_index,
-                timestamp,
-                segment_hash,
-                &base_context,
-                captured_len as u64,
+        // Stovetop and Bilgepump L2 inspection assume an Ethernet header layout
+        // (frame sizing, VLAN tags, MAC anomalies). Skip them for non-Ethernet
+        // framings, where `pkt_data` begins at L3 (or a cooked header) and has
+        // no Ethernet identity to inspect.
+        if linktype == LinkType::Ethernet {
+            // Stovetop: pre-dissector frame-level inspection
+            let ethernet_header_len = pkt_data.len() - l2_payload.len();
+            let frame_findings = self.frame_inspector.inspect_frame(
                 pkt_data,
-            ));
-        }
+                captured_len,
+                orig_len,
+                ethertype,
+                l2_payload,
+                ethernet_header_len,
+            );
+            for finding in &frame_findings {
+                out.push(stovetop_finding_to_event_raw(
+                    finding,
+                    &meta.capture_id,
+                    interface_id,
+                    frame_index,
+                    timestamp,
+                    segment_hash,
+                    &base_context,
+                    captured_len as u64,
+                    pkt_data,
+                ));
+            }
 
-        // Bilgepump: pre-VLAN L2 frame inspection (VLAN hopping, MAC anomalies)
-        let l2_alerts = self.bilgepump.inspect_l2_frame(pkt_data, &src_mac);
-        for alert in &l2_alerts {
-            out.push(bilgepump_alert_to_event(
-                alert,
-                &meta.capture_id,
-                interface_id,
-                frame_index,
-                timestamp,
-                segment_hash,
-                &base_context,
-                captured_len as u64,
-                pkt_data,
-            ));
+            // Bilgepump: pre-VLAN L2 frame inspection (VLAN hopping, MAC anomalies)
+            let l2_alerts = self.bilgepump.inspect_l2_frame(pkt_data, &src_mac);
+            for alert in &l2_alerts {
+                out.push(bilgepump_alert_to_event(
+                    alert,
+                    &meta.capture_id,
+                    interface_id,
+                    frame_index,
+                    timestamp,
+                    segment_hash,
+                    &base_context,
+                    captured_len as u64,
+                    pkt_data,
+                ));
+            }
         }
 
         match ethertype {
@@ -1055,6 +1337,7 @@ impl PcapFlavor {
 #[derive(Debug, Clone)]
 struct PacketRecord {
     interface_id: u32,
+    linktype: LinkType,
     timestamp: DateTime<Utc>,
     captured_len: usize,
     orig_len: u32,
@@ -1119,18 +1402,26 @@ where
     reader.seek(SeekFrom::Start(start))?;
 
     match format {
-        CaptureFormat::Pcapng => loop {
-            let Some(block) = read_pcapng_block(reader)? else {
-                break;
-            };
-            if let Some(packet) = pcapng_packet_record(&block)? {
-                on_packet(packet)?;
-            }
-        },
-        CaptureFormat::Pcap(flavor) => {
-            read_pcap_global_header(reader, flavor)?;
+        CaptureFormat::Pcapng => {
+            // Interface Description Blocks define each interface's link type, in
+            // appearance order. An Enhanced Packet Block's interface_id indexes
+            // into this list.
+            let mut interfaces: Vec<LinkType> = Vec::new();
             loop {
-                let Some(packet) = read_pcap_packet(reader, flavor)? else {
+                let Some(block) = read_pcapng_block(reader)? else {
+                    break;
+                };
+                if let Some(linktype) = pcapng_interface_linktype(&block) {
+                    interfaces.push(linktype);
+                } else if let Some(packet) = pcapng_packet_record(&block, &interfaces)? {
+                    on_packet(packet)?;
+                }
+            }
+        }
+        CaptureFormat::Pcap(flavor) => {
+            let linktype = read_pcap_global_header(reader, flavor)?;
+            loop {
+                let Some(packet) = read_pcap_packet(reader, flavor, linktype)? else {
                     break;
                 };
                 on_packet(packet)?;
@@ -1139,6 +1430,37 @@ where
     }
 
     Ok(())
+}
+
+/// DLT_RAW: the frame begins directly at the IP header. Infer the EtherType
+/// from the IP version nibble so the rest of the pipeline routes it normally.
+fn decode_raw_ip(pkt_data: &[u8]) -> (u16, &[u8]) {
+    match pkt_data.first().map(|b| b >> 4) {
+        Some(4) => (0x0800, pkt_data),
+        Some(6) => (0x86DD, pkt_data),
+        _ => (0, &[][..]),
+    }
+}
+
+/// DLT_LINUX_SLL: 16-byte Linux "cooked" header. The EtherType lives at
+/// offset 14 (big-endian); the L3 payload starts at offset 16. The source
+/// address in the header is not an Ethernet MAC, so it is left zeroed.
+fn decode_linux_sll(pkt_data: &[u8]) -> (u16, &[u8]) {
+    if pkt_data.len() < 16 {
+        return (0, &[][..]);
+    }
+    let ethertype = u16::from_be_bytes([pkt_data[14], pkt_data[15]]);
+    (ethertype, &pkt_data[16..])
+}
+
+/// DLT_LINUX_SLL2: 20-byte Linux "cooked" v2 header. The EtherType is the
+/// first field (offset 0, big-endian); the L3 payload starts at offset 20.
+fn decode_linux_sll2(pkt_data: &[u8]) -> (u16, &[u8]) {
+    if pkt_data.len() < 20 {
+        return (0, &[][..]);
+    }
+    let ethertype = u16::from_be_bytes([pkt_data[0], pkt_data[1]]);
+    (ethertype, &pkt_data[20..])
 }
 
 fn detect_prefixed_l3_payload(pkt_data: &[u8]) -> Option<(u16, &[u8])> {
@@ -1195,7 +1517,25 @@ fn read_pcapng_block<R: Read>(reader: &mut R) -> Result<Option<Vec<u8>>, DpiErro
     Ok(Some(block))
 }
 
-fn pcapng_packet_record(block: &[u8]) -> Result<Option<PacketRecord>, DpiError> {
+/// Parse an Interface Description Block (block type 1) and return its link
+/// type. Returns `None` for any other block. Unrecognized DLT numbers fall
+/// back to Ethernet, matching the engine's historical assumption.
+fn pcapng_interface_linktype(block: &[u8]) -> Option<LinkType> {
+    if block.len() < 12 {
+        return None;
+    }
+    let block_type = u32::from_le_bytes([block[0], block[1], block[2], block[3]]);
+    if block_type != 0x0000_0001 {
+        return None;
+    }
+    let dlt = u16::from_le_bytes([block[8], block[9]]) as u32;
+    Some(LinkType::from_dlt(dlt).unwrap_or(LinkType::Ethernet))
+}
+
+fn pcapng_packet_record(
+    block: &[u8],
+    interfaces: &[LinkType],
+) -> Result<Option<PacketRecord>, DpiError> {
     if block.len() < 12 {
         return Err(DpiError::InvalidCapture("pcapng block shorter than header"));
     }
@@ -1231,8 +1571,14 @@ fn pcapng_packet_record(block: &[u8]) -> Result<Option<PacketRecord>, DpiError> 
         ));
     }
 
+    let linktype = interfaces
+        .get(interface_id as usize)
+        .copied()
+        .unwrap_or(LinkType::Ethernet);
+
     Ok(Some(PacketRecord {
         interface_id,
+        linktype,
         timestamp,
         captured_len,
         orig_len,
@@ -1240,7 +1586,10 @@ fn pcapng_packet_record(block: &[u8]) -> Result<Option<PacketRecord>, DpiError> 
     }))
 }
 
-fn read_pcap_global_header<R: Read>(reader: &mut R, flavor: PcapFlavor) -> Result<(), DpiError> {
+fn read_pcap_global_header<R: Read>(
+    reader: &mut R,
+    flavor: PcapFlavor,
+) -> Result<LinkType, DpiError> {
     let mut header = [0u8; 24];
     reader.read_exact(&mut header)?;
     let read_u16 = |bytes: [u8; 2]| -> u16 {
@@ -1267,18 +1616,15 @@ fn read_pcap_global_header<R: Read>(reader: &mut R, flavor: PcapFlavor) -> Resul
     }
 
     let network = read_u32([header[20], header[21], header[22], header[23]]);
-    if network != 1 {
-        return Err(DpiError::InvalidCapture(
-            "unsupported classic pcap linktype (expected ethernet)",
-        ));
-    }
-
-    Ok(())
+    LinkType::from_dlt(network).ok_or(DpiError::InvalidCapture(
+        "unsupported classic pcap linktype",
+    ))
 }
 
 fn read_pcap_packet<R: Read>(
     reader: &mut R,
     flavor: PcapFlavor,
+    linktype: LinkType,
 ) -> Result<Option<PacketRecord>, DpiError> {
     let mut header = [0u8; 16];
     if !read_exact_or_eof(reader, &mut header)? {
@@ -1314,6 +1660,7 @@ fn read_pcap_packet<R: Read>(
     reader.read_exact(&mut data)?;
     Ok(Some(PacketRecord {
         interface_id: 0,
+        linktype,
         timestamp,
         captured_len: incl_len,
         orig_len,
@@ -2211,6 +2558,208 @@ mod tests {
                 .any(|event| event.envelope.vlan_id == Some(100)),
             "expected vlan id to survive into bronze"
         );
+    }
+
+    fn build_pcap_dlt(packet: &[u8], dlt: u32) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(&[0xD4, 0xC3, 0xB2, 0xA1]);
+        data.extend_from_slice(&2u16.to_le_bytes());
+        data.extend_from_slice(&4u16.to_le_bytes());
+        data.extend_from_slice(&0i32.to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&65535u32.to_le_bytes());
+        data.extend_from_slice(&dlt.to_le_bytes());
+        data.extend_from_slice(&1_700_000_000u32.to_le_bytes());
+        data.extend_from_slice(&100_000u32.to_le_bytes());
+        data.extend_from_slice(&(packet.len() as u32).to_le_bytes());
+        data.extend_from_slice(&(packet.len() as u32).to_le_bytes());
+        data.extend_from_slice(packet);
+        data
+    }
+
+    /// Wrap an L3 payload in a 16-byte Linux SLL (DLT_LINUX_SLL) cooked header.
+    fn linux_sll(ethertype: u16, l3: &[u8]) -> Vec<u8> {
+        let mut f = Vec::new();
+        f.extend_from_slice(&0u16.to_be_bytes()); // packet type: host
+        f.extend_from_slice(&1u16.to_be_bytes()); // ARPHRD_ETHER
+        f.extend_from_slice(&6u16.to_be_bytes()); // link addr len
+        f.extend_from_slice(&[0u8; 8]); // link addr (padded)
+        f.extend_from_slice(&ethertype.to_be_bytes());
+        f.extend_from_slice(l3);
+        f
+    }
+
+    fn modbus_read_request() -> [u8; 12] {
+        [
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x01, 0x03, 0x00, 0x64, 0x00, 0x02,
+        ]
+    }
+
+    fn has_modbus_partial_request(events: &[BronzeEvent]) -> bool {
+        events.iter().any(|event| {
+            matches!(
+                &event.family,
+                BronzeEventFamily::ProtocolTransaction(tx)
+                    if tx.operation == "read_holding_registers" && tx.status == "partial_request"
+            )
+        })
+    }
+
+    #[test]
+    fn live_session_classifies_raw_ip_frame() {
+        // Strip the 14-byte Ethernet header to get a DLT_RAW (L3-first) frame.
+        let eth = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x02],
+            [0x02, 0, 0, 0, 0, 0x01],
+            [10, 0, 0, 1],
+            [10, 0, 0, 2],
+            49152,
+            502,
+            &modbus_read_request(),
+            None,
+        );
+        let raw_ip = eth[14..].to_vec();
+
+        let mut engine = DpiEngine::new();
+        let mut sink = VecBronzeSink::default();
+        let ts = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
+        let checkpoint = engine
+            .process_frames(
+                &SegmentMeta::new("live-raw-ip"),
+                [CapturedFrame {
+                    interface_id: 0,
+                    timestamp: ts,
+                    linktype: LinkType::RawIp,
+                    captured_len: raw_ip.len(),
+                    orig_len: raw_ip.len() as u32,
+                    data: &raw_ip,
+                }],
+                &mut sink,
+            )
+            .unwrap();
+
+        assert!(
+            has_modbus_partial_request(&sink.events),
+            "expected modbus classification from raw-ip live frame"
+        );
+        assert_eq!(checkpoint.frames_processed, 1);
+        assert!(
+            !checkpoint.segment_hash.is_empty(),
+            "live checkpoint should carry a rolling content hash"
+        );
+    }
+
+    #[test]
+    fn live_session_push_classifies_linux_sll() {
+        let eth = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x02],
+            [0x02, 0, 0, 0, 0, 0x01],
+            [10, 0, 0, 1],
+            [10, 0, 0, 2],
+            49152,
+            502,
+            &modbus_read_request(),
+            None,
+        );
+        let sll = linux_sll(0x0800, &eth[14..]);
+
+        let mut engine = DpiEngine::new();
+        let mut sink = VecBronzeSink::default();
+        let ts = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
+
+        let mut session = engine.live_session(SegmentMeta::new("live-sll"), &mut sink);
+        session
+            .push(CapturedFrame {
+                interface_id: 0,
+                timestamp: ts,
+                linktype: LinkType::LinuxSll,
+                captured_len: sll.len(),
+                orig_len: sll.len() as u32,
+                data: &sll,
+            })
+            .unwrap();
+        assert_eq!(session.frames_processed(), 1);
+        let checkpoint = session.finish().unwrap();
+
+        assert!(
+            has_modbus_partial_request(&sink.events),
+            "expected modbus classification from linux-sll live frame"
+        );
+        assert_eq!(checkpoint.frames_processed, 1);
+    }
+
+    #[test]
+    fn file_path_parses_classic_pcap_raw_ip_linktype() {
+        let eth = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x02],
+            [0x02, 0, 0, 0, 0, 0x01],
+            [10, 0, 0, 1],
+            [10, 0, 0, 2],
+            49152,
+            502,
+            &modbus_read_request(),
+            None,
+        );
+        // DLT_RAW = 101: the recorded frame begins at the IP header.
+        let pcap = build_pcap_dlt(&eth[14..], 101);
+
+        let mut engine = DpiEngine::new();
+        let output = engine
+            .process_capture_to_vec(&SegmentMeta::new("raw-ip-pcap"), std::io::Cursor::new(pcap))
+            .unwrap();
+
+        assert!(
+            has_modbus_partial_request(&output.events),
+            "expected modbus classification from DLT_RAW classic pcap"
+        );
+        assert_eq!(output.checkpoint.frames_processed, 1);
+    }
+
+    #[test]
+    fn live_rolling_hash_is_deterministic_and_length_sensitive() {
+        let eth = ethernet_ipv4_tcp(
+            [0x02, 0, 0, 0, 0, 0x02],
+            [0x02, 0, 0, 0, 0, 0x01],
+            [10, 0, 0, 1],
+            [10, 0, 0, 2],
+            49152,
+            502,
+            &modbus_read_request(),
+            None,
+        );
+        let raw_ip = eth[14..].to_vec();
+        let ts = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
+
+        let run = |frames: Vec<Vec<u8>>| {
+            let mut engine = DpiEngine::new();
+            let mut sink = VecBronzeSink::default();
+            let caps: Vec<_> = frames
+                .iter()
+                .map(|d| CapturedFrame {
+                    interface_id: 0,
+                    timestamp: ts,
+                    linktype: LinkType::RawIp,
+                    captured_len: d.len(),
+                    orig_len: d.len() as u32,
+                    data: d,
+                })
+                .collect();
+            engine
+                .process_frames(&SegmentMeta::new("hash"), caps, &mut sink)
+                .unwrap()
+                .segment_hash
+        };
+
+        let one = run(vec![raw_ip.clone()]);
+        let one_again = run(vec![raw_ip.clone()]);
+        let two = run(vec![raw_ip.clone(), raw_ip.clone()]);
+
+        assert_eq!(one, one_again, "rolling hash must be deterministic");
+        assert_ne!(
+            one, two,
+            "rolling hash must change as more frames are folded in"
+        );
+        assert_eq!(one.len(), 64, "sha-256 hex digest expected");
     }
 
     #[test]

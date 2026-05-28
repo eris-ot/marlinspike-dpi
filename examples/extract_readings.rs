@@ -2,8 +2,12 @@
 //! Identical to `marlinspike-dpi --format influx` but performed in-process —
 //! a starting point for embedding the engine into a historian ingest path.
 //!
-//! Sparkplug B / OPC UA / Modbus / DNP3 / IEC 104 / IEC 61850 MMS / HART-IP /
-//! IEEE C37.118 / PCCC are the protocols that emit ProcessReadings today.
+//! ProcessReading emitters today (verified against the dissector tree):
+//! Sparkplug B, OPC UA (client + PubSub), IEEE C37.118 synchrophasor, PCCC,
+//! and Modbus-over-UDP. Note: Modbus/TCP, DNP3, IEC 104, IEC 61850 MMS, and
+//! HART-IP do NOT emit ProcessReadings — they surface as ProtocolTransaction
+//! events with values embedded in protocol-specific fields. A historian path
+//! that needs VQTs from those protocols must read them off ProtocolTransaction.
 //!
 //! Run:
 //!     cargo run --example extract_readings -- path/to/capture.pcap

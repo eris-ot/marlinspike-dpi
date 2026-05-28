@@ -6,15 +6,15 @@
 
 `marlinspike-dpi` is a Rust crate that parses network packet captures and produces typed events at the application protocol layer. It is not a packet sniffer (it does not capture from the wire) and not an IDS (it does not match signature rules). It is a structured-event protocol parser.
 
-- **Input**: PCAP or PCAPNG byte streams. Ethernet linktype only.
+- **Input**: PCAP or PCAPNG byte streams, *or* parsed frames pushed one at a time from a live source (libpcap, AF_PACKET, XDP, FFI) via the `CapturedFrame` / `live_session` API — no fake file framing required. Link types: Ethernet, raw IP (`DLT_RAW`), Linux cooked v1/v2 (`DLT_LINUX_SLL`/`SLL2`).
 - **Output**: Bronze v2 events (JSON), OCSF v1.4.0 records (NDJSON), or InfluxDB Line Protocol — pick via `--format` CLI flag or library API.
 - **Coverage**: 44 OT/ICS protocols (34 with deep or full PDU parse, 5 shallow, 5 recognition-only) + 40+ IT/infrastructure protocols. See [parse-depth-matrix.md](./parse-depth-matrix.md) for per-protocol depth.
 - **Detection subsystems**: Stovetop (frame-level integrity — CRC, padding entropy, runt/oversized), ICMPeeker (ICMP threat detection — redirects, tunnels), Bilgepump (stateful L2 — ARP spoofing, VLAN hopping, STP root hijacking, rogue DHCP, identity conflicts).
-- **VQT extraction**: Process variable Value/Quality/Timestamp readings emitted as typed `ProcessReading` events for Sparkplug B, OPC UA, OPC UA PubSub, PCCC, Modbus, DNP3, IEC 104, IEC 61850 MMS, HART-IP, IEEE C37.118 synchrophasor.
+- **VQT extraction**: Process variable Value/Quality/Timestamp readings emitted as typed `ProcessReading` events for Sparkplug B, OPC UA (client + PubSub), PCCC, Modbus-over-UDP, and IEEE C37.118 synchrophasor. Other value-bearing OT protocols — Modbus/TCP, DNP3, IEC 104, IEC 61850 MMS, HART-IP, S7comm — surface their values inside `ProtocolTransaction` events (protocol-specific fields), not as `ProcessReading`; a historian path that wants VQTs from those must read them off `ProtocolTransaction`.
 
 ## What it is not
 
-- **Not a live capture tool.** It does not bind sockets or read from interfaces. Use `tcpdump`, `dumpcap`, AF_PACKET, or another capture source to produce the PCAP it ingests.
+- **Not a live capture tool.** It does not bind sockets or read from interfaces. It *can* be driven live: a capture source (libpcap, AF_PACKET, XDP, `tcpdump`/`dumpcap` piped frames) pushes parsed frames into the `live_session` / `process_frames` API frame-by-frame. The crate is the parser the capture source plugs into, not the capture source itself.
 - **Not an IDS.** No Snort/Suricata-style rule engine. No signature matching. No alerting policy. Anomaly emission is structural (frame integrity, L2 state, ICMP threats) — interpretation is the embedder's job.
 - **Not a decryption layer.** TLS, SSH, IPsec ESP, WireGuard transport, SMB3 Transform PDUs, QUIC AEAD, OpenVPN encrypted payload, RDP CredSSP, VNC post-Security, WinRM 5986, RadSec, CoAPS, AMQPS, SMTPS — encrypted payloads stop at the handshake / record layer. Session keys are not accepted.
 - **Not a GUI.** CLI + library + FFI. Use Wireshark for human packet inspection.
@@ -88,7 +88,7 @@ Enable feature `ffi`, build `cdylib`/`staticlib`. Exported: `fm_dpi_process_pcap
 ## Frequently asked
 
 **Q: Does marlinspike-dpi do live packet capture?**
-A: No. It is a parser. Feed it PCAP / PCAPNG bytes. Use `tcpdump` / `dumpcap` / AF_PACKET / similar for capture.
+A: It does not capture from the wire itself (no socket binding). But it accepts a live feed: use `tcpdump` / `dumpcap` / libpcap / AF_PACKET / XDP as the capture source and push parsed frames into the `live_session` / `process_frames` API (one `CapturedFrame` per packet, with link type and timestamp). For offline analysis, feed it PCAP / PCAPNG bytes.
 
 **Q: Does marlinspike-dpi decrypt TLS / SSH / SMB3 / QUIC?**
 A: No. Encrypted payloads are observed at the handshake / record layer and then treated as opaque. Session keys are not accepted as input.

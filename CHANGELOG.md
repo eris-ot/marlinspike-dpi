@@ -8,6 +8,21 @@ breaking changes will bump the major version (planned `v2.0` removes the depreca
 `attributes: BTreeMap<String, String>` escape hatch and the `modbus` sub-field on
 `ProtocolTransaction`).
 
+## [Unreleased]
+
+### Added — live ingest
+
+- **Frame-driven entry point for live sources.** New `DpiEngine::live_session()` returns a `LiveSession` that accepts one `CapturedFrame` at a time (`push()`) and produces a `SegmentCheckpoint` on `finish()`; `DpiEngine::process_frames()` is the iterator form, and `process_frame()` handles a single isolated frame. A `CapturedFrame` carries raw link-layer bytes plus the per-frame metadata the engine already tracks internally (interface id, capture timestamp, `LinkType`, captured/original lengths). This lets any source — PCAP/PCAPNG file, libpcap, AF_PACKET, XDP, FFI callback — drive the engine with its native framing instead of re-wrapping packets as fake file records. The file path (`process_segment`/`process_streaming`) was refactored to feed the *same* per-frame core, so live and file ingest share identical dissection, flow tracking, idle eviction, and batch back-pressure. New public exports: `CapturedFrame`, `LinkType`, `LiveSession`. (Note: this does not capture packets — it is the entry point a capture source plugs into.)
+- **Rolling segment hash for live streams.** A live session maintains a running SHA-256 over frame bytes, so batches and the final checkpoint carry a real content-derived `segment_hash` rather than a placeholder, with no `Seek`/whole-file requirement.
+
+### Changed — link-layer generalization
+
+- **Non-Ethernet link types.** L2 decoding now branches on `LinkType`: Ethernet (`DLT_EN10MB`, unchanged path including VLAN stripping), raw IP (`DLT_RAW`, frame begins at the IP header), and Linux cooked v1/v2 (`DLT_LINUX_SLL` 113 / `DLT_LINUX_SLL2` 276). Classic PCAP now maps its global link type instead of rejecting everything but Ethernet; PCAPNG reads per-interface link type from Interface Description Blocks. Ethernet-only frame inspection (Stovetop frame sizing, Bilgepump L2/MAC anomaly checks) is skipped for framings with no Ethernet header; protocol-level ARP/LLDP observation still runs wherever those ethertypes appear.
+
+### Added — examples
+
+- **`examples/live.rs`** — runnable demonstration of driving the engine from a synthetic live source via `live_session` + `CapturedFrame` (`cargo run --example live`).
+
 ## [1.17.0] — 2026-05-22
 
 Inline-classification release. Adds a streaming per-packet engine path alongside the batch pcap engine, a port-indexed dispatch fast path, and a large expansion of typed Bronze protocol fields.

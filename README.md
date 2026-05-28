@@ -361,8 +361,11 @@ All subsystems dedup independently using their decoder prefix as part of the fam
 ## Supported Inputs
 
 - Classic PCAP (little/big endian, microsecond/nanosecond timestamps)
-- PCAPNG (Enhanced Packet Blocks, preserves `orig_len` for truncation detection)
-- Ethernet linktype only (unsupported linktypes fail fast)
+- PCAPNG (Enhanced Packet Blocks, preserves `orig_len` for truncation detection; per-interface link type read from Interface Description Blocks)
+- **Live frame ingest** — drive the engine one parsed frame at a time from any source (libpcap, AF_PACKET, XDP, an FFI callback) without re-wrapping packets as fake file records. See [Live ingest](#live-ingest) below.
+- Link types: Ethernet (`DLT_EN10MB`), raw IP (`DLT_RAW`), Linux cooked v1/v2 (`DLT_LINUX_SLL` / `DLT_LINUX_SLL2`). Unrecognized classic-PCAP link types fail fast.
+
+This crate parses frames; it does not capture them — it does not bind sockets or read interfaces. Live ingest is the entry point a capture source plugs *into*.
 
 ## CLI
 
@@ -436,6 +439,38 @@ let mut engine = DpiEngine::new();
 let output = engine.process_capture_to_vec(&SegmentMeta::new("capture-1"), std::io::Cursor::new(bytes))?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+### Live ingest
+
+The batch entry points above want PCAP/PCAPNG-framed bytes. A live source — libpcap, AF_PACKET, an XDP ring, an FFI callback — already has *parsed* frames in hand and shouldn't have to re-wrap them as fake file records. Feed it a `CapturedFrame` (raw link-layer bytes + the per-frame metadata the engine tracks anyway: interface, capture timestamp, `LinkType`, lengths) and it runs the same dissection, flow tracking, idle eviction, and batch back-pressure as the file path. Flow state is preserved across the whole session — nothing is finalized until `finish()`.
+
+Push-style (the shape an AF_PACKET poll loop or FFI callback wants):
+
+```rust
+use fm_dpi::{CapturedFrame, DpiEngine, LinkType, SegmentMeta};
+# use chrono::Utc;
+# fn run<S: fm_dpi::BronzeSink>(sink: &mut S, frame_bytes: &[u8], ts: chrono::DateTime<Utc>) -> Result<(), fm_dpi::DpiError> {
+let mut engine = DpiEngine::new();
+let mut session = engine.live_session(SegmentMeta::new("sensor-eth0"), sink);
+// ...for each frame as it arrives off the wire:
+session.push(CapturedFrame {
+    interface_id: 0,
+    timestamp: ts,                 // kernel/capture timestamp
+    linktype: LinkType::Ethernet,  // or RawIp / LinuxSll / LinuxSll2
+    captured_len: frame_bytes.len(),
+    orig_len: frame_bytes.len() as u32,
+    data: frame_bytes,             // raw link-layer bytes
+})?;
+// ...at shutdown:
+let checkpoint = session.finish()?;
+# let _ = checkpoint;
+# Ok(())
+# }
+```
+
+Iterator-style — for a source you can express as a Rust iterator (a libpcap loop, a channel drained to exhaustion), `engine.process_frames(&meta, frames, &mut sink)` does the same in one call. The checkpoint's `segment_hash` is a rolling SHA-256 over frame bytes, so a live stream still carries a real content hash instead of a placeholder.
+
+See [`examples/live.rs`](./examples/live.rs) for a complete, runnable example (`cargo run --example live`).
 
 ## FFI
 
