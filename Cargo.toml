@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "marlinspike-dpi"
-version = "1.17.0"
+version = "1.18.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 description = "Pure-Rust passive deep packet inspection for OT/ICS and IT — Modbus, DNP3, S7comm, OPC UA, IEC 61850, SMB2, Kerberos, LDAP. PCAP/PCAPNG → Bronze v2 / OCSF / InfluxDB."

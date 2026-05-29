@@ -10,6 +10,10 @@ breaking changes will bump the major version (planned `v2.0` removes the depreca
 
 ## [Unreleased]
 
+## [1.18.0] — 2026-05-29
+
+Live-ingest + modularity release. Adds a frame-driven entry point for live capture sources and link-layer generalization, plus per-protocol Cargo feature gating so the engine can be compiled down to just the protocols you need.
+
 ### Added — per-protocol feature gating
 
 - **Compile only the protocols you need.** Every protocol is now behind its own Cargo feature, so `--no-default-features --features "modbus,dnp3,s7comm"` builds an engine containing only those dissectors and session decoders. A single feature (e.g. `modbus`) gates both the packet-level dissector and the session-level decoder for that protocol, and the corresponding `ProtocolData` variant, registry dispatch entry, and Bilgepump L2 detector are compiled out with it. The default build is **unchanged** — `default = ["all"]` enables every protocol, so existing consumers and a bare `cargo build` are byte-for-byte equivalent to before. As a concrete data point, a 4-protocol release binary is ~44% smaller than the all-protocols build (2.1 MB vs 3.9 MB).
