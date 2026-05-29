@@ -23,9 +23,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 
-use fm_dpi::{
-    BronzeBatch, BronzeSink, CapturedFrame, DpiEngine, DpiError, LinkType, SegmentMeta,
-};
+use fm_dpi::{BronzeBatch, BronzeSink, CapturedFrame, DpiEngine, DpiError, LinkType, SegmentMeta};
 
 /// Minimal sink: tally events as the engine flushes them, no buffering.
 #[derive(Default)]
@@ -135,7 +133,10 @@ fn main() {
 
     println!("checkpoint:");
     println!("  capture_id       = {}", checkpoint.capture_id);
-    println!("  segment_hash     = {} (rolling SHA-256 over frame bytes)", checkpoint.segment_hash);
+    println!(
+        "  segment_hash     = {} (rolling SHA-256 over frame bytes)",
+        checkpoint.segment_hash
+    );
     println!("  frames_processed = {}", checkpoint.frames_processed);
     println!("  events_emitted   = {}", checkpoint.events_emitted);
     println!();
