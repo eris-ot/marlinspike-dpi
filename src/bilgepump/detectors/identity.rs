@@ -6,19 +6,29 @@ use chrono::{DateTime, Utc};
 
 use crate::bilgepump::alerts::{AlertKind, AlertSeverity, BilgepumpAlert};
 use crate::bilgepump::config::BilgepumpConfig;
-use crate::bilgepump::state::{CdpIdentityRecord, LldpIdentityRecord};
-use crate::registry::{CdpFields, LldpFields, format_mac};
+#[cfg(feature = "cdp")]
+use crate::bilgepump::state::CdpIdentityRecord;
+#[cfg(feature = "lldp")]
+use crate::bilgepump::state::LldpIdentityRecord;
+#[cfg(feature = "cdp")]
+use crate::registry::CdpFields;
+#[cfg(feature = "lldp")]
+use crate::registry::LldpFields;
+use crate::registry::format_mac;
 
 /// Stateful identity conflict detector.
 #[derive(Debug, Default)]
 pub struct IdentityDetector {
     /// Source MAC -> last LLDP identity.
+    #[cfg(feature = "lldp")]
     lldp: HashMap<[u8; 6], LldpIdentityRecord>,
     /// Source MAC -> last CDP identity.
+    #[cfg(feature = "cdp")]
     cdp: HashMap<[u8; 6], CdpIdentityRecord>,
 }
 
 impl IdentityDetector {
+    #[cfg(feature = "lldp")]
     pub fn observe_lldp(
         &mut self,
         fields: &LldpFields,
@@ -61,6 +71,7 @@ impl IdentityDetector {
         alerts
     }
 
+    #[cfg(feature = "cdp")]
     pub fn observe_cdp(
         &mut self,
         fields: &CdpFields,
@@ -105,7 +116,9 @@ impl IdentityDetector {
 
     pub fn evict(&mut self, now: DateTime<Utc>, ttl_secs: u64) {
         let cutoff = now - chrono::Duration::seconds(ttl_secs as i64);
+        #[cfg(feature = "lldp")]
         self.lldp.retain(|_, r| r.last_seen >= cutoff);
+        #[cfg(feature = "cdp")]
         self.cdp.retain(|_, r| r.last_seen >= cutoff);
     }
 }
@@ -119,6 +132,7 @@ mod tests {
         Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap()
     }
 
+    #[cfg(feature = "lldp")]
     #[test]
     fn detect_lldp_conflict() {
         let mut det = IdentityDetector::default();
@@ -156,6 +170,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cdp")]
     #[test]
     fn detect_cdp_conflict() {
         let mut det = IdentityDetector::default();

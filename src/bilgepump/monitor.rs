@@ -7,22 +7,40 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::registry::{ArpFields, CdpFields, DhcpFields, LldpFields, StpFields};
+#[cfg(feature = "arp")]
+use crate::registry::ArpFields;
+#[cfg(feature = "cdp")]
+use crate::registry::CdpFields;
+#[cfg(feature = "dhcp")]
+use crate::registry::DhcpFields;
+#[cfg(feature = "lldp")]
+use crate::registry::LldpFields;
+#[cfg(feature = "stp")]
+use crate::registry::StpFields;
 
 use super::alerts::BilgepumpAlert;
 use super::config::BilgepumpConfig;
-use super::detectors::{
-    arp::ArpDetector, dhcp::DhcpDetector, identity::IdentityDetector, mac::MacDetector,
-    stp::StpDetector, vlan::inspect_vlan_tags,
-};
+#[cfg(feature = "arp")]
+use super::detectors::arp::ArpDetector;
+#[cfg(feature = "dhcp")]
+use super::detectors::dhcp::DhcpDetector;
+#[cfg(any(feature = "lldp", feature = "cdp"))]
+use super::detectors::identity::IdentityDetector;
+#[cfg(feature = "stp")]
+use super::detectors::stp::StpDetector;
+use super::detectors::{mac::MacDetector, vlan::inspect_vlan_tags};
 
 /// Stateful L2 monitor. Accumulates state across frames and captures.
 pub struct BilgepumpMonitor {
     pub config: BilgepumpConfig,
+    #[cfg(feature = "arp")]
     arp: ArpDetector,
     mac: MacDetector,
+    #[cfg(feature = "stp")]
     stp: StpDetector,
+    #[cfg(feature = "dhcp")]
     dhcp: DhcpDetector,
+    #[cfg(any(feature = "lldp", feature = "cdp"))]
     identity: IdentityDetector,
 }
 
@@ -30,10 +48,14 @@ impl BilgepumpMonitor {
     pub fn new(config: BilgepumpConfig) -> Self {
         Self {
             config,
+            #[cfg(feature = "arp")]
             arp: ArpDetector::default(),
             mac: MacDetector::default(),
+            #[cfg(feature = "stp")]
             stp: StpDetector::default(),
+            #[cfg(feature = "dhcp")]
             dhcp: DhcpDetector::default(),
+            #[cfg(any(feature = "lldp", feature = "cdp"))]
             identity: IdentityDetector::default(),
         }
     }
@@ -57,6 +79,7 @@ impl BilgepumpMonitor {
     }
 
     /// Observe a parsed ARP frame.
+    #[cfg(feature = "arp")]
     pub fn observe_arp(
         &mut self,
         fields: &ArpFields,
@@ -86,6 +109,7 @@ impl BilgepumpMonitor {
     }
 
     /// Observe a parsed STP BPDU.
+    #[cfg(feature = "stp")]
     pub fn observe_stp(&mut self, fields: &StpFields, now: DateTime<Utc>) -> Vec<BilgepumpAlert> {
         if !self.config.enabled {
             return Vec::new();
@@ -94,6 +118,7 @@ impl BilgepumpMonitor {
     }
 
     /// Observe a parsed DHCP message.
+    #[cfg(feature = "dhcp")]
     pub fn observe_dhcp(
         &mut self,
         fields: &DhcpFields,
@@ -108,6 +133,7 @@ impl BilgepumpMonitor {
         alerts.extend(self.dhcp.observe(fields, src_mac, &self.config, now));
 
         // If DHCP Ack with yiaddr, record the binding in ARP detector
+        #[cfg(feature = "arp")]
         if fields.message_type == Some(5)
             && let Some(ref yiaddr) = fields.yiaddr
             && let Some(ip) = parse_ipv4(yiaddr)
@@ -119,6 +145,7 @@ impl BilgepumpMonitor {
     }
 
     /// Observe a parsed LLDP frame.
+    #[cfg(feature = "lldp")]
     pub fn observe_lldp(
         &mut self,
         fields: &LldpFields,
@@ -133,6 +160,7 @@ impl BilgepumpMonitor {
     }
 
     /// Observe a parsed CDP frame.
+    #[cfg(feature = "cdp")]
     pub fn observe_cdp(
         &mut self,
         fields: &CdpFields,
@@ -149,9 +177,12 @@ impl BilgepumpMonitor {
     /// Evict expired state across all detectors.
     pub fn evict_expired(&mut self, now: DateTime<Utc>) {
         let ttl = self.config.default_state_ttl_secs;
+        #[cfg(feature = "arp")]
         self.arp.evict(now, ttl);
         self.mac.evict(now, ttl);
+        #[cfg(feature = "dhcp")]
         self.dhcp.evict(now, ttl);
+        #[cfg(any(feature = "lldp", feature = "cdp"))]
         self.identity.evict(now, self.config.identity_ttl_secs);
     }
 }
@@ -163,6 +194,7 @@ impl Default for BilgepumpMonitor {
 }
 
 /// Parse a dotted-decimal IPv4 string to 4-byte array.
+#[allow(dead_code)] // only reached on the dhcp+arp path; also used by tests
 fn parse_ipv4(s: &str) -> Option<[u8; 4]> {
     let parts: Vec<&str> = s.split('.').collect();
     if parts.len() != 4 {

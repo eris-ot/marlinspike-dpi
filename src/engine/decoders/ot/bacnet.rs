@@ -79,10 +79,7 @@ impl SessionDecoder for BacnetDecoder {
                     BronzeEventFamily::ProtocolTransaction(ProtocolTransaction {
                         operation: normalize_operation_name(&fields.service, "bacnet_message"),
                         status: bacnet_status(&fields.apdu_type).to_string(),
-                        request_summary: Some(format!(
-                            "{} {}",
-                            fields.apdu_type, fields.service
-                        )),
+                        request_summary: Some(format!("{} {}", fields.apdu_type, fields.service)),
                         response_summary: None,
                         object_refs: bacnet_object_refs(fields.device_instance, fields.invoke_id),
                         values: Vec::new(),

@@ -150,12 +150,7 @@ impl DpiSession {
     ///
     /// `_budget` is reserved for future async deferral. Today classification
     /// is a single registry walk, well under any sane budget.
-    pub fn feed(
-        &mut self,
-        flow: FlowKey,
-        ip_packet: &[u8],
-        _budget: Duration,
-    ) -> Classification {
+    pub fn feed(&mut self, flow: FlowKey, ip_packet: &[u8], _budget: Duration) -> Classification {
         self.tick = self.tick.wrapping_add(1);
         let tick = self.tick;
 

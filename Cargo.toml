@@ -14,8 +14,137 @@ keywords = ["dpi", "modbus", "scada", "ot", "pcap"]
 categories = ["network-programming", "parser-implementations", "command-line-utilities"]
 
 [features]
-default = []
+# A bare build is byte-for-byte equivalent to before feature-gating existed:
+# every protocol is compiled in. Subsetting is strictly opt-in via
+# `--no-default-features --features "modbus,dnp3,..."` (or a bundle).
+default = ["all"]
 ffi = []
+
+# ── Bundles ─────────────────────────────────────────────────────
+# Bundles are convenience aggregates over the per-protocol leaf features.
+all = ["ot", "it", "l2"]
+
+# Link-layer / L2 control protocols.
+l2 = [
+    "arp", "lldp", "cdp", "stp", "vtp", "mrp", "mstp", "pvst", "prp", "lacp",
+    "avtp",
+]
+
+# OT / ICS / industrial protocols.
+ot = [
+    "modbus", "modbus_udp", "dnp3", "dnp3_sav5", "s7comm", "opc_ua",
+    "opc_ua_pubsub", "opc_classic", "ethernet_ip", "eip_io", "cip_safety",
+    "hart_ip", "iec104", "iec61850", "bacnet", "bacnet_sc", "fins", "profinet",
+    "ethercat", "powerlink", "sercos", "ptp", "ff_hse", "ge_srtp", "melsec",
+    "roc_plus", "tristation", "umas", "vnet_ip", "ab_csp", "ads", "osi_pi",
+    "gvcp", "synchrophasor", "cclink", "codesys", "iolink",
+]
+
+# Enterprise / IT protocols.
+it = [
+    "dns", "dhcp", "snmp", "http", "tls", "mqtt", "mqtt_sn", "ntp", "syslog",
+    "ftp", "ssh", "radius", "icmp", "amqp", "coap", "dcerpc", "diameter",
+    "kerberos", "ldap", "netbios", "netflow", "ntlmssp", "openvpn", "quic",
+    "radsec", "rdp", "sip_rtp", "smb2", "smb", "smtp", "tacacs", "tftp", "vnc",
+    "winrm", "wireguard", "discovery", "ike", "igmp",
+]
+
+# ── Per-protocol leaf features ──────────────────────────────────
+# Each gates both the packet-level dissector and the session-level
+# decoder for that protocol, wherever both exist. Leaves are
+# independent unless a comment notes an implied dependency.
+
+# L2
+arp = []
+lldp = []
+cdp = []
+stp = []
+vtp = []
+mrp = []
+mstp = []
+pvst = []
+prp = []
+lacp = []
+avtp = []
+
+# OT
+modbus = []
+modbus_udp = []
+dnp3 = []
+dnp3_sav5 = []
+s7comm = []
+opc_ua = []
+opc_ua_pubsub = []
+opc_classic = []
+ethernet_ip = []
+eip_io = []
+cip_safety = []
+hart_ip = []
+iec104 = []
+iec61850 = []
+bacnet = []
+bacnet_sc = []
+fins = []
+profinet = []
+ethercat = []
+powerlink = []
+sercos = []
+ptp = []
+ff_hse = []
+ge_srtp = []
+melsec = []
+roc_plus = []
+tristation = []
+umas = []
+vnet_ip = []
+ab_csp = []
+ads = []
+osi_pi = []
+gvcp = []
+synchrophasor = []
+cclink = []
+codesys = []
+iolink = []
+
+# IT
+dns = []
+dhcp = []
+snmp = []
+http = []
+tls = []
+mqtt = []
+mqtt_sn = []
+ntp = []
+syslog = []
+ftp = []
+ssh = []
+radius = []
+icmp = []
+amqp = []
+coap = []
+dcerpc = []
+diameter = []
+kerberos = []
+ldap = []
+netbios = []
+netflow = []
+ntlmssp = []
+openvpn = []
+quic = []
+radsec = []
+rdp = []
+sip_rtp = []
+smb2 = []
+smb = []
+smtp = []
+tacacs = []
+tftp = []
+vnc = []
+winrm = []
+wireguard = []
+discovery = []
+ike = []
+igmp = []
 
 [lib]
 name = "fm_dpi"

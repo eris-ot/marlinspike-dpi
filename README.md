@@ -32,6 +32,28 @@ docker run --rm -v "$PWD/cap.pcap:/in.pcap:ro" marlinspike-dpi --input /in.pcap 
 ./scripts/quickstart.sh
 ```
 
+### Selecting protocols (smaller builds)
+
+The default build includes every protocol. To compile only what you need, opt out of
+defaults and select per-protocol features or a bundle — this drops the unused dissectors,
+session decoders, and L2 detectors entirely (a 4-protocol release binary is ~44% smaller):
+
+```bash
+# Just three OT protocols:
+cargo build --no-default-features --features "modbus,dnp3,s7comm"
+
+# A whole family (bundles: ot, it, l2, all):
+cargo build --no-default-features --features "ot"
+```
+
+```toml
+# As a dependency:
+marlinspike-dpi = { version = "1", default-features = false, features = ["modbus", "dnp3"] }
+```
+
+One feature name (e.g. `modbus`) gates both the packet dissector and the session decoder
+for that protocol. See `[features]` in [`Cargo.toml`](./Cargo.toml) for the full list.
+
 **Docs:**
 - [`CHANGELOG.md`](./CHANGELOG.md) — release history (1.0.0 → 1.16.0)
 - [`docs/comparison.md`](./docs/comparison.md) — head-to-head vs. Zeek / Suricata / Wireshark / nDPI / Arkime

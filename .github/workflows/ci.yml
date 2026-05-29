@@ -14,3 +14,23 @@ jobs:
         run: cargo fmt --check
       - name: Test
         run: cargo test
+
+  # Guards the per-protocol feature gating: ensures subset builds stay
+  # compilable. Without this, an ungated reference to a gated dissector or
+  # decoder slips through the default (all-features) build above and only
+  # breaks for downstream consumers who select a subset.
+  feature-gating:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Minimal multi-protocol subset
+        run: cargo check --no-default-features --features "modbus,dnp3,s7comm"
+      - name: Single leaf (each protocol must build alone)
+        run: cargo check --no-default-features --features "modbus"
+      - name: Bundle — OT
+        run: cargo check --no-default-features --features "ot"
+      - name: Bundle — IT
+        run: cargo check --no-default-features --features "it"
+      - name: Bundle — L2
+        run: cargo check --no-default-features --features "l2"

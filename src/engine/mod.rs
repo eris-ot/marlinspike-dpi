@@ -36,7 +36,11 @@ use crate::bronze::{
 };
 use crate::dedup::DedupEngine;
 use crate::icmpeeker::IcmpeekerConfig;
-use crate::registry::{PacketContext, ProtocolData, format_mac};
+use crate::registry::{PacketContext, format_mac};
+// `ProtocolData` is only referenced by the feature-gated bilgepump L2
+// observation blocks below.
+#[cfg(any(feature = "arp", feature = "lldp"))]
+use crate::registry::ProtocolData;
 use crate::stovetop::config::StovetopConfig;
 use crate::stovetop::findings::FrameFinding;
 use crate::stovetop::frame_inspector::FrameInspector;
@@ -721,7 +725,10 @@ impl DpiEngine {
                     }
                 }
 
-                // Bilgepump: stateful L2 observation for ARP and LLDP
+                // Bilgepump: stateful L2 observation for ARP and LLDP.
+                // Two independently-gated `if`s (the ethertypes are mutually
+                // exclusive, so this is equivalent to the former `else if`).
+                #[cfg(feature = "arp")]
                 if ethertype == 0x0806 {
                     use crate::dissectors::arp::ArpDissector;
                     use crate::registry::ProtocolDissector as _;
@@ -746,7 +753,9 @@ impl DpiEngine {
                             ));
                         }
                     }
-                } else if ethertype == 0x88CC {
+                }
+                #[cfg(feature = "lldp")]
+                if ethertype == 0x88CC {
                     use crate::dissectors::lldp::LldpDissector;
                     use crate::registry::ProtocolDissector as _;
                     let lldp_d = LldpDissector;
@@ -1850,6 +1859,7 @@ pub(crate) fn parse_anomaly_event(
     )
 }
 
+#[allow(dead_code)] // emitted by a subset of decoders; may be gated out
 pub(crate) fn artifact_event(
     capture_id: String,
     envelope: EventEnvelope,

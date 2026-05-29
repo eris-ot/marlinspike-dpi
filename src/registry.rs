@@ -3,9 +3,12 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use crate::dissectors::{
-    ethercat::EthercatFields, hart_ip::HartIpFields, iec61850::Iec61850Fields,
-};
+#[cfg(feature = "ethercat")]
+use crate::dissectors::ethercat::EthercatFields;
+#[cfg(feature = "hart_ip")]
+use crate::dissectors::hart_ip::HartIpFields;
+#[cfg(feature = "iec61850")]
+use crate::dissectors::iec61850::Iec61850Fields;
 
 /// Context extracted from lower-layer headers for a single packet.
 #[derive(Debug, Clone)]
@@ -23,39 +26,73 @@ pub struct PacketContext {
 /// Protocol-specific parsed data, matching `bronze.proto` oneof variants.
 #[derive(Debug, Clone)]
 pub enum ProtocolData {
+    #[cfg(feature = "bacnet")]
     Bacnet(BacnetFields),
+    #[cfg(feature = "iec104")]
     Iec104(Iec104Fields),
+    #[cfg(feature = "fins")]
     OmronFins(OmronFinsFields),
+    #[cfg(feature = "hart_ip")]
     HartIp(HartIpFields),
+    #[cfg(feature = "iec61850")]
     Iec61850(Iec61850Fields),
+    #[cfg(feature = "ethercat")]
     Ethercat(EthercatFields),
+    #[cfg(feature = "modbus")]
     Modbus(ModbusFields),
+    #[cfg(feature = "dnp3")]
     Dnp3(Dnp3Fields),
+    #[cfg(feature = "ethernet_ip")]
     EthernetIp(EthernetIpFields),
+    #[cfg(feature = "opc_ua")]
     OpcUa(OpcUaFields),
+    #[cfg(feature = "s7comm")]
     S7comm(S7commFields),
+    #[cfg(feature = "profinet")]
     Profinet(ProfinetFields),
+    #[cfg(feature = "dhcp")]
     Dhcp(DhcpFields),
+    #[cfg(feature = "snmp")]
     Snmp(SnmpFields),
+    #[cfg(feature = "cdp")]
     Cdp(CdpFields),
+    #[cfg(feature = "stp")]
     Stp(StpFields),
+    #[cfg(feature = "dns")]
     Dns(DnsFields),
+    #[cfg(feature = "tls")]
     Tls(TlsFields),
+    #[cfg(feature = "http")]
     Http(HttpFields),
+    #[cfg(feature = "arp")]
     Arp(ArpFields),
+    #[cfg(feature = "lldp")]
     Lldp(LldpFields),
+    #[cfg(feature = "ntp")]
     Ntp(NtpFields),
+    #[cfg(feature = "mqtt")]
     Mqtt(MqttFields),
+    #[cfg(feature = "syslog")]
     Syslog(SyslogFields),
+    #[cfg(feature = "ftp")]
     Ftp(FtpFields),
+    #[cfg(feature = "ssh")]
     Ssh(SshFields),
+    #[cfg(feature = "radius")]
     Radius(RadiusFields),
+    #[cfg(feature = "vtp")]
     Vtp(VtpFields),
+    #[cfg(feature = "mrp")]
     Mrp(MrpFields),
+    #[cfg(feature = "mstp")]
     Mstp(MstpFields),
+    #[cfg(feature = "pvst")]
     Pvst(PvstFields),
+    #[cfg(feature = "prp")]
     Prp(PrpFields),
+    #[cfg(feature = "lacp")]
     Lacp(LacpFields),
+    #[cfg(feature = "icmp")]
     Icmp(IcmpFields),
 }
 
@@ -63,39 +100,73 @@ impl ProtocolData {
     /// Returns the protocol name string used in `BronzeRecord.protocol`.
     pub fn protocol_name(&self) -> &'static str {
         match self {
+            #[cfg(feature = "bacnet")]
             Self::Bacnet(_) => "bacnet",
+            #[cfg(feature = "iec104")]
             Self::Iec104(_) => "iec104",
+            #[cfg(feature = "fins")]
             Self::OmronFins(_) => "omron_fins",
+            #[cfg(feature = "hart_ip")]
             Self::HartIp(_) => "hart_ip",
+            #[cfg(feature = "iec61850")]
             Self::Iec61850(_) => "iec61850",
+            #[cfg(feature = "ethercat")]
             Self::Ethercat(_) => "ethercat",
+            #[cfg(feature = "modbus")]
             Self::Modbus(_) => "modbus",
+            #[cfg(feature = "dnp3")]
             Self::Dnp3(_) => "dnp3",
+            #[cfg(feature = "ethernet_ip")]
             Self::EthernetIp(_) => "ethernet_ip",
+            #[cfg(feature = "opc_ua")]
             Self::OpcUa(_) => "opc_ua",
+            #[cfg(feature = "s7comm")]
             Self::S7comm(_) => "s7comm",
+            #[cfg(feature = "profinet")]
             Self::Profinet(_) => "profinet",
+            #[cfg(feature = "dhcp")]
             Self::Dhcp(_) => "dhcp",
+            #[cfg(feature = "snmp")]
             Self::Snmp(_) => "snmp",
+            #[cfg(feature = "cdp")]
             Self::Cdp(_) => "cdp",
+            #[cfg(feature = "stp")]
             Self::Stp(_) => "stp",
+            #[cfg(feature = "dns")]
             Self::Dns(_) => "dns",
+            #[cfg(feature = "tls")]
             Self::Tls(_) => "tls",
+            #[cfg(feature = "http")]
             Self::Http(_) => "http",
+            #[cfg(feature = "arp")]
             Self::Arp(_) => "arp",
+            #[cfg(feature = "lldp")]
             Self::Lldp(_) => "lldp",
+            #[cfg(feature = "ntp")]
             Self::Ntp(_) => "ntp",
+            #[cfg(feature = "mqtt")]
             Self::Mqtt(_) => "mqtt",
+            #[cfg(feature = "syslog")]
             Self::Syslog(_) => "syslog",
+            #[cfg(feature = "ftp")]
             Self::Ftp(_) => "ftp",
+            #[cfg(feature = "ssh")]
             Self::Ssh(_) => "ssh",
+            #[cfg(feature = "radius")]
             Self::Radius(_) => "radius",
+            #[cfg(feature = "vtp")]
             Self::Vtp(_) => "vtp",
+            #[cfg(feature = "mrp")]
             Self::Mrp(_) => "mrp",
+            #[cfg(feature = "mstp")]
             Self::Mstp(_) => "mstp",
+            #[cfg(feature = "pvst")]
             Self::Pvst(_) => "pvst",
+            #[cfg(feature = "prp")]
             Self::Prp(_) => "prp",
+            #[cfg(feature = "lacp")]
             Self::Lacp(_) => "lacp",
+            #[cfg(feature = "icmp")]
             Self::Icmp(_) => "icmp",
         }
     }
@@ -103,75 +174,114 @@ impl ProtocolData {
 
 // ── Field structs ──────────────────────────────────────────────
 
+#[cfg(feature = "bacnet")]
 pub use crate::dissectors::bacnet::BacnetFields;
 
+#[cfg(feature = "iec104")]
 pub use crate::dissectors::iec104::Iec104Fields;
 
+#[cfg(feature = "fins")]
 pub use crate::dissectors::fins::OmronFinsFields;
 
+#[cfg(feature = "modbus")]
 pub use crate::dissectors::modbus::ModbusDirection;
+#[cfg(feature = "modbus")]
 pub use crate::dissectors::modbus::ModbusFields;
+#[cfg(feature = "modbus")]
 pub use crate::dissectors::modbus::ModbusPdu;
 
+#[cfg(feature = "dnp3")]
 pub use crate::dissectors::dnp3::Dnp3Fields;
 
+#[cfg(feature = "ethernet_ip")]
 pub use crate::dissectors::ethernet_ip::EthernetIpFields;
 
+#[cfg(feature = "opc_ua")]
 pub use crate::dissectors::opc_ua::OpcUaFields;
 
+#[cfg(feature = "s7comm")]
 pub use crate::dissectors::s7comm::S7commFields;
 
+#[cfg(feature = "profinet")]
 pub use crate::dissectors::profinet::ProfinetFields;
 
+#[cfg(feature = "dhcp")]
 pub use crate::dissectors::dhcp::DhcpFields;
 
+#[cfg(feature = "snmp")]
 pub use crate::dissectors::snmp::SnmpFields;
+#[cfg(feature = "snmp")]
 pub use crate::dissectors::snmp::SnmpVarBind;
 
+#[cfg(feature = "cdp")]
 pub use crate::dissectors::cdp::CdpFields;
 
+#[cfg(feature = "stp")]
 pub use crate::dissectors::stp::StpFields;
 
+#[cfg(feature = "dns")]
 pub use crate::dissectors::dns::DnsFields;
+#[cfg(feature = "dns")]
 pub use crate::dissectors::dns::DnsRecord;
+#[cfg(feature = "dns")]
 pub use crate::dissectors::dns::DnsRecordData;
+#[cfg(feature = "dns")]
 pub use crate::dissectors::dns::DnsRecordType;
 
+#[cfg(feature = "tls")]
 pub use crate::dissectors::tcp::TlsFields;
 
+#[cfg(feature = "http")]
 pub use crate::dissectors::http::HttpFields;
 
+#[cfg(feature = "arp")]
 pub use crate::dissectors::arp::ArpFields;
 
+#[cfg(feature = "lldp")]
 pub use crate::dissectors::lldp::LldpFields;
 
+#[cfg(feature = "ntp")]
 pub use crate::dissectors::ntp::NtpFields;
 
+#[cfg(feature = "mqtt")]
 pub use crate::dissectors::mqtt::MqttFields;
 
+#[cfg(feature = "syslog")]
 pub use crate::dissectors::syslog::SyslogFields;
 
+#[cfg(feature = "ftp")]
 pub use crate::dissectors::ftp::FtpFields;
 
+#[cfg(feature = "ssh")]
 pub use crate::dissectors::ssh::SshFields;
 
+#[cfg(feature = "radius")]
 pub use crate::dissectors::radius::RadiusFields;
 
+#[cfg(feature = "vtp")]
 pub use crate::dissectors::vtp::VtpFields;
 
+#[cfg(feature = "mrp")]
 pub use crate::dissectors::mrp::MrpFields;
 
+#[cfg(feature = "mstp")]
 pub use crate::dissectors::mstp::MstiRecord;
+#[cfg(feature = "mstp")]
 pub use crate::dissectors::mstp::MstpFields;
 
+#[cfg(feature = "pvst")]
 pub use crate::dissectors::pvst::PvstFields;
 
+#[cfg(feature = "prp")]
 pub use crate::dissectors::prp::PrpFields;
 
+#[cfg(feature = "lacp")]
 pub use crate::dissectors::lacp::LacpFields;
 
+#[cfg(feature = "lacp")]
 pub use crate::dissectors::lacp::LacpPartner;
 
+#[cfg(feature = "icmp")]
 pub use crate::dissectors::icmp::IcmpFields;
 
 // ── Trait + Registry ───────────────────────────────────────────
@@ -227,39 +337,71 @@ impl DissectorRegistry {
         let mut reg = Self::new();
 
         // Port-pinned protocols — fast O(1) lookup on dst_port/src_port.
+        #[cfg(feature = "modbus")]
         reg.register_with_ports(Box::new(modbus::ModbusDissector), &[502]);
+        #[cfg(feature = "dnp3")]
         reg.register_with_ports(Box::new(dnp3::Dnp3Dissector), &[20000]);
+        #[cfg(feature = "opc_ua")]
         reg.register_with_ports(Box::new(opc_ua::OpcUaDissector), &[4840]);
+        #[cfg(feature = "s7comm")]
         reg.register_with_ports(Box::new(s7comm::S7commDissector), &[102]);
+        #[cfg(feature = "ethernet_ip")]
         reg.register_with_ports(Box::new(ethernet_ip::EthernetIpDissector), &[44818, 2222]);
+        #[cfg(feature = "hart_ip")]
         reg.register_with_ports(Box::new(hart_ip::HartIpDissector), &[5094]);
+        #[cfg(feature = "iec104")]
         reg.register_with_ports(Box::new(iec104::Iec104Dissector), &[2404]);
+        #[cfg(feature = "bacnet")]
         reg.register_with_ports(Box::new(bacnet::BacnetDissector), &[47808]);
+        #[cfg(feature = "fins")]
         reg.register_with_ports(Box::new(fins::OmronFinsDissector), &[9600]);
+        #[cfg(feature = "dns")]
         reg.register_with_ports(Box::new(dns::DnsDissector), &[53]);
+        #[cfg(feature = "dhcp")]
         reg.register_with_ports(Box::new(dhcp::DhcpDissector), &[67, 68]);
+        #[cfg(feature = "snmp")]
         reg.register_with_ports(Box::new(snmp::SnmpDissector), &[161, 162]);
+        #[cfg(feature = "ntp")]
         reg.register_with_ports(Box::new(ntp::NtpDissector), &[123]);
+        #[cfg(feature = "radius")]
         reg.register_with_ports(Box::new(radius::RadiusDissector), &[1812, 1813]);
+        #[cfg(feature = "syslog")]
         reg.register_with_ports(Box::new(syslog::SyslogDissector), &[514]);
+        #[cfg(feature = "mqtt")]
         reg.register_with_ports(Box::new(mqtt::MqttDissector), &[1883]);
 
         // Floating-port and L2 protocols — walked as the fallback chain.
+        #[cfg(feature = "http")]
         reg.register(Box::new(http::HttpDissector));
+        #[cfg(feature = "ftp")]
         reg.register(Box::new(ftp::FtpDissector));
+        #[cfg(feature = "ssh")]
         reg.register(Box::new(ssh::SshDissector));
+        #[cfg(feature = "arp")]
         reg.register(Box::new(arp::ArpDissector));
+        #[cfg(feature = "lldp")]
         reg.register(Box::new(lldp::LldpDissector));
+        #[cfg(feature = "cdp")]
         reg.register(Box::new(cdp::CdpDissector));
+        #[cfg(feature = "stp")]
         reg.register(Box::new(stp::StpDissector));
+        #[cfg(feature = "iec61850")]
         reg.register(Box::new(iec61850::Iec61850Dissector));
+        #[cfg(feature = "profinet")]
         reg.register(Box::new(profinet::ProfinetDissector));
+        #[cfg(feature = "ethercat")]
         reg.register(Box::new(ethercat::EthercatDissector));
+        #[cfg(feature = "vtp")]
         reg.register(Box::new(vtp::VtpDissector));
+        #[cfg(feature = "mrp")]
         reg.register(Box::new(mrp::MrpDissector));
+        #[cfg(feature = "mstp")]
         reg.register(Box::new(mstp::MstpDissector));
+        #[cfg(feature = "pvst")]
         reg.register(Box::new(pvst::PvstDissector));
+        #[cfg(feature = "prp")]
         reg.register(Box::new(prp::PrpDissector));
+        #[cfg(feature = "lacp")]
         reg.register(Box::new(lacp::LacpDissector));
 
         reg
@@ -279,11 +421,7 @@ impl DissectorRegistry {
     /// skipping the free-list walk. If `can_parse` returns false despite
     /// the port match, dispatch continues to other indexed dissectors on
     /// the same port, then falls through to the free-list walk.
-    pub fn register_with_ports(
-        &mut self,
-        dissector: Box<dyn ProtocolDissector>,
-        ports: &[u16],
-    ) {
+    pub fn register_with_ports(&mut self, dissector: Box<dyn ProtocolDissector>, ports: &[u16]) {
         let idx = self.indexed.len();
         self.indexed.push(dissector);
         for &p in ports {
@@ -411,8 +549,7 @@ mod registry_tests {
         // Should not falsely identify as anything; the port-index path
         // skipped entirely, free walk found nothing matching.
         assert!(
-            result.is_none()
-                || !["modbus", "dnp3", "opc_ua"].contains(&result.unwrap()),
+            result.is_none() || !["modbus", "dnp3", "opc_ua"].contains(&result.unwrap()),
             "unexpected classification: {result:?}"
         );
     }
@@ -453,5 +590,71 @@ mod registry_tests {
         };
         let result = reg.dispatch(&modbus_payload(), &ctx);
         assert!(matches!(result, Some(ProtocolData::Modbus(_))));
+    }
+
+    // ── Feature-gating contract ────────────────────────────────────
+    // These tests prove the subsetting mechanism: a dissector is reachable
+    // through the registry if and only if it was registered. The
+    // `with_defaults()` tests additionally assert the per-feature contract —
+    // present when the feature is on, absent when it is off — so they remain
+    // valid under any `--features` selection.
+
+    #[cfg(feature = "dnp3")]
+    fn dnp3_payload() -> Vec<u8> {
+        // Minimal valid DNP3 data-link header on the well-known port.
+        vec![0x05, 0x64, 0x05, 0xC0, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00]
+    }
+
+    /// A registry built with `new()` exposes only the dissectors explicitly
+    /// registered — registering modbus must NOT make a valid dnp3 frame
+    /// classify. This runs under the default (all-features) build and is the
+    /// direct proof that feature-gated subsets exclude what they omit.
+    #[test]
+    #[cfg(all(feature = "modbus", feature = "dnp3"))]
+    fn subset_registry_excludes_unregistered_dissectors() {
+        let mut reg = DissectorRegistry::new();
+        reg.register_with_ports(Box::new(crate::dissectors::modbus::ModbusDissector), &[502]);
+
+        // The one we registered is reachable...
+        assert_eq!(
+            reg.classify_name(&modbus_payload(), 49152, 502),
+            Some("modbus")
+        );
+        // ...and a valid dnp3 frame on its own port is NOT, because the dnp3
+        // dissector was never registered (this is what `--no-default-features`
+        // achieves at compile time).
+        assert_eq!(reg.classify_name(&dnp3_payload(), 49152, 20000), None);
+    }
+
+    /// The port-indexed (modbus) path honours the `modbus` feature gate in
+    /// `with_defaults()`: present when on, absent when off.
+    #[test]
+    fn with_defaults_honors_modbus_feature_gate() {
+        let reg = DissectorRegistry::with_defaults();
+        let got = reg.classify_name(&modbus_payload(), 49152, 502);
+        #[cfg(feature = "modbus")]
+        assert_eq!(
+            got,
+            Some("modbus"),
+            "modbus must be present when its feature is enabled"
+        );
+        #[cfg(not(feature = "modbus"))]
+        assert_ne!(
+            got,
+            Some("modbus"),
+            "modbus must be absent when its feature is disabled"
+        );
+    }
+
+    /// Same contract for the port-indexed dnp3 dissector.
+    #[test]
+    #[cfg(feature = "dnp3")]
+    fn with_defaults_includes_dnp3_when_enabled() {
+        let reg = DissectorRegistry::with_defaults();
+        assert_eq!(
+            reg.classify_name(&dnp3_payload(), 49152, 20000),
+            Some("dnp3"),
+            "dnp3 must be reachable in with_defaults() when its feature is enabled"
+        );
     }
 }
